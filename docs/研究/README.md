@@ -6,6 +6,7 @@
 |---|---|
 | [复现记录.md](复现记录.md) | 重跑上游已发表实验，冷启动与热启动的迭代轮数，性能实测 |
 | [上游代码问题.md](上游代码问题.md) | `pequod-plus` 与 `pe_ifb_compute` 的正确性、性能与工程状态问题 |
+| [文献/](文献/README.md) | 上游研究的原始 PDF 与可检索的文本版本 |
 
 ## 对象
 
@@ -21,14 +22,19 @@
 
 ## 主要文献
 
+原文与文本版本存在 [文献/](文献/README.md)。
+
 - Szczepanczyk, M. (2023). Pseudocode and algorithms for computer simulations of
-  democratically planned economies. *Journal of Information Economics* 1(3), 15.
-  <https://www.anserpress.org/journal/jie/1/3/15>
-- Hahnel, R. (2021). *Democratic Economic Planning*. Routledge. 第九章
+  democratically planned economies. *Journal of Information Economics* 1(3), 15
+- Hahnel、Szczepanczyk、Weisdorf (2020-12-04). Computer Simulation Experiments of
+  Participatory Annual Planning. Systems Science Noon Seminar。**冷启动与热启动的
+  迭代轮数分别列在这里**，是目前唯一给出这个区分的公开材料
+- Hahnel, R. (2021). *Democratic Economic Planning*. Routledge. 第九章。未取得
 - 项目页 <https://participatoryeconomy.org/project/computer-simulations-of-participatory-planning/>
 
-论文末尾列了七条未来方向，逐条对应本库的功能：其他生产函数、改进价格调整算法、
+2023 年那篇论文末尾列了七条未来方向，逐条对应本库的功能：其他生产函数、改进价格调整算法、
 环境影响、鲁棒性测试、人在环干预、议会间互动、与交互式规划软件结合。
 
 其中第二条值得单独记：作者写明价格调整规则「was arrived at with little concerted effort」，
 并打算在规则空间里做系统性搜索。那个搜索需要成百上千次运行，而上游一次实验四小时。
+2020 年的幻灯片上已经写着「there's room for improvement here」，六年过去仍未做。

@@ -66,6 +66,29 @@ class ReferenceResult(NamedTuple):
     status: str
 
 
+MINIMISATION_ATTRIBUTES = ("final_demand_lower_bound", "minimize_kind")
+"""The pair of attributes an objective declares to be read as a minimisation."""
+
+
+def _require_the_whole_minimisation_pair(objective, lower_bound, minimize_kind) -> None:
+    """Refuse an objective that declares one attribute of the minimisation pair and not both.
+
+    Half a pair is read as a maximisation of ``weights``, and a minimising objective returns
+    zero weights, so the program would maximise nothing: it reports the plan that produces
+    nothing as optimal, meets none of the declared floor, and says so nowhere in its result.
+    """
+    if (lower_bound is None) == (minimize_kind is None):
+        return
+    if lower_bound is None:
+        absent, present = MINIMISATION_ATTRIBUTES
+    else:
+        present, absent = MINIMISATION_ATTRIBUTES
+    raise ValueError(
+        f"{objective.name}: declares {present} without {absent}; an objective is read as a "
+        f"minimisation only when it carries both of {', '.join(MINIMISATION_ATTRIBUTES)}"
+    )
+
+
 class _Program:
     """One assembled linear program, plus what is needed to read its answer back as a plan."""
 
@@ -76,6 +99,7 @@ class _Program:
 
         self.lower_bound = getattr(objective, "final_demand_lower_bound", None)
         self.minimize_kind = getattr(objective, "minimize_kind", None)
+        _require_the_whole_minimisation_pair(objective, self.lower_bound, self.minimize_kind)
         self.minimises = self.lower_bound is not None and self.minimize_kind is not None
 
         declared = np.asarray(self.lower_bound) if self.minimises else self.weights

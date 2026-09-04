@@ -93,6 +93,22 @@ def _require_finite_declaration(values, label: str) -> None:
         raise ValueError(f"{label}: every entry must be finite")
 
 
+def _require_non_negative(values: np.ndarray, label: str) -> None:
+    """Refuse a negative entry in a floor on final consumption.
+
+    The floor becomes the variable's lower bound in the reference program, and a negative bound
+    lets that commodity carry negative final consumption: the plan covers part of its own input
+    use out of the floor and reports less cost than any plan that meets the floor as read.
+    """
+    offending = np.flatnonzero(values < 0.0)
+    if offending.size:
+        commodity = int(offending[0])
+        raise ValueError(
+            f"{label}: commodity {commodity} carries {float(values[commodity])}, and a floor on "
+            "final consumption cannot be negative"
+        )
+
+
 def _require_consumable_support(values: np.ndarray, economy: Economy, label: str) -> None:
     """Refuse a non-zero entry on a commodity no consumer unit can end up holding.
 
@@ -192,13 +208,14 @@ class MinimizeLabor:
     option among several rather than the library's default.
 
     ``targets`` is a floor on final consumption, one entry per commodity, non-zero only on
-    private goods and public goods. Consumption above the floor is neither rewarded nor
-    penalised, so the solution meets the floor and stops.
+    private goods and public goods, and never negative. Consumption above the floor is neither
+    rewarded nor penalised, so the solution meets the floor and stops.
 
     :func:`cyberstride.reference.reference_solution` recognises this objective by two
     attributes rather than by its type, so a researcher's own labour-minimising objective is
     handled the same way: ``final_demand_lower_bound`` carries the floor and ``minimize_kind``
-    says which commodity class the objective totals up.
+    says which commodity class the objective totals up. An objective carrying one of the two
+    without the other is refused there.
     """
 
     name = "minimize_labor"
@@ -207,6 +224,7 @@ class MinimizeLabor:
     def __init__(self, targets: np.ndarray) -> None:
         _require_finite_declaration(targets, "targets")
         self.final_demand_lower_bound = np.asarray(targets, dtype=np.float64)
+        _require_non_negative(self.final_demand_lower_bound, "targets")
 
     def weights(self, economy: Economy) -> np.ndarray:
         """Zeros: the objective is total labour use, which no weight on consumption expresses.

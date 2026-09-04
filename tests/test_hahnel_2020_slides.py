@@ -320,6 +320,41 @@ class TestTechnologyGuard:
             run(HahnelSlides2020(), mixed, seed=0)
 
 
+class TestRequiredExtraKeys:
+    """The closed form reads named columns out of the extra bags, and says which one is absent.
+
+    Every key here carries a parameter of the councils' behaviour that the physical columns of
+    the data model do not hold. Reaching the arithmetic without one raises ``KeyError`` naming
+    a string, which leaves the reader to work out that the economy is missing a column the
+    prefab needs rather than that the prefab is broken.
+    """
+
+    @pytest.mark.parametrize("key", ["effort_c", "effort_s", "effort_k"])
+    def test_a_missing_unit_key_is_refused_and_the_message_names_it(self, synthetic_economy, key):
+        kept = {name: value for name, value in synthetic_economy.unit_extra.items() if name != key}
+        economy = dataclasses.replace(synthetic_economy, unit_extra=kept)
+        with pytest.raises(ValueError, match=key):
+            run(HahnelSlides2020(), economy, seed=0)
+
+    @pytest.mark.parametrize(
+        "key", ["entitlement", "utility_exponent", "utility_exponent_commodity"]
+    )
+    def test_a_missing_consumer_key_is_refused_and_the_message_names_it(
+        self, synthetic_economy, key
+    ):
+        kept = {
+            name: value for name, value in synthetic_economy.consumer_extra.items() if name != key
+        }
+        economy = dataclasses.replace(synthetic_economy, consumer_extra=kept)
+        with pytest.raises(ValueError, match=key):
+            run(HahnelSlides2020(), economy, seed=0)
+
+    def test_the_message_names_every_absent_key_at_once(self, synthetic_economy):
+        economy = dataclasses.replace(synthetic_economy, unit_extra={})
+        with pytest.raises(ValueError, match="effort_c.*effort_s.*effort_k"):
+            run(HahnelSlides2020(), economy, seed=0)
+
+
 class TestPermutedCommodityOrder:
     """The private goods are picked by ``commodity_kind``, not by where they sit in the table."""
 

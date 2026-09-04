@@ -1,0 +1,62 @@
+[
+  {
+    "id": "pf-effort-s-term-sign",
+    "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+    "tests": "tests/test_hahnel_2020_slides.py",
+    "predict": "survived",
+    "note": "sign of the c*log(s) term; effort_s is 1.0 everywhere in both fixtures",
+    "from": "            + effort_c * np.log(effort_s)",
+    "to": "            - effort_c * np.log(effort_s)",
+    "verdict": "killed",
+    "failed": 4,
+    "scope": "narrow"
+  },
+  {
+    "id": "pf-trajectory-first-not-last",
+    "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+    "tests": "tests/test_hahnel_2020_slides.py",
+    "predict": "survived",
+    "note": "with a trajectory recorded, return the first round's plan instead of the last",
+    "from": "            return result.trajectory[-1]",
+    "to": "            return result.trajectory[0]",
+    "verdict": "killed",
+    "failed": 1,
+    "scope": "narrow"
+  },
+  {
+    "id": "pf-consumption-columns-by-position",
+    "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+    "tests": "tests/test_hahnel_2020_slides.py",
+    "predict": "survived",
+    "note": "consumption columns taken by position instead of by commodity kind",
+    "from": "        self.consumption_commodity = self.exponent_commodity[self.private_column].astype(np.int64)",
+    "to": "        self.consumption_commodity = self.exponent_commodity[: self.private_column.shape[0]].astype(np.int64)",
+    "verdict": "killed",
+    "failed": 1,
+    "scope": "narrow"
+  },
+  {
+    "id": "pf-cobb-douglas-guard-off",
+    "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+    "tests": "tests/test_hahnel_2020_slides.py",
+    "predict": "killed",
+    "note": "the prefab stops rejecting a non Cobb-Douglas economy",
+    "from": "    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != TechnologyKind.COBB_DOUGLAS)",
+    "to": "    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != economy.technology_kind)",
+    "verdict": "killed",
+    "failed": 2,
+    "scope": "narrow"
+  },
+  {
+    "id": "pr-recorder-not-reset",
+    "file": "python/cyberstride/procedure.py",
+    "tests": "tests/test_procedure.py",
+    "predict": "killed",
+    "note": "the collector is never reset after a run",
+    "from": "        _recorder.reset(token)",
+    "to": "        pass",
+    "verdict": "killed",
+    "failed": 2,
+    "scope": "narrow"
+  }
+]

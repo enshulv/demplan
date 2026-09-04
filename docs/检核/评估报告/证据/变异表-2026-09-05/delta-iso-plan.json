@@ -1,0 +1,26 @@
+{
+  "cwd": ".",
+  "testCommand": ".venv\\Scripts\\python.exe -m pytest -q --no-header",
+  "fullTestCommand": ".venv\\Scripts\\python.exe -m pytest -q --no-header tests",
+  "mutations": [
+    {"id": "iso-boundary-judgement", "file": "python/cyberstride/reference.py",
+     "from": "        output = np.ascontiguousarray(solution[: self.economy.n_units], dtype=np.float64)\n        aggregate = np.zeros(self.economy.n_commodities, dtype=np.float64)\n        aggregate[self.consumable] = solution[self.economy.n_units :]",
+     "to": "        output = np.ascontiguousarray(solution[: self.economy.n_units] * 0.99, dtype=np.float64)\n        aggregate = np.zeros(self.economy.n_commodities, dtype=np.float64)\n        aggregate[self.consumable] = solution[self.economy.n_units :] * 0.99",
+     "tests": "tests/test_reference.py::TestGeneratedEconomies::test_raising_any_unit_by_one_percent_breaks_a_constraint",
+     "note": "a feasible but interior plan: exactly what the reworded one-percent judgement is meant to reject"},
+    {"id": "iso-identity-generator-divide", "file": "python/cyberstride/tools/linearize.py",
+     "from": "            np.asarray(plan.input_use, dtype=np.float64),\n            per_input_output,",
+     "to": "            per_input_output,\n            np.asarray(plan.input_use, dtype=np.float64),",
+     "tests": "tests/test_linearize.py::TestTheIdentityItGuarantees::test_the_identity_holds_wherever_the_unit_produced_something",
+     "note": "does the narrowed output generator still bite the division itself"},
+    {"id": "iso-identity-generator-idle", "file": "python/cyberstride/tools/linearize.py",
+     "from": "    producing = per_input_output > 0.0", "to": "    producing = per_input_output >= 0.0",
+     "tests": "tests/test_linearize.py::TestTheIdentityItGuarantees::test_the_identity_holds_wherever_the_unit_produced_something",
+     "note": "does the narrowed generator still reach the idle-unit branch"},
+    {"id": "iso-boundary-judgement-floor", "file": "python/cyberstride/reference.py",
+     "from": "        output = np.ascontiguousarray(solution[: self.economy.n_units], dtype=np.float64)\n        aggregate = np.zeros(self.economy.n_commodities, dtype=np.float64)\n        aggregate[self.consumable] = solution[self.economy.n_units :]",
+     "to": "        output = np.ascontiguousarray(solution[: self.economy.n_units] * 0.999, dtype=np.float64)\n        aggregate = np.zeros(self.economy.n_commodities, dtype=np.float64)\n        aggregate[self.consumable] = solution[self.economy.n_units :] * 0.999",
+     "tests": "tests/test_reference.py::TestGeneratedEconomies::test_raising_any_unit_by_one_percent_breaks_a_constraint",
+     "note": "a tenth of the slack: how much interiority does the reworded judgement still catch"}
+  ]
+}

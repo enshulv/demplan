@@ -1,0 +1,189 @@
+[
+  {
+    "id": "RS-BASELINE-negative-control",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "/// The three input segments of `:production-inputs`, in file order.",
+    "to": "/// The three input segments of `:production-inputs`, in file order (untouched).",
+    "tests": "--test load_dep1ex",
+    "note": "negative control: must SURVIVE",
+    "verdict": "survived",
+    "failed": 0,
+    "scope": "full"
+  },
+  {
+    "id": "RS-POSITIVE-always-reject",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "    if value < 1 || value > bound as i64 {",
+    "to": "    if true {",
+    "tests": "--test load_dep1ex",
+    "note": "positive control: must be killed",
+    "verdict": "killed",
+    "failed": 26,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-n-goods-includes-product",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "    let largest = units.input_number.iter().copied().max().unwrap_or(0);",
+    "to": "    let largest = units\n        .product\n        .iter()\n        .chain(&units.input_number)\n        .copied()\n        .max()\n        .unwrap_or(0);",
+    "tests": "--test load_dep1ex",
+    "note": "n_goods back to including :product",
+    "verdict": "killed",
+    "failed": 8,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-section-guard-off",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "    if value < 1 || value > bound as i64 {",
+    "to": "    if false {",
+    "tests": "--test load_dep1ex",
+    "note": "seam neutralised: section-number guard always passes",
+    "verdict": "killed",
+    "failed": 5,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-section-lower-bound-off",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "    if value < 1 || value > bound as i64 {",
+    "to": "    if value > bound as i64 {",
+    "tests": "--test load_dep1ex",
+    "note": "lower bound of the section range dropped",
+    "verdict": "killed",
+    "failed": 1,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-section-upper-bound-off",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "    if value < 1 || value > bound as i64 {",
+    "to": "    if value < 1 {",
+    "tests": "--test load_dep1ex",
+    "note": "upper bound of the section range dropped",
+    "verdict": "killed",
+    "failed": 4,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-section-off-by-one",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "    if value < 1 || value > bound as i64 {",
+    "to": "    if value < 1 || value > bound as i64 + 1 {",
+    "tests": "--test load_dep1ex",
+    "note": "upper bound off by one",
+    "verdict": "killed",
+    "failed": 3,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-private-bound-is-public",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "            INDUSTRY_PRIVATE => (base_private, SECTION_PRIVATE, n_priv),",
+    "to": "            INDUSTRY_PRIVATE => (base_private, SECTION_PRIVATE, n_pub),",
+    "tests": "--test load_dep1ex",
+    "note": "wiring swap: private section bounded by the public count",
+    "verdict": "killed",
+    "failed": 28,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-public-bound-is-private",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "            INDUSTRY_PUBLIC => (base_public, SECTION_PUBLIC, n_pub),",
+    "to": "            INDUSTRY_PUBLIC => (base_public, SECTION_PUBLIC, n_priv),",
+    "tests": "--test load_dep1ex",
+    "note": "wiring swap: public section bounded by the private count",
+    "verdict": "killed",
+    "failed": 1,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-intermediate-bound-unbounded",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "            INDUSTRY_INTERMEDIATE => (base_intermediate, SEGMENT_NAMES[0], n_goods),",
+    "to": "            INDUSTRY_INTERMEDIATE => (base_intermediate, SEGMENT_NAMES[0], usize::MAX),",
+    "tests": "--test load_dep1ex",
+    "note": "intermediate :product upper bound removed",
+    "verdict": "killed",
+    "failed": 25,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-input-check-skipped",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "            check_section_number(unit, SEGMENT_NAMES[segment], number, n_goods)?;\n",
+    "to": "",
+    "tests": "--test load_dep1ex",
+    "note": "input numbers no longer range checked",
+    "verdict": "killed",
+    "failed": 1,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-input-segment-name-fixed",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "            check_section_number(unit, SEGMENT_NAMES[segment], number, n_goods)?;",
+    "to": "            check_section_number(unit, SEGMENT_NAMES[0], number, n_goods)?;",
+    "tests": "--test load_dep1ex",
+    "note": "the reported segment name is always the first one",
+    "verdict": "killed",
+    "failed": 1,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-input-unit-attribution",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "            check_section_number(unit, SEGMENT_NAMES[segment], number, n_goods)?;",
+    "to": "            check_section_number(0, SEGMENT_NAMES[segment], number, n_goods)?;",
+    "tests": "--test load_dep1ex",
+    "note": "the reported unit is always zero",
+    "verdict": "survived",
+    "failed": 0,
+    "scope": "full"
+  },
+  {
+    "id": "rs-product-check-skipped",
+    "file": "crates/cyberstride-core/src/dep1ex.rs",
+    "from": "        check_section_number(unit, section, product, bound)?;\n",
+    "to": "",
+    "tests": "--test load_dep1ex",
+    "note": ":product no longer range checked",
+    "verdict": "killed",
+    "failed": 4,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-extra-finite-guard-off",
+    "file": "crates/cyberstride-core/src/economy.rs",
+    "from": "                data.iter().enumerate().find(|(_, v)| !v.is_finite())",
+    "to": "                data.iter().enumerate().find(|(_, v)| !v.is_finite() && false)",
+    "tests": "--test validate",
+    "note": "seam neutralised: extra finiteness check always passes",
+    "verdict": "killed",
+    "failed": 2,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-extra-finite-index-constant",
+    "file": "crates/cyberstride-core/src/economy.rs",
+    "from": "                    index,\n                    value,\n                });",
+    "to": "                    index: 0,\n                    value,\n                });",
+    "tests": "--test validate",
+    "note": "the reported offending index is always zero",
+    "verdict": "killed",
+    "failed": 2,
+    "scope": "narrow"
+  },
+  {
+    "id": "rs-extra-finite-only-nan",
+    "file": "crates/cyberstride-core/src/economy.rs",
+    "from": "                data.iter().enumerate().find(|(_, v)| !v.is_finite())",
+    "to": "                data.iter().enumerate().find(|(_, v)| v.is_nan())",
+    "tests": "--test validate",
+    "note": "infinities no longer rejected, only NaN",
+    "verdict": "killed",
+    "failed": 1,
+    "scope": "narrow"
+  }
+]

@@ -1,0 +1,439 @@
+{
+ "cwd": ".",
+ "testCommand": ".venv\\Scripts\\python.exe -m pytest -q -x --no-header",
+ "fullTestCommand": ".venv\\Scripts\\python.exe -m pytest -q --no-header tests",
+ "mutations": [
+  {
+   "id": "BASELINE-negative-control",
+   "file": "python/cyberstride/reference.py",
+   "from": "SOLVER_METHOD = \"highs\"",
+   "to": "SOLVER_METHOD = \"highs\"  # untouched",
+   "tests": "tests/test_reference.py",
+   "note": "negative control: must SURVIVE"
+  },
+  {
+   "id": "POSITIVE-neutralise-reference",
+   "file": "python/cyberstride/reference.py",
+   "from": "    _require_leontief(economy)\n    program = _Program(economy, objective)",
+   "to": "    _require_leontief(economy)\n    raise ReferenceInfeasible(\"positive control\")\n    program = _Program(economy, objective)",
+   "tests": "tests/test_reference.py",
+   "note": "positive control: must be killed"
+  },
+  {
+   "id": "ref-constraint-output-sign",
+   "file": "python/cyberstride/reference.py",
+   "from": "                np.full(n_units, -1.0),",
+   "to": "                np.full(n_units, 1.0),",
+   "tests": "tests/test_reference.py",
+   "note": "output sign in A_ub flipped"
+  },
+  {
+   "id": "ref-constraint-final-sign",
+   "file": "python/cyberstride/reference.py",
+   "from": "                np.ones(self.consumable.shape[0]),",
+   "to": "                -np.ones(self.consumable.shape[0]),",
+   "tests": "tests/test_reference.py",
+   "note": "final consumption sign in A_ub flipped"
+  },
+  {
+   "id": "ref-shadow-sign",
+   "file": "python/cyberstride/reference.py",
+   "from": "    shadow = -np.asarray(marginals, dtype=np.float64)",
+   "to": "    shadow = np.asarray(marginals, dtype=np.float64)",
+   "tests": "tests/test_reference.py",
+   "note": "dual sign convention flipped"
+  },
+  {
+   "id": "ref-dual-noise-wide",
+   "file": "python/cyberstride/reference.py",
+   "from": "_DUAL_NOISE = 1e-12",
+   "to": "_DUAL_NOISE = 1e-1",
+   "tests": "tests/test_reference.py",
+   "note": "real duals clamped to zero"
+  },
+  {
+   "id": "ref-cost-weight-sign",
+   "file": "python/cyberstride/reference.py",
+   "from": "        cost[self.economy.n_units :] = -self.weights[self.consumable]",
+   "to": "        cost[self.economy.n_units :] = self.weights[self.consumable]",
+   "tests": "tests/test_reference.py",
+   "note": "maximise becomes minimise"
+  },
+  {
+   "id": "ref-value-of-swap",
+   "file": "python/cyberstride/reference.py",
+   "from": "        return float(minimised) if self.minimises else float(-minimised)",
+   "to": "        return float(-minimised) if self.minimises else float(minimised)",
+   "tests": "tests/test_reference.py",
+   "note": "objective value sign swapped"
+  },
+  {
+   "id": "ref-bounds-floor-dropped",
+   "file": "python/cyberstride/reference.py",
+   "from": "            floors = np.asarray(self.lower_bound, dtype=np.float64)[self.consumable]",
+   "to": "            floors = np.zeros(self.consumable.shape[0], dtype=np.float64)",
+   "tests": "tests/test_reference.py",
+   "note": "MinimizeLabor floor dropped"
+  },
+  {
+   "id": "ref-minimize-kind-inverted",
+   "file": "python/cyberstride/reference.py",
+   "from": "            counted = np.asarray(self.economy.commodity_kind)[self.economy.input_commodity] == int(",
+   "to": "            counted = np.asarray(self.economy.commodity_kind)[self.economy.input_commodity] != int(",
+   "tests": "tests/test_reference.py",
+   "note": "labour filter inverted"
+  },
+  {
+   "id": "ref-cost-not-a-view",
+   "file": "python/cyberstride/reference.py",
+   "from": "            np.add.at(\n                cost[: self.economy.n_units],",
+   "to": "            np.add.at(\n                cost[np.arange(self.economy.n_units)],",
+   "tests": "tests/test_reference.py",
+   "note": "slice view replaced by fancy-index copy so cost is never written"
+  },
+  {
+   "id": "ref-leontief-guard-off",
+   "file": "python/cyberstride/reference.py",
+   "from": "    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != int(TechnologyKind.LEONTIEF))",
+   "to": "    wrong = np.flatnonzero(np.asarray(economy.technology_kind) < int(TechnologyKind.LEONTIEF))",
+   "tests": "tests/test_reference.py",
+   "note": "seam neutralised: Leontief guard always passes"
+  },
+  {
+   "id": "ref-consumable-all",
+   "file": "python/cyberstride/reference.py",
+   "from": "        self.consumable = np.flatnonzero(declared != 0.0).astype(np.int64)",
+   "to": "        self.consumable = np.arange(economy.n_commodities, dtype=np.int64)",
+   "tests": "tests/test_reference.py",
+   "note": "every commodity gets a final-consumption variable"
+  },
+  {
+   "id": "ref-plan-aggregate-reversed",
+   "file": "python/cyberstride/reference.py",
+   "from": "        aggregate[self.consumable] = solution[self.economy.n_units :]",
+   "to": "        aggregate[self.consumable] = solution[self.economy.n_units :][::-1]",
+   "tests": "tests/test_reference.py",
+   "note": "final consumption scattered back in reverse"
+  },
+  {
+   "id": "ref-input-use-zeroed",
+   "file": "python/cyberstride/reference.py",
+   "from": "            input_use=input_requirements_flat(self.economy, output),",
+   "to": "            input_use=np.zeros(self.economy.n_inputs, dtype=np.float64),",
+   "tests": "tests/test_reference.py",
+   "note": "plan input use zeroed"
+  },
+  {
+   "id": "ref-procedure-drops-objective",
+   "file": "python/cyberstride/reference.py",
+   "from": "        return reference_solution(economy, self.objective).plan",
+   "to": "        return reference_solution(economy, MinimizeLabor(np.zeros(economy.n_commodities))).plan",
+   "tests": "tests/test_reference.py",
+   "note": "wiring swap: procedure ignores the declared objective"
+  },
+  {
+   "id": "obj-split-not-divided",
+   "file": "python/cyberstride/objectives.py",
+   "from": "        share = aggregate[columns] / economy.n_consumers",
+   "to": "        share = aggregate[columns]",
+   "tests": "tests/test_objectives.py tests/test_reference.py",
+   "note": "private goods not divided"
+  },
+  {
+   "id": "obj-provision-private",
+   "file": "python/cyberstride/objectives.py",
+   "from": "    provision = np.where(kinds == int(CommodityKind.PUBLIC_GOOD), aggregate, 0.0)",
+   "to": "    provision = np.where(kinds == int(CommodityKind.PRIVATE_GOOD), aggregate, 0.0)",
+   "tests": "tests/test_objectives.py tests/test_reference.py",
+   "note": "provision moved onto private goods"
+  },
+  {
+   "id": "obj-columns-by-complement",
+   "file": "python/cyberstride/objectives.py",
+   "from": "    columns = np.flatnonzero(kinds == int(CommodityKind.PRIVATE_GOOD)).astype(np.int64)",
+   "to": "    columns = np.flatnonzero(kinds != int(CommodityKind.PUBLIC_GOOD)).astype(np.int64)",
+   "tests": "tests/test_objectives.py tests/test_reference.py",
+   "note": "consumption columns taken as the complement"
+  },
+  {
+   "id": "obj-consumable-support-off",
+   "file": "python/cyberstride/objectives.py",
+   "from": "    offending = np.flatnonzero((values != 0.0) & ~consumable)",
+   "to": "    offending = np.zeros(0, dtype=np.int64)",
+   "tests": "tests/test_objectives.py",
+   "note": "seam neutralised: consumable-support guard always passes"
+  },
+  {
+   "id": "obj-mapping-range-guard-off",
+   "file": "python/cyberstride/objectives.py",
+   "from": "            if index < 0 or index >= n_commodities:",
+   "to": "            if False:",
+   "tests": "tests/test_objectives.py",
+   "note": "mapping key range guard neutralised"
+  },
+  {
+   "id": "obj-finite-guard-off",
+   "file": "python/cyberstride/objectives.py",
+   "from": "    if array.size and not np.isfinite(array).all():",
+   "to": "    if False:",
+   "tests": "tests/test_objectives.py",
+   "note": "non-finite declaration guard neutralised"
+  },
+  {
+   "id": "obj-minimize-kind-swapped",
+   "file": "python/cyberstride/objectives.py",
+   "from": "    minimize_kind = CommodityKind.LABOR",
+   "to": "    minimize_kind = CommodityKind.NATURAL_RESOURCE",
+   "tests": "tests/test_reference.py tests/test_objectives.py",
+   "note": "wiring swap: minimise natural resources instead of labour"
+  },
+  {
+   "id": "obj-zero-consumer-guard-off",
+   "file": "python/cyberstride/objectives.py",
+   "from": "    if economy.n_consumers == 0 and np.any(aggregate[columns] != 0.0):",
+   "to": "    if False:",
+   "tests": "tests/test_objectives.py",
+   "note": "zero-consumer guard neutralised"
+  },
+  {
+   "id": "lin-divide-inverted",
+   "file": "python/cyberstride/tools/linearize.py",
+   "from": "            np.asarray(plan.input_use, dtype=np.float64),\n            per_input_output,",
+   "to": "            per_input_output,\n            np.asarray(plan.input_use, dtype=np.float64),",
+   "tests": "tests/test_linearize.py",
+   "note": "a = output/input instead of input/output"
+  },
+  {
+   "id": "lin-idle-guard-off",
+   "file": "python/cyberstride/tools/linearize.py",
+   "from": "    producing = per_input_output > 0.0",
+   "to": "    producing = per_input_output >= 0.0",
+   "tests": "tests/test_linearize.py",
+   "note": "idle-unit divide guard neutralised"
+  },
+  {
+   "id": "lin-scale-not-one",
+   "file": "python/cyberstride/tools/linearize.py",
+   "from": "UNIT_SCALE = 1.0",
+   "to": "UNIT_SCALE = 2.0",
+   "tests": "tests/test_linearize.py",
+   "note": "linearised scale is not one"
+  },
+  {
+   "id": "lin-kind-stays-cobb",
+   "file": "python/cyberstride/tools/linearize.py",
+   "from": "        technology_kind=np.full(economy.n_units, TechnologyKind.LEONTIEF, dtype=np.int8),",
+   "to": "        technology_kind=np.full(economy.n_units, TechnologyKind.COBB_DOUGLAS, dtype=np.int8),",
+   "tests": "tests/test_linearize.py tests/test_reference.py",
+   "note": "technology_kind not switched"
+  },
+  {
+   "id": "lin-negative-output-guard-off",
+   "file": "python/cyberstride/tools/linearize.py",
+   "from": "    negative = np.flatnonzero(output < 0.0)",
+   "to": "    negative = np.zeros(0, dtype=np.int64)",
+   "tests": "tests/test_linearize.py",
+   "note": "negative output guard neutralised"
+  },
+  {
+   "id": "lin-overflow-guard-off",
+   "file": "python/cyberstride/tools/linearize.py",
+   "from": "    overflowed = np.flatnonzero(~np.isfinite(coefficients))",
+   "to": "    overflowed = np.zeros(0, dtype=np.int64)",
+   "tests": "tests/test_linearize.py",
+   "note": "overflow guard neutralised"
+  },
+  {
+   "id": "lin-validate-off",
+   "file": "python/cyberstride/tools/linearize.py",
+   "from": "    plan.validate(economy)\n    output =",
+   "to": "    output =",
+   "tests": "tests/test_linearize.py",
+   "note": "shape check neutralised"
+  },
+  {
+   "id": "plan-conformable-in-total-consumption-off",
+   "file": "python/cyberstride/plan.py",
+   "from": "``consumption_commodity`` is zero.\n        \"\"\"\n        self._require_conformable(economy)",
+   "to": "``consumption_commodity`` is zero.\n        \"\"\"",
+   "tests": "tests/test_plan.py",
+   "note": "total_consumption no longer checks shape on entry"
+  },
+  {
+   "id": "plan-extra-rowcheck-off",
+   "file": "python/cyberstride/plan.py",
+   "from": "            if value.ndim < 1 or value.shape[0] not in counts:",
+   "to": "            if False:",
+   "tests": "tests/test_plan.py",
+   "note": "Plan.extra leading dimension check neutralised"
+  },
+  {
+   "id": "plan-extra-finite-off",
+   "file": "python/cyberstride/plan.py",
+   "from": "            _require_finite(label, value)",
+   "to": "            del label",
+   "tests": "tests/test_plan.py",
+   "note": "Plan.extra finiteness check neutralised"
+  },
+  {
+   "id": "plan-freeze-not-a-view",
+   "file": "python/cyberstride/economy.py",
+   "from": "    frozen = value.view()\n    frozen.flags.writeable = False\n    return frozen",
+   "to": "    value.flags.writeable = False\n    return value",
+   "tests": "tests/test_plan.py tests/test_economy.py",
+   "note": "back to in-place freezing, taking the caller buffer away"
+  },
+  {
+   "id": "plan-extra-not-frozen",
+   "file": "python/cyberstride/plan.py",
+   "from": "        for bag in (\"valuation\", \"extra\"):",
+   "to": "        for bag in (\"valuation\",):",
+   "tests": "tests/test_plan.py",
+   "note": "extra bag not made read-only"
+  },
+  {
+   "id": "iter-keep-trajectory-ignored",
+   "file": "python/cyberstride/iterate.py",
+   "from": "    trajectory: list[Plan] | None = [] if plan_of is not None and keep_trajectory else None",
+   "to": "    trajectory: list[Plan] | None = [] if plan_of is not None else None",
+   "tests": "tests/test_iterate.py tests/test_hahnel_2020_slides.py",
+   "note": "keep_trajectory=False still records"
+  },
+  {
+   "id": "iter-plan-of-skipped-when-not-keeping",
+   "file": "python/cyberstride/iterate.py",
+   "from": "        if plan_of is not None:\n            plan = plan_of(state)",
+   "to": "        if trajectory is not None:\n            plan = plan_of(state)",
+   "tests": "tests/test_iterate.py",
+   "note": "keep_trajectory=False no longer calls plan_of so divergence is blind"
+  },
+  {
+   "id": "iter-divergence-plan-not-recorded",
+   "file": "python/cyberstride/iterate.py",
+   "from": "            if trajectory is not None:\n                trajectory.append(plan)\n            if not _physically_finite(plan):",
+   "to": "            if trajectory is not None and _physically_finite(plan):\n                trajectory.append(plan)\n            if not _physically_finite(plan):",
+   "tests": "tests/test_iterate.py",
+   "note": "the diverging round plan no longer enters the trajectory"
+  },
+  {
+   "id": "pf-price-rule-seam-ignored",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "        self.price_rule = slides_2020_rule if price_rule is None else price_rule",
+   "to": "        self.price_rule = slides_2020_rule",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "wiring swap: custom price rule ignored"
+  },
+  {
+   "id": "pf-public-price-not-divided",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "        paid = np.where(self.public_column, listed / self.n_consumers, listed)",
+   "to": "        paid = listed",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "public goods no longer priced per consumer unit"
+  },
+  {
+   "id": "pf-public-demand-not-masked",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "        public_demand = np.where(self.public_commodity, consumption, 0.0)",
+   "to": "        public_demand = consumption",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "public_demand not zeroed off the public goods"
+  },
+  {
+   "id": "pf-public-demand-is-provision",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "                \"public_demand\": state.public_demand,",
+   "to": "                \"public_demand\": state.provision,",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "wiring swap: public_demand written as the supply side"
+  },
+  {
+   "id": "pf-effort-residual-sign",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "            + (1.0 - self.exponent_sum) * log_output",
+   "to": "            + (1.0 + self.exponent_sum) * log_output",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "(1-B) written as (1+B) in the effort closed form"
+  },
+  {
+   "id": "pf-effort-intercept-drops-scale",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "        self.effort_intercept = -np.log(economy.technology_scale) - segment_sum(",
+   "to": "        self.effort_intercept = 0.0 * np.log(economy.technology_scale) - segment_sum(",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "effort intercept loses the minus log scale term"
+  },
+  {
+   "id": "pf-effort-constant-one",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "                \"effort\": state.effort,",
+   "to": "                \"effort\": np.ones_like(state.effort),",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "effort recorded as a constant one"
+  },
+  {
+   "id": "pf-imbalance-not-absolute",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "            total > 0, np.abs(2 * (supply - demand)) / np.where(total > 0, total, 1.0), 0.0",
+   "to": "            total > 0, (2 * (supply - demand)) / np.where(total > 0, total, 1.0), 0.0",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "imbalance no longer absolute"
+  },
+  {
+   "id": "pf-nonfinite-counts-as-balanced",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "    return np.where(measurable, ratio, np.inf)",
+   "to": "    return np.where(measurable, ratio, 0.0)",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "non-finite counted as perfectly balanced"
+  },
+  {
+   "id": "pf-max-to-nanmax",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "            worst_imbalance=float(np.max(imbalance)),",
+   "to": "            worst_imbalance=float(np.nanmax(imbalance)),",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "the fix bar self-reported equivalent mutation"
+  },
+  {
+   "id": "pf-solve-recompute-instead-of-last",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "        if result.trajectory:\n            return result.trajectory[-1]",
+   "to": "        if False:\n            return result.trajectory[-1]",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "always recompute rather than take the last trajectory entry"
+  },
+  {
+   "id": "pf-record-trajectory-forced-on",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "            keep_trajectory=self.record_trajectory,",
+   "to": "            keep_trajectory=True,",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "record_trajectory switch dead"
+  },
+  {
+   "id": "pf-cd-guard-off",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != TechnologyKind.COBB_DOUGLAS)",
+   "to": "    wrong = np.flatnonzero(np.asarray(economy.technology_kind) < 0)",
+   "tests": "tests/test_hahnel_2020_slides.py tests/test_linearize.py",
+   "note": "seam neutralised: Cobb-Douglas guard always passes"
+  },
+  {
+   "id": "pf-required-keys-off",
+   "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+   "from": "    missing = [key for key in keys if key not in bag]",
+   "to": "    missing = []",
+   "tests": "tests/test_hahnel_2020_slides.py",
+   "note": "required extra key check neutralised"
+  },
+  {
+   "id": "readme-ten-lines-block-defenced",
+   "file": "README.md",
+   "from": "```python\nimport numpy as np\nfrom cyberstride import load_dep1ex, run",
+   "to": "```text\nimport numpy as np\nfrom cyberstride import load_dep1ex, run",
+   "tests": "tests/test_readme_examples.py",
+   "note": "the Ten lines section loses its python block"
+  }
+ ]
+}

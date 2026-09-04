@@ -1,0 +1,13 @@
+[
+  {
+    "id": "obj-zero-consumer-guard-off",
+    "file": "python/cyberstride/objectives.py",
+    "from": "    if economy.n_consumers == 0 and np.any(aggregate[columns] != 0.0):",
+    "to": "    if False:",
+    "tests": "tests/test_objectives.py",
+    "note": "zero-consumer guard neutralised",
+    "verdict": "killed",
+    "failed": 1,
+    "scope": "narrow"
+  }
+]

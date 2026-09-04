@@ -1,0 +1,430 @@
+{
+  "cwd": ".",
+  "testCommand": "\".venv/Scripts/python.exe\" -m pytest -q -m \"not slow\"",
+  "fullTestCommand": "\".venv/Scripts/python.exe\" -m pytest tests -q -m \"not slow\"",
+  "mutations": [
+    {
+      "id": "CAL-neg-baseline",
+      "file": "python/cyberstride/iterate.py",
+      "tests": "tests/test_iterate.py",
+      "predict": "survived",
+      "note": "negative calibration: one docstring word, must survive",
+      "from": "\"\"\"The voluntary loop tool.",
+      "to": "\"\"\"The voluntary loop tool (calibration)."
+    },
+    {
+      "id": "CAL-pos-neutralize-price-step",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "positive calibration: the price move is neutralised, must be killed",
+      "from": "    return price * np.where(surplus > 0, 1 - step, np.where(surplus < 0, 1 + step, 1.0))",
+      "to": "    return price"
+    },
+    {
+      "id": "it-rounds-off-by-one",
+      "file": "python/cyberstride/iterate.py",
+      "tests": "tests/test_iterate.py",
+      "predict": "killed",
+      "note": "the converging round is counted one short",
+      "from": "            return _record(IterateResult(state, round_number, True, False, trajectory))",
+      "to": "            return _record(IterateResult(state, round_number - 1, True, False, trajectory))"
+    },
+    {
+      "id": "it-converged-tested-after-init",
+      "file": "python/cyberstride/iterate.py",
+      "tests": "tests/test_iterate.py",
+      "predict": "killed",
+      "note": "convergence is tested before the first step, i.e. right after init",
+      "from": "        state = step(state)\n        if plan_of is not None:",
+      "to": "        if converged(state):\n            return _record(IterateResult(state, round_number - 1, True, False, trajectory))\n        state = step(state)\n        if plan_of is not None:"
+    },
+    {
+      "id": "it-maxrounds-guard-loosened",
+      "file": "python/cyberstride/iterate.py",
+      "tests": "tests/test_iterate.py",
+      "predict": "killed",
+      "note": "max_rounds=0 is no longer rejected",
+      "from": "    if max_rounds < 1:",
+      "to": "    if max_rounds < -1:"
+    },
+    {
+      "id": "it-divergence-neutralized",
+      "file": "python/cyberstride/iterate.py",
+      "tests": "tests/test_iterate.py",
+      "predict": "killed",
+      "note": "divergence detection always reports finite",
+      "from": "    return all(bool(np.isfinite(array).all()) for array in _physical_arrays(plan))",
+      "to": "    return True"
+    },
+    {
+      "id": "it-divergence-skips-consumption",
+      "file": "python/cyberstride/iterate.py",
+      "tests": "tests/test_iterate.py",
+      "predict": "killed",
+      "note": "divergence detection stops looking at consumption",
+      "from": "    yield plan.consumption\n    yield plan.provision",
+      "to": "    yield plan.provision\n    yield plan.provision"
+    },
+    {
+      "id": "it-recorder-neutralized",
+      "file": "python/cyberstride/iterate.py",
+      "tests": "tests/test_procedure.py",
+      "predict": "killed",
+      "note": "loop results never reach the run wrapper",
+      "from": "    collected = _recorder.get()\n    if collected is not None:\n        collected.append(result)",
+      "to": "    collected = _recorder.get()\n    if collected is None:\n        pass"
+    },
+    {
+      "id": "pf-imbalance-cap-removed",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "v is no longer capped at 0.25",
+      "from": "    capped = np.minimum(imbalance, IMBALANCE_CAP)",
+      "to": "    capped = imbalance"
+    },
+    {
+      "id": "pf-cap-applied-to-w",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "the other reading of the slides: cap w instead of v",
+      "from": "    step = capped * (PRICE_STEP_CEILING - PRICE_STEP_DECAY_BASE**capped)",
+      "to": "    step = np.minimum(imbalance * (PRICE_STEP_CEILING - PRICE_STEP_DECAY_BASE**imbalance), IMBALANCE_CAP)"
+    },
+    {
+      "id": "pf-public-price-not-divided",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "public-good price is no longer divided by the consumer count",
+      "from": "        paid = np.where(self.public_column, listed / self.n_consumers, listed)",
+      "to": "        paid = listed"
+    },
+    {
+      "id": "pf-public-demand-not-divided",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "public-good demand is no longer divided by the consumer count",
+      "from": "        shared = np.where(self.public_column, stated / self.n_consumers, stated)",
+      "to": "        shared = stated"
+    },
+    {
+      "id": "pf-provision-from-demand",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "provision reads demand instead of supply",
+      "from": "            provision=np.where(self.public_commodity, supply, 0.0),",
+      "to": "            provision=np.where(self.public_commodity, demand, 0.0),"
+    },
+    {
+      "id": "pf-reports-adjusted-price",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "the plan reports the adjusted price, not the price the proposals used",
+      "from": "            price=price,\n            output=output,",
+      "to": "            price=_adjusted(price, supply - demand, imbalance),\n            output=output,"
+    },
+    {
+      "id": "pf-own-price-weight-sign",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "closed form: (c + kB) written as (c - kB)",
+      "from": "        self.own_price_weight = effort_c + effort_k * self.exponent_sum",
+      "to": "        self.own_price_weight = effort_c - effort_k * self.exponent_sum"
+    },
+    {
+      "id": "pf-denominator-sign",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "closed form: D = c - k + kB written as c + k + kB",
+      "from": "        self.denominator = effort_c - effort_k + effort_k * self.exponent_sum",
+      "to": "        self.denominator = effort_c + effort_k + effort_k * self.exponent_sum"
+    },
+    {
+      "id": "pf-effort-s-term-sign",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "survived",
+      "note": "sign of the c*log(s) term; effort_s is 1.0 everywhere in both fixtures",
+      "from": "            + effort_c * np.log(effort_s)",
+      "to": "            - effort_c * np.log(effort_s)"
+    },
+    {
+      "id": "pf-scale-term-dropped",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "the -k*log(a) term of the closed form is dropped",
+      "from": "            -effort_k * np.log(economy.technology_scale)",
+      "to": "            -effort_k * np.log(economy.technology_scale) * 0.0"
+    },
+    {
+      "id": "pf-imbalance-drops-factor-two",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "relative imbalance loses its factor of two",
+      "from": "        total > 0, np.abs(2 * (supply - demand)) / np.where(total > 0, total, 1.0), 0.0",
+      "to": "        total > 0, np.abs(supply - demand) / np.where(total > 0, total, 1.0), 0.0"
+    },
+    {
+      "id": "pf-endowment-dropped-from-supply",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "supply no longer includes the endowment",
+      "from": "        ) + np.asarray(self.economy.endowment)",
+      "to": "        ) * 1.0"
+    },
+    {
+      "id": "pf-trajectory-first-not-last",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "survived",
+      "note": "with a trajectory recorded, return the first round's plan instead of the last",
+      "from": "            return result.trajectory[-1]",
+      "to": "            return result.trajectory[0]"
+    },
+    {
+      "id": "pf-consumption-columns-by-position",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "survived",
+      "note": "consumption columns taken by position instead of by commodity kind",
+      "from": "        self.consumption_commodity = self.exponent_commodity[self.private_column].astype(np.int64)",
+      "to": "        self.consumption_commodity = self.exponent_commodity[: self.private_column.shape[0]].astype(np.int64)"
+    },
+    {
+      "id": "pf-cobb-douglas-guard-off",
+      "file": "python/cyberstride/prefabs/hahnel_2020_slides.py",
+      "tests": "tests/test_hahnel_2020_slides.py",
+      "predict": "killed",
+      "note": "the prefab stops rejecting a non Cobb-Douglas economy",
+      "from": "    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != TechnologyKind.COBB_DOUGLAS)",
+      "to": "    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != economy.technology_kind)"
+    },
+    {
+      "id": "pl-total-output-by-unit-group",
+      "file": "python/cyberstride/plan.py",
+      "tests": "tests/test_plan.py",
+      "predict": "killed",
+      "note": "output aggregated by unit_group instead of output_commodity",
+      "from": "            economy.output_commodity, weights=self.output, minlength=economy.n_commodities",
+      "to": "            economy.unit_group, weights=self.output, minlength=economy.n_commodities"
+    },
+    {
+      "id": "pl-endowment-use-drops-labor",
+      "file": "python/cyberstride/plan.py",
+      "tests": "tests/test_plan.py",
+      "predict": "killed",
+      "note": "endowment use forgets labour",
+      "from": "_ENDOWED_KINDS = (CommodityKind.NATURAL_RESOURCE, CommodityKind.LABOR)",
+      "to": "_ENDOWED_KINDS = (CommodityKind.NATURAL_RESOURCE,)"
+    },
+    {
+      "id": "pl-consumption-shape-check-off",
+      "file": "python/cyberstride/plan.py",
+      "tests": "tests/test_plan.py",
+      "predict": "killed",
+      "note": "the consumption shape check is neutralised",
+      "from": "        if self.consumption.shape != (economy.n_consumers, columns.shape[0]):",
+      "to": "        if False:"
+    },
+    {
+      "id": "pl-finite-check-off",
+      "file": "python/cyberstride/plan.py",
+      "tests": "tests/test_plan.py",
+      "predict": "killed",
+      "note": "the physical-layer finiteness check is neutralised",
+      "from": "        for name in _PHYSICAL_ARRAYS:\n            _require_finite(name, getattr(self, name))",
+      "to": "        for name in ():\n            _require_finite(name, getattr(self, name))"
+    },
+    {
+      "id": "pl-consumption-commodity-range-off",
+      "file": "python/cyberstride/plan.py",
+      "tests": "tests/test_plan.py",
+      "predict": "killed",
+      "note": "the consumption_commodity range check is neutralised",
+      "from": "        wrong = np.flatnonzero((columns < 0) | (columns >= economy.n_commodities))",
+      "to": "        wrong = np.flatnonzero((columns < -1000000) | (columns >= 1000000))"
+    },
+    {
+      "id": "ec-freeze-off",
+      "file": "python/cyberstride/economy.py",
+      "tests": "tests/test_economy.py",
+      "predict": "killed",
+      "note": "arrays are no longer made read-only",
+      "from": "        value.flags.writeable = False",
+      "to": "        pass"
+    },
+    {
+      "id": "ec-row-numbering-off",
+      "file": "python/cyberstride/economy.py",
+      "tests": "tests/test_economy.py",
+      "predict": "killed",
+      "note": "the identifier-equals-row-number check is neutralised",
+      "from": "    wrong = np.flatnonzero(column != expected)",
+      "to": "    wrong = np.flatnonzero(column != column)"
+    },
+    {
+      "id": "ec-colmap-index-check-off",
+      "file": "python/cyberstride/economy.py",
+      "tests": "tests/test_economy.py",
+      "predict": "killed",
+      "note": "the column mapping no longer has to index real commodities",
+      "from": "        _require_commodity_index(label, mapping, n_commodities)",
+      "to": "        label = label"
+    },
+    {
+      "id": "ec-colmap-exception-removed",
+      "file": "python/cyberstride/economy.py",
+      "tests": "tests/test_economy.py",
+      "predict": "killed",
+      "note": "reverse direction: the column-mapping exception is gone, so valid economies are rejected",
+      "from": "                if key in mappings:",
+      "to": "                if False:"
+    },
+    {
+      "id": "ec-extra-finite-off",
+      "file": "python/cyberstride/economy.py",
+      "tests": "tests/test_economy.py",
+      "predict": "killed",
+      "note": "the finiteness check on extra arrays is neutralised",
+      "from": "                _require_finite(label, value)",
+      "to": "                label = label"
+    },
+    {
+      "id": "ec-offsets-monotonic-off",
+      "file": "python/cyberstride/economy.py",
+      "tests": "tests/test_economy.py",
+      "predict": "killed",
+      "note": "the non-decreasing check on input_offsets is neutralised",
+      "from": "        falling = np.flatnonzero(np.diff(offsets) < 0)",
+      "to": "        falling = np.flatnonzero(np.diff(offsets) < -1000000)"
+    },
+    {
+      "id": "ec-colmap-bag-rewired",
+      "file": "python/cyberstride/economy.py",
+      "tests": "tests/test_economy.py",
+      "predict": "killed",
+      "note": "wiring swap: the column-mapping exception is attached to unit_extra instead of consumer_extra",
+      "from": "_COLUMN_MAPPING_EXTRAS = {\"consumer_extra\": {\"utility_exponent_commodity\": \"utility_exponent\"}}",
+      "to": "_COLUMN_MAPPING_EXTRAS = {\"unit_extra\": {\"utility_exponent_commodity\": \"utility_exponent\"}}"
+    },
+    {
+      "id": "ec-dtype-check-off",
+      "file": "python/cyberstride/economy.py",
+      "tests": "tests/test_economy.py",
+      "predict": "killed",
+      "note": "the column dtype check is neutralised",
+      "from": "    if value.dtype != np.dtype(dtype):",
+      "to": "    if False:"
+    },
+    {
+      "id": "ck-bit-identical-true",
+      "file": "python/cyberstride/checks.py",
+      "tests": "tests/test_checks.py",
+      "predict": "killed",
+      "note": "bit comparison always reports agreement",
+      "from": "    return np.ascontiguousarray(first).tobytes() == np.ascontiguousarray(other).tobytes()",
+      "to": "    return True"
+    },
+    {
+      "id": "ck-bit-identical-tolerant",
+      "file": "python/cyberstride/checks.py",
+      "tests": "tests/test_checks.py",
+      "predict": "killed",
+      "note": "bit comparison becomes a tolerance comparison, so one ulp passes",
+      "from": "    return np.ascontiguousarray(first).tobytes() == np.ascontiguousarray(other).tobytes()",
+      "to": "    return bool(np.allclose(first, other, rtol=1e-9, atol=0, equal_nan=True))"
+    },
+    {
+      "id": "ck-valuation-key-set-intersect",
+      "file": "python/cyberstride/checks.py",
+      "tests": "tests/test_checks.py",
+      "predict": "killed",
+      "note": "a missing valuation key is no longer reported",
+      "from": "    for key in sorted(set(first.valuation) | set(other.valuation)):",
+      "to": "    for key in sorted(set(first.valuation) & set(other.valuation)):"
+    },
+    {
+      "id": "sd-final-shift",
+      "file": "python/cyberstride/seeds.py",
+      "tests": "tests/test_seeds.py",
+      "predict": "killed",
+      "note": "SplitMix64 final shift 31 becomes 32",
+      "from": "        word ^= word >> 31",
+      "to": "        word ^= word >> 32"
+    },
+    {
+      "id": "sd-gamma-digit",
+      "file": "python/cyberstride/seeds.py",
+      "tests": "tests/test_seeds.py",
+      "predict": "killed",
+      "note": "one digit of the golden gamma",
+      "from": "_GOLDEN_GAMMA = 0x9E3779B97F4A7C15",
+      "to": "_GOLDEN_GAMMA = 0x9E3779B97F4A7C13"
+    },
+    {
+      "id": "sd-seed-upper-bound",
+      "file": "python/cyberstride/seeds.py",
+      "tests": "tests/test_seeds.py",
+      "predict": "killed",
+      "note": "the seed range becomes closed at the top",
+      "from": "    if not 0 <= int(seed) < _TWO_64:",
+      "to": "    if not 0 <= int(seed) <= _TWO_64:"
+    },
+    {
+      "id": "pr-first-loop-wins",
+      "file": "python/cyberstride/procedure.py",
+      "tests": "tests/test_procedure.py",
+      "predict": "killed",
+      "note": "the run summary reports the first loop instead of the last",
+      "from": "    loop = collected[-1] if collected else None",
+      "to": "    loop = collected[0] if collected else None"
+    },
+    {
+      "id": "pr-recorder-not-reset",
+      "file": "python/cyberstride/procedure.py",
+      "tests": "tests/test_procedure.py",
+      "predict": "killed",
+      "note": "the collector is never reset after a run",
+      "from": "        _recorder.reset(token)",
+      "to": "        pass"
+    },
+    {
+      "id": "to-unit-of-input-reversed",
+      "file": "python/cyberstride/tools/__init__.py",
+      "tests": "tests/test_tools.py",
+      "predict": "killed",
+      "note": "input ownership counts are reversed",
+      "from": "    counts = np.diff(economy.input_offsets)",
+      "to": "    counts = np.diff(economy.input_offsets)[::-1]"
+    },
+    {
+      "id": "io-endowment-hardcoded",
+      "file": "python/cyberstride/io.py",
+      "tests": "tests/test_io.py",
+      "predict": "killed",
+      "note": "the endowment argument is dropped and 1000 hard-coded",
+      "from": "    return Economy.from_arrays(loader(str(path), float(endowment)))",
+      "to": "    return Economy.from_arrays(loader(str(path), 1000.0))"
+    },
+    {
+      "id": "cd-share-not-normalised",
+      "file": "python/cyberstride/tools/cobb_douglas.py",
+      "tests": "tests/test_tools.py",
+      "predict": "killed",
+      "note": "the cost share is not normalised by the exponent sum",
+      "from": "    log_share = np.log(exponents) - np.log(exponent_sum)\n    log_cost",
+      "to": "    log_share = np.log(exponents)\n    log_cost"
+    }
+  ]
+}

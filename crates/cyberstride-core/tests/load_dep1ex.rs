@@ -374,7 +374,10 @@ fn load_rejects_an_input_segment_whose_exponent_count_differs() {
 #[test]
 fn load_rejects_a_private_product_number_past_the_private_section() {
     let units = UNIT_RECORDS.replace(":product 4,", ":product 5,");
-    let path = gzip_file("product-past-private", &scenario_text(CONSUMER_RECORDS, &units));
+    let path = gzip_file(
+        "product-past-private",
+        &scenario_text(CONSUMER_RECORDS, &units),
+    );
 
     let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
     assert!(matches!(
@@ -387,7 +390,10 @@ fn load_rejects_a_private_product_number_past_the_private_section() {
 #[test]
 fn load_rejects_a_public_product_number_past_the_public_section() {
     let units = UNIT_RECORDS.replace(":product 1,", ":product 3,");
-    let path = gzip_file("product-past-public", &scenario_text(CONSUMER_RECORDS, &units));
+    let path = gzip_file(
+        "product-past-public",
+        &scenario_text(CONSUMER_RECORDS, &units),
+    );
 
     let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
     assert!(matches!(
@@ -400,7 +406,10 @@ fn load_rejects_a_public_product_number_past_the_public_section() {
 #[test]
 fn load_rejects_an_intermediate_product_number_past_the_goods_count() {
     let units = UNIT_RECORDS.replace(":product 2,", ":product 9,");
-    let path = gzip_file("product-past-goods", &scenario_text(CONSUMER_RECORDS, &units));
+    let path = gzip_file(
+        "product-past-goods",
+        &scenario_text(CONSUMER_RECORDS, &units),
+    );
 
     let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
     assert!(matches!(
@@ -415,8 +424,10 @@ fn load_rejects_an_input_number_below_one() {
     // Input numbers set the goods count themselves, so the only way past the
     // upper bound is under the lower one; unchecked, a 0 lands in the section
     // before the segment it belongs to.
-    let units =
-        UNIT_RECORDS.replace(":production-inputs [[1 3] [2] [3]],", ":production-inputs [[1 3] [0] [3]],");
+    let units = UNIT_RECORDS.replace(
+        ":production-inputs [[1 3] [2] [3]],",
+        ":production-inputs [[1 3] [0] [3]],",
+    );
     let path = gzip_file("input-below-one", &scenario_text(CONSUMER_RECORDS, &units));
 
     let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
@@ -424,6 +435,27 @@ fn load_rejects_an_input_number_below_one() {
         err,
         LoadError::SectionNumber { unit, section, value, bound }
             if unit == 0 && section == "nature" && value == 0 && bound == N_GOODS as usize
+    ));
+}
+
+#[test]
+fn load_attributes_an_input_number_to_the_unit_whose_record_carries_it() {
+    // The bad number sits in the third unit's labour segment, so a message that
+    // reported unit 0 for every input would still name a unit that exists.
+    let units = UNIT_RECORDS.replace(
+        ":production-inputs [[3] [3] [2 3]],",
+        ":production-inputs [[3] [3] [2 0]],",
+    );
+    let path = gzip_file(
+        "input-below-one-third-unit",
+        &scenario_text(CONSUMER_RECORDS, &units),
+    );
+
+    let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
+    assert!(matches!(
+        err,
+        LoadError::SectionNumber { unit, section, value, bound }
+            if unit == 2 && section == "labor" && value == 0 && bound == N_GOODS as usize
     ));
 }
 
@@ -467,8 +499,10 @@ fn load_rejects_a_unit_record_missing_a_required_key() {
 
 #[test]
 fn load_rejects_consumers_whose_exponent_counts_disagree() {
-    let consumers =
-        CONSUMER_RECORDS.replace(":utility-exponents [0.1 0.2 0.15 0.05]", ":utility-exponents [0.1]");
+    let consumers = CONSUMER_RECORDS.replace(
+        ":utility-exponents [0.1 0.2 0.15 0.05]",
+        ":utility-exponents [0.1]",
+    );
     let path = gzip_file("ragged-consumer", &scenario_text(&consumers, UNIT_RECORDS));
 
     let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");

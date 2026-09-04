@@ -428,6 +428,24 @@ def test_an_input_number_below_one_is_rejected(tmp_path):
     assert "intermediate" in message
 
 
+def test_an_input_number_is_attributed_to_the_unit_whose_record_carries_it(tmp_path):
+    """The bad number sits in the third unit, so a fixed unit number in the message shows up."""
+    consumers = [consumer_record([0.5, 0.25], [0.125, 0.0625], 5000) for _ in range(2)]
+    units = [
+        unit_record(0, 1, [1], [1], [1]),
+        unit_record(1, 1, [1], [1], [1]),
+        unit_record(2, 1, [1], [0], [1]),
+    ]
+    path = write_scenario(tmp_path / "input-below-one-third-unit.clj.gz", consumers, units)
+
+    with pytest.raises(_core.LoadError) as excinfo:
+        _core.load_dep1ex(path, ENDOWMENT)
+
+    message = str(excinfo.value)
+    assert "production unit 2" in message
+    assert "nature" in message
+
+
 # ---- timing ----
 
 

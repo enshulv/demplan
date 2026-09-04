@@ -240,6 +240,19 @@ class TestMinimizeLabor:
         with pytest.raises(ValueError, match="length|shape|commodit"):
             MinimizeLabor(np.zeros(N_COMMODITIES + 2)).weights(economy)
 
+    def test_a_negative_target_is_refused_and_the_message_names_the_commodity(self):
+        targets = np.zeros(N_COMMODITIES)
+        targets[PRIVATE_A] = 6.0
+        targets[PRIVATE_B] = -3.0
+        with pytest.raises(ValueError, match=f"commodity {PRIVATE_B}"):
+            MinimizeLabor(targets)
+
+    def test_a_target_of_zero_or_more_is_accepted(self):
+        targets = np.zeros(N_COMMODITIES)
+        targets[PRIVATE_A] = 6.0
+        objective = MinimizeLabor(targets)
+        np.testing.assert_allclose(objective.final_demand_lower_bound, targets, atol=TOLERANCE)
+
     def test_it_splits_private_goods_equally_like_the_other_objective(self):
         economy = build_economy()
         targets = np.zeros(N_COMMODITIES)

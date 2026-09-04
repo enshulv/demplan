@@ -232,6 +232,26 @@ class TestHandSolvedLabourMinimisation:
         with pytest.raises(ReferenceInfeasible):
             reference_solution(build_bread_economy(), MinimizeLabor(targets))
 
+    def test_a_negative_target_is_refused_and_the_message_names_the_commodity(self):
+        """A floor of -3 on the flour would report 6 labour where every feasible plan spends 12.
+
+        The floor becomes the lower bound on that commodity's final consumption, so a negative
+        one lets the program cover the 3 flour six bread draws by consuming -3 of it instead of
+        producing it. Flour is a private good here, since a floor on an intermediate good is
+        already refused for a different reason.
+        """
+        economy = dataclasses.replace(
+            build_bread_economy(labor_endowment=20.0),
+            commodity_kind=np.array(
+                [CommodityKind.PRIVATE_GOOD, CommodityKind.PRIVATE_GOOD, CommodityKind.LABOR],
+                dtype=np.int8,
+            ),
+        )
+        targets = self.targets()
+        targets[FLOUR] = -3.0
+        with pytest.raises(ValueError, match=f"commodity {FLOUR}"):
+            reference_solution(economy, MinimizeLabor(targets))
+
 
 class TestHandSolvedChoiceBetweenTechniques:
     """Two ways to make the same good, and the objective decides which one runs.
@@ -301,6 +321,63 @@ class TestHandSolvedChoiceBetweenTechniques:
         np.testing.assert_allclose(
             self.solved().plan.valuation[SHADOW_PRICE], [1.0, 0.0, 0.0], atol=EXACT
         )
+
+
+class PairDeclaredObjective:
+    """A researcher's own labour-minimising objective, declared by attribute rather than type.
+
+    ``weights`` returns zeros, as a labour-minimising objective does, so an assembly that reads
+    this objective as a maximisation maximises nothing. Either attribute is left off entirely
+    when it is not supplied, which is what an objective that declares half the pair looks like.
+    """
+
+    name = "pair_declared"
+
+    def __init__(self, lower_bound=None, minimize_kind=None):
+        if lower_bound is not None:
+            self.final_demand_lower_bound = np.asarray(lower_bound, dtype=np.float64)
+        if minimize_kind is not None:
+            self.minimize_kind = minimize_kind
+
+    def weights(self, economy: Economy) -> np.ndarray:
+        return np.zeros(economy.n_commodities, dtype=np.float64)
+
+    def allocate(self, economy: Economy, aggregate: np.ndarray):
+        zero_weights = np.zeros(economy.n_commodities, dtype=np.float64)
+        return MaximizeWeightedConsumption(zero_weights).allocate(economy, aggregate)
+
+
+class TestMinimisationDeclaredByAttribute:
+    """The pair of attributes is what makes a program minimise, so half a pair is refused."""
+
+    def targets(self) -> np.ndarray:
+        targets = np.zeros(N_BREAD_COMMODITIES)
+        targets[BREAD] = 6.0
+        return targets
+
+    def test_both_attributes_together_minimise_like_the_built_in_objective(self):
+        objective = PairDeclaredObjective(
+            lower_bound=self.targets(), minimize_kind=CommodityKind.LABOR
+        )
+        result = reference_solution(build_bread_economy(labor_endowment=20.0), objective)
+        assert result.objective_value == pytest.approx(12.0, abs=EXACT)
+        np.testing.assert_allclose(result.plan.output, [6.0, 3.0], atol=EXACT)
+
+    def test_a_lower_bound_without_a_minimised_kind_is_refused(self):
+        """Read as a maximisation, this objective maximises zero and reports an empty plan."""
+        objective = PairDeclaredObjective(lower_bound=self.targets())
+        with pytest.raises(ValueError, match="minimize_kind"):
+            reference_solution(build_bread_economy(labor_endowment=20.0), objective)
+
+    def test_a_minimised_kind_without_a_lower_bound_is_refused(self):
+        objective = PairDeclaredObjective(minimize_kind=CommodityKind.LABOR)
+        with pytest.raises(ValueError, match="final_demand_lower_bound"):
+            reference_solution(build_bread_economy(labor_endowment=20.0), objective)
+
+    def test_the_message_names_the_objective_that_declared_half_the_pair(self):
+        objective = PairDeclaredObjective(lower_bound=self.targets())
+        with pytest.raises(ValueError, match="pair_declared"):
+            reference_solution(build_bread_economy(labor_endowment=20.0), objective)
 
 
 class TestRefusedInputs:

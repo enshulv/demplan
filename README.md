@@ -8,9 +8,10 @@ covers democratic and participatory planning; the benchmark it offers against a 
 centrally computed optimum under an objective function you declare, not a market.
 
 MIT licensed. Status: early. What exists today is the data model, the dep1ex loader, one
-published procedure, the loop and seed tools, and the determinism self-test. Not yet built:
-the on-disk output format and run manifest, the invariant residual toolbox, and the reference
-optimum. Those are the next three pieces, in that order.
+published procedure, the loop and seed tools, and the determinism self-test. Also present: the linear-programming reference
+optimum for Leontief economies, with a `linearize` tool for economies whose technology is
+Cobb-Douglas. Not yet built: the on-disk output format and run manifest, and the invariant
+residual toolbox. Those are the next two pieces, in that order.
 
 ## Install
 
@@ -20,7 +21,7 @@ extension module. Python 3.10 or newer; the only runtime dependency is numpy.
 
 ```sh
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scriptsctivate
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install maturin numpy
 maturin develop --release        # first build takes about a minute
 ```

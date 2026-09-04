@@ -546,9 +546,7 @@ fn check_extra_bag(
         }
 
         if let ExtraArray::F64 { data, .. } = array {
-            if let Some((index, &value)) =
-                data.iter().enumerate().find(|(_, v)| !v.is_finite())
-            {
+            if let Some((index, &value)) = data.iter().enumerate().find(|(_, v)| !v.is_finite()) {
                 return Err(SchemaError::ExtraNonFinite {
                     bag,
                     key: key.clone(),

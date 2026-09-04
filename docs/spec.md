@@ -100,6 +100,9 @@ Kantorovich 式线性规划，三者能跑在同一个 `Economy` 上，并由同
 | 消费单元 | `utility_exponent_commodity` | int64[k] | 上一项的列到商品的映射 |
 | 生产单元 | `effort_c`、`effort_s`、`effort_k` | f64[n_units] | dep1ex 工人议会闭式解的行为参数 `c`、`s`、`du` |
 
+`extra` 里每个数组的第一维等于该表的行数。**列映射键例外**：它们的形状是 `[k]`，
+k 是另一个二维 `extra` 数组的列数。目前登记的列映射键只有 `utility_exponent_commodity`。
+
 `period`（int64）记录这是第几期。
 
 **`Economy` 是某一期的状态，不是不变的题目。** 多期时由演化规律更新。

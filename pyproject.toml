@@ -22,3 +22,4 @@ features = ["pyo3/extension-module"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: needs the dep1ex data files or a release build; deselect with -m 'not slow'"]

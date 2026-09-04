@@ -4,11 +4,10 @@
 //! column literally. Its numbers are pairwise distinct so that a column read from
 //! the wrong key cannot go unnoticed.
 //!
-//! Fixture layout: 2 consumers with 2 private and 2 public exponents each, and 3
-//! production units, one per `:industry` value. The largest commodity number in
-//! the file is 3, which differs from the private and public counts, so the
-//! commodity layout can only come out right if the loader derives the goods count
-//! from the data.
+//! Fixture layout: 2 consumers with 4 private and 2 public exponents each, and 3
+//! production units, one per `:industry` value. The largest `:product` number is
+//! 4 and the largest input number is 3, so a loader that folded `:product` into
+//! the goods count would lay out 18 commodities instead of 15.
 
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
@@ -21,7 +20,7 @@ use cyberstride_core::{load_dep1ex, Economy, ExtraArray, LoadError};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
-const N_PRIV: i64 = 2;
+const N_PRIV: i64 = 4;
 const N_PUB: i64 = 2;
 const N_GOODS: i64 = 3;
 
@@ -39,7 +38,7 @@ const TEST_ENDOWMENT: f64 = 7.5;
 const CONSUMER_RECORDS: &str = "\
 [{:effort 1,
   :num-workers 10,
-  :utility-exponents [0.5 0.25],
+  :utility-exponents [0.5 0.25 0.45 0.35],
   :final-demands [0 0],
   :cy 1,
   :public-good-exponents [0.125 0.0625],
@@ -47,7 +46,7 @@ const CONSUMER_RECORDS: &str = "\
   :income 5000}
  {:income 250.5,
   :public-good-exponents [0.3 0.4],
-  :utility-exponents [0.1 0.2],
+  :utility-exponents [0.1 0.2 0.15 0.05],
   :effort 1,
   :num-workers 10,
   :final-demands [0 0],
@@ -62,7 +61,7 @@ const UNIT_RECORDS: &str = "\
   :s 1,
   :du 3.0,
   :c 0.61,
-  :product 1,
+  :product 4,
   :labor-quantities [0],
   :production-inputs [[1 3] [2] [3]],
   :input-exponents [0.11 0.12],
@@ -90,7 +89,7 @@ const UNIT_RECORDS: &str = "\
   :s 2,
   :du 4.5,
   :c 0.63,
-  :product 2,
+  :product 1,
   :labor-quantities [0],
   :production-inputs [[3] [3] [2 3]],
   :input-exponents [0.31],
@@ -160,10 +159,28 @@ fn load_derives_the_commodity_count_from_the_largest_number_in_the_file() {
 }
 
 #[test]
+fn load_sizes_the_goods_sections_from_the_input_numbers_alone() {
+    // `:product` numbers the private and public sections, which have their own
+    // lengths, so folding it into the goods count invents commodities that
+    // nothing produces and nothing consumes.
+    let economy = fixture_economy();
+    let largest_product = 4;
+    assert!(largest_product > N_GOODS);
+    assert_eq!(
+        economy.commodity_kind.iter().filter(|&&k| k == 2).count(),
+        N_GOODS as usize
+    );
+    assert_eq!(
+        economy.commodity_id.len(),
+        (N_PRIV + N_PUB + 3 * N_GOODS) as usize
+    );
+}
+
+#[test]
 fn load_orders_commodity_kinds_private_public_intermediate_nature_labour() {
     assert_eq!(
         fixture_economy().commodity_kind,
-        vec![0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4]
+        vec![0, 0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4]
     );
 }
 
@@ -172,7 +189,7 @@ fn load_sets_endowment_on_nature_and_labour_only() {
     let e = TEST_ENDOWMENT;
     assert_eq!(
         fixture_economy().endowment,
-        vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, e, e, e, e, e, e]
+        vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, e, e, e, e, e, e]
     );
 }
 
@@ -185,10 +202,10 @@ fn load_leaves_the_commodity_extra_bag_empty() {
 
 #[test]
 fn load_maps_each_industry_to_its_commodity_section() {
-    // industry 0 -> private, 1 -> intermediate, 2 -> public; product numbers 1, 2, 2.
+    // industry 0 -> private, 1 -> intermediate, 2 -> public; product numbers 4, 2, 1.
     assert_eq!(
         fixture_economy().output_commodity,
-        vec![BASE_PRIV, BASE_INTER + 1, BASE_PUB + 1]
+        vec![BASE_PRIV + 3, BASE_INTER + 1, BASE_PUB]
     );
 }
 
@@ -278,7 +295,7 @@ fn load_concatenates_private_exponents_then_public_exponents() {
     let economy = fixture_economy();
     assert_eq!(
         extra_f64(&economy.consumer_extra, "utility_exponent"),
-        [0.5, 0.25, 0.125, 0.0625, 0.1, 0.2, 0.3, 0.4]
+        [0.5, 0.25, 0.45, 0.35, 0.125, 0.0625, 0.1, 0.2, 0.15, 0.05, 0.3, 0.4]
     );
 }
 
@@ -287,7 +304,7 @@ fn load_shapes_utility_exponents_as_consumers_by_columns() {
     let economy = fixture_economy();
     assert_eq!(
         extra_shape(&economy.consumer_extra, "utility_exponent"),
-        [2, 4]
+        [2, 6]
     );
 }
 
@@ -300,7 +317,14 @@ fn load_maps_utility_exponent_columns_to_private_then_public_commodities() {
     };
     assert_eq!(
         mapping,
-        vec![BASE_PRIV, BASE_PRIV + 1, BASE_PUB, BASE_PUB + 1]
+        vec![
+            BASE_PRIV,
+            BASE_PRIV + 1,
+            BASE_PRIV + 2,
+            BASE_PRIV + 3,
+            BASE_PUB,
+            BASE_PUB + 1
+        ]
     );
 }
 
@@ -348,6 +372,76 @@ fn load_rejects_an_input_segment_whose_exponent_count_differs() {
 }
 
 #[test]
+fn load_rejects_a_private_product_number_past_the_private_section() {
+    let units = UNIT_RECORDS.replace(":product 4,", ":product 5,");
+    let path = gzip_file("product-past-private", &scenario_text(CONSUMER_RECORDS, &units));
+
+    let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
+    assert!(matches!(
+        err,
+        LoadError::SectionNumber { unit, section, value, bound }
+            if unit == 0 && section == "private" && value == 5 && bound == N_PRIV as usize
+    ));
+}
+
+#[test]
+fn load_rejects_a_public_product_number_past_the_public_section() {
+    let units = UNIT_RECORDS.replace(":product 1,", ":product 3,");
+    let path = gzip_file("product-past-public", &scenario_text(CONSUMER_RECORDS, &units));
+
+    let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
+    assert!(matches!(
+        err,
+        LoadError::SectionNumber { unit, section, value, bound }
+            if unit == 2 && section == "public" && value == 3 && bound == N_PUB as usize
+    ));
+}
+
+#[test]
+fn load_rejects_an_intermediate_product_number_past_the_goods_count() {
+    let units = UNIT_RECORDS.replace(":product 2,", ":product 9,");
+    let path = gzip_file("product-past-goods", &scenario_text(CONSUMER_RECORDS, &units));
+
+    let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
+    assert!(matches!(
+        err,
+        LoadError::SectionNumber { unit, section, value, bound }
+            if unit == 1 && section == "intermediate" && value == 9 && bound == N_GOODS as usize
+    ));
+}
+
+#[test]
+fn load_rejects_an_input_number_below_one() {
+    // Input numbers set the goods count themselves, so the only way past the
+    // upper bound is under the lower one; unchecked, a 0 lands in the section
+    // before the segment it belongs to.
+    let units =
+        UNIT_RECORDS.replace(":production-inputs [[1 3] [2] [3]],", ":production-inputs [[1 3] [0] [3]],");
+    let path = gzip_file("input-below-one", &scenario_text(CONSUMER_RECORDS, &units));
+
+    let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
+    assert!(matches!(
+        err,
+        LoadError::SectionNumber { unit, section, value, bound }
+            if unit == 0 && section == "nature" && value == 0 && bound == N_GOODS as usize
+    ));
+}
+
+#[test]
+fn the_section_number_message_names_the_unit_the_section_and_the_bound() {
+    let units = UNIT_RECORDS.replace(":product 4,", ":product 5,");
+    let path = gzip_file("product-message", &scenario_text(CONSUMER_RECORDS, &units));
+
+    let message = load_dep1ex(&path, TEST_ENDOWMENT)
+        .expect_err("expected a load error")
+        .to_string();
+    assert!(message.contains("production unit 0"), "{message}");
+    assert!(message.contains("private"), "{message}");
+    assert!(message.contains('5'), "{message}");
+    assert!(message.contains('4'), "{message}");
+}
+
+#[test]
 fn load_rejects_an_unknown_industry() {
     let units = UNIT_RECORDS.replace(":industry 1,", ":industry 7,");
     let path = gzip_file("unknown-industry", &scenario_text(CONSUMER_RECORDS, &units));
@@ -374,14 +468,14 @@ fn load_rejects_a_unit_record_missing_a_required_key() {
 #[test]
 fn load_rejects_consumers_whose_exponent_counts_disagree() {
     let consumers =
-        CONSUMER_RECORDS.replace(":utility-exponents [0.1 0.2]", ":utility-exponents [0.1]");
+        CONSUMER_RECORDS.replace(":utility-exponents [0.1 0.2 0.15 0.05]", ":utility-exponents [0.1]");
     let path = gzip_file("ragged-consumer", &scenario_text(&consumers, UNIT_RECORDS));
 
     let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
     assert!(matches!(
         err,
         LoadError::ConsumerExponentCount { consumer, count, expected, .. }
-            if consumer == 1 && count == 1 && expected == 2
+            if consumer == 1 && count == 1 && expected == 4
     ));
 }
 

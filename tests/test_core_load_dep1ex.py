@@ -11,6 +11,7 @@ separate categories, so the expectations below reshape the reference rather than
 restate the loader's own numbers.
 """
 
+import gzip
 import os
 import pathlib
 import sys
@@ -60,7 +61,7 @@ def reference():
     wc, cc = repro.parse(str(DEP1EX01))
     n_priv = cc["priv_exp"].shape[1]
     n_pub = cc["pub_exp"].shape[1]
-    n_goods = int(max(wc["coef"][wc["mask"]].max(), wc["product"].max())) + 1
+    n_goods = int(wc["coef"][wc["mask"]].max()) + 1
     bases = {
         "priv": 0,
         "pub": n_priv,
@@ -304,6 +305,127 @@ def test_load_error_message_carries_the_rust_text(tmp_path):
         _core.load_dep1ex(str(path), ENDOWMENT)
 
     assert "absent.clj.gz" in str(excinfo.value)
+
+
+# ---- hand-written archives ----
+
+# The archives above are the published ones, where the largest `:product` happens
+# not to exceed the largest input number. These archives separate the two, and
+# push section numbers past their section, which no published archive does.
+
+
+def unit_record(industry, product, inter, nature, labor):
+    """One `wcs` map with the given industry, product and three input segments."""
+    segments = " ".join(
+        "[" + " ".join(str(number) for number in segment) + "]"
+        for segment in (inter, nature, labor)
+    )
+    exponents = [
+        f":{name}-exponents [" + " ".join("0.1" for _ in segment) + "]"
+        for name, segment in (("input", inter), ("nature", nature), ("labor", labor))
+    ]
+    return (
+        f"{{:industry {industry}, :product {product}, :s 1, :du 3.0, :c 0.61, :a 2.0, "
+        f":production-inputs [{segments}], " + ", ".join(exponents) + "}"
+    )
+
+
+def consumer_record(private_exponents, public_exponents, income):
+    """One `ccs` map with the given utility exponents and income."""
+    private = " ".join(str(value) for value in private_exponents)
+    public = " ".join(str(value) for value in public_exponents)
+    return (
+        f"{{:utility-exponents [{private}], :public-good-exponents [{public}], "
+        f":income {income}}}"
+    )
+
+
+def write_scenario(path, consumers, units) -> str:
+    """Gzips a dep1ex source file built from the two record lists and returns its path."""
+    separator = "\n "
+    body = "(ns fixture)\n\n(def ccs \n[{}]\n)\n\n(def wcs \n[{}]\n)\n".format(
+        separator.join(consumers), separator.join(units)
+    )
+    with gzip.open(path, "wt", encoding="utf-8") as handle:
+        handle.write(body)
+    return str(path)
+
+
+def test_goods_sections_are_sized_by_the_input_numbers_not_by_product(tmp_path):
+    """`:product` numbers the private and public sections, which have their own lengths."""
+    n_priv, n_pub, largest_input = 4, 2, 3
+    consumers = [consumer_record([0.2] * n_priv, [0.2] * n_pub, 5000) for _ in range(2)]
+    units = [unit_record(0, product, [1, 2], [1, 2, 3], [1, 2, 3]) for product in range(1, 5)]
+    units += [unit_record(1, product, [1, 2], [1, 2, 3], [1, 2, 3]) for product in range(1, 4)]
+    units += [unit_record(2, product, [1, 2], [1, 2, 3], [1, 2, 3]) for product in range(1, 3)]
+    path = write_scenario(tmp_path / "product-past-inputs.clj.gz", consumers, units)
+
+    loaded = _core.load_dep1ex(path, ENDOWMENT)
+
+    assert loaded["commodity_id"].shape == (n_priv + n_pub + 3 * largest_input,)
+    expected = np.concatenate(
+        [
+            np.zeros(n_priv, dtype=np.int8),
+            np.ones(n_pub, dtype=np.int8),
+            np.full(largest_input, 2, dtype=np.int8),
+            np.full(largest_input, 3, dtype=np.int8),
+            np.full(largest_input, 4, dtype=np.int8),
+        ]
+    )
+    assert np.array_equal(loaded["commodity_kind"], expected)
+
+
+def test_every_commodity_is_reachable_from_some_unit_or_consumer(tmp_path):
+    """A section sized by the wrong rule leaves commodities nothing produces or uses."""
+    consumers = [consumer_record([0.2] * 4, [0.2] * 2, 5000) for _ in range(2)]
+    units = [unit_record(0, product, [1, 2], [1, 2, 3], [1, 2, 3]) for product in range(1, 5)]
+    units += [unit_record(1, product, [1, 2], [1, 2, 3], [1, 2, 3]) for product in range(1, 4)]
+    units += [unit_record(2, product, [1, 2], [1, 2, 3], [1, 2, 3]) for product in range(1, 3)]
+    path = write_scenario(tmp_path / "no-phantoms.clj.gz", consumers, units)
+
+    loaded = _core.load_dep1ex(path, ENDOWMENT)
+
+    touched = set(loaded["input_commodity"].tolist())
+    touched |= set(loaded["output_commodity"].tolist())
+    touched |= set(loaded["consumer_extra"]["utility_exponent_commodity"].tolist())
+    assert sorted(touched) == list(range(loaded["commodity_id"].shape[0]))
+
+
+def test_a_product_number_past_its_section_is_rejected(tmp_path):
+    """Unchecked, `:product` 3 with two private goods makes a private unit produce a public good."""
+    consumers = [consumer_record([0.5, 0.25], [0.125, 0.0625], 5000) for _ in range(2)]
+    units = [
+        unit_record(0, 3, [1], [1], [1]),
+        unit_record(1, 1, [1], [1], [1]),
+        unit_record(2, 1, [1], [1], [1]),
+    ]
+    path = write_scenario(tmp_path / "product-past-section.clj.gz", consumers, units)
+
+    with pytest.raises(_core.LoadError) as excinfo:
+        _core.load_dep1ex(path, ENDOWMENT)
+
+    message = str(excinfo.value)
+    assert "production unit 0" in message
+    assert "private" in message
+    assert "[1, 2]" in message
+
+
+def test_an_input_number_below_one_is_rejected(tmp_path):
+    """Unchecked, intermediate input 0 lands in the public section."""
+    consumers = [consumer_record([0.5, 0.25], [0.125, 0.0625], 5000) for _ in range(2)]
+    units = [
+        unit_record(0, 1, [0], [1], [1]),
+        unit_record(1, 1, [1], [1], [1]),
+        unit_record(2, 1, [1], [1], [1]),
+    ]
+    path = write_scenario(tmp_path / "input-below-one.clj.gz", consumers, units)
+
+    with pytest.raises(_core.LoadError) as excinfo:
+        _core.load_dep1ex(path, ENDOWMENT)
+
+    message = str(excinfo.value)
+    assert "production unit 0" in message
+    assert "intermediate" in message
 
 
 # ---- timing ----

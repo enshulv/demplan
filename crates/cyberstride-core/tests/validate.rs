@@ -380,6 +380,42 @@ fn validate_rejects_integer_extra_shape_whose_product_differs_from_the_data_leng
     ));
 }
 
+#[test]
+fn validate_rejects_a_non_finite_value_in_a_float_extra_array() {
+    let mut economy = valid_economy();
+    economy.unit_extra.insert(
+        "effort_c".to_string(),
+        ExtraArray::F64 {
+            shape: vec![2],
+            data: vec![0.61, f64::NAN],
+        },
+    );
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraNonFinite { bag, ref key, index, value }
+            if bag == "unit_extra" && key == "effort_c" && index == 1 && value.is_nan()
+    ));
+}
+
+#[test]
+fn validate_rejects_an_infinite_value_in_a_two_dimensional_extra_array() {
+    let mut economy = valid_economy();
+    economy.consumer_extra.insert(
+        "utility_exponent".to_string(),
+        ExtraArray::F64 {
+            shape: vec![2, 1],
+            data: vec![0.5, f64::INFINITY],
+        },
+    );
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraNonFinite { bag, ref key, index, .. }
+            if bag == "consumer_extra" && key == "utility_exponent" && index == 1
+    ));
+}
+
 /// `utility_exponent_commodity` maps exponent columns to commodities, so its
 /// first dimension is the column count rather than the consumer count. It is the
 /// sole key exempt from the row-count rule.

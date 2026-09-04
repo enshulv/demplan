@@ -155,6 +155,51 @@ class TestDivergence:
         assert result.diverged is False
         assert result.converged is True
 
+    def test_divergence_is_seen_without_keeping_the_trajectory(self):
+        """Watching for divergence costs one ``plan_of`` call a round, not one plan kept."""
+        def plan_of(state: int) -> Plan:
+            return plan_with(np.inf if state == 3 else 1.0)
+
+        result = iterate(
+            lambda: 0,
+            lambda s: s + 1,
+            lambda s: False,
+            10,
+            plan_of=plan_of,
+            keep_trajectory=False,
+        )
+        assert result.diverged is True
+        assert result.converged is False
+        assert result.rounds == 3
+        assert result.trajectory is None
+
+    def test_not_keeping_the_trajectory_leaves_the_round_count_alone(self):
+        plans = []
+
+        def plan_of(state: int) -> Plan:
+            plans.append(state)
+            return plan_with(float(state))
+
+        result = iterate(
+            lambda: 0, lambda s: s + 1, lambda s: s == 4, 10, plan_of=plan_of,
+            keep_trajectory=False,
+        )
+        assert result.rounds == 4
+        assert result.converged is True
+        assert result.trajectory is None
+        assert plans == [1, 2, 3, 4]
+
+    def test_keeping_the_trajectory_is_the_default_when_plan_of_is_given(self):
+        result = iterate(
+            lambda: 0, lambda s: s + 1, lambda s: s == 2, 10, plan_of=lambda s: plan_with(1.0)
+        )
+        assert result.trajectory is not None
+        assert len(result.trajectory) == 2
+
+    def test_keeping_the_trajectory_without_plan_of_still_yields_nothing(self):
+        result = iterate(lambda: 0, lambda s: s + 1, lambda s: s == 2, 10, keep_trajectory=True)
+        assert result.trajectory is None
+
     def test_without_plan_of_the_library_cannot_see_divergence(self):
         result = iterate(
             lambda: 0.0, lambda s: float("nan"), lambda s: s == 0.0, max_rounds=3

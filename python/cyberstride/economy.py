@@ -5,10 +5,12 @@ coordination procedure needs about the period is here; anything that carries a c
 one school of economics belongs in an ``extra`` bag or in the procedure's own state. In
 particular there are no prices: valuations live on ``Plan``.
 
-The arrays are made read-only on construction. A frozen dataclass stops fields from being
-rebound but does nothing about writing through a numpy array, and a procedure that quietly
-edited its input would break the promise that two runs on the same economy are comparable.
-Evolve an economy with :func:`dataclasses.replace`, which revalidates the result.
+The fields hold read-only views of the arrays passed in. A frozen dataclass stops fields from
+being rebound but does nothing about writing through a numpy array, and a procedure that
+quietly edited its input would break the promise that two runs on the same economy are
+comparable. The caller's own arrays stay writeable; the read-only flag is a numpy flag, so a
+caller who kept a handle on the underlying buffer can still write through it. Evolve an
+economy with :func:`dataclasses.replace`, which revalidates the result.
 """
 
 from __future__ import annotations
@@ -86,9 +88,16 @@ They are the one shape of extra whose leading dimension is not the row count of 
 
 
 def _freeze_array(value):
-    if isinstance(value, np.ndarray):
-        value.flags.writeable = False
-    return value
+    """Read-only view of ``value``, or ``value`` itself when it is not an array.
+
+    A view rather than the array itself, so that constructing an ``Economy`` or a ``Plan``
+    around a caller's buffer does not take that buffer away from the caller.
+    """
+    if not isinstance(value, np.ndarray):
+        return value
+    frozen = value.view()
+    frozen.flags.writeable = False
+    return frozen
 
 
 def _freeze_bag(bag: Mapping[str, np.ndarray]) -> Mapping[str, np.ndarray]:
@@ -181,7 +190,7 @@ class Economy:
 
     def __post_init__(self) -> None:
         for name in _ALL_COLUMNS:
-            _freeze_array(getattr(self, name))
+            object.__setattr__(self, name, _freeze_array(getattr(self, name)))
         for bag in _EXTRA_BAGS:
             object.__setattr__(self, bag, _freeze_bag(getattr(self, bag)))
         self.validate()

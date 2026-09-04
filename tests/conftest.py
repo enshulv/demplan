@@ -20,10 +20,6 @@ from reference import dep1ex_numpy, synthetic  # noqa: E402
 from reference.paths import dep1ex_available, dep1ex_path  # noqa: E402
 
 
-def pytest_configure(config):
-    config.addinivalue_line("markers", "slow: needs every dep1ex archive; takes minutes")
-
-
 @pytest.fixture(scope="session")
 def dep1ex01_parsed():
     """``(wc, cc, layout)`` from the numpy reference parse of dep1ex01."""

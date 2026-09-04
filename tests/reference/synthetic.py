@@ -17,6 +17,8 @@ real data; this economy separates them.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 
 from cyberstride import CommodityKind, Economy, TechnologyKind
@@ -52,7 +54,9 @@ UNITS = (
 
 TECHNOLOGY_SCALE = (5.0, 4.6, 5.4, 4.8, 5.2, 5.0, 4.9, 5.1, 4.7)
 EFFORT_C = (0.08, 0.07, 0.09, 0.075, 0.085, 0.08, 0.078, 0.082, 0.072)
-EFFORT_S = (1.0,) * 9
+EFFORT_S = (1.0, 1.5, 2.0, 1.0, 1.5, 2.0, 1.0, 1.5, 2.0)
+"""Effort scale of each unit. The values differ so that the ``c * log(effort_s)`` term of the
+worker-council closed form is exercised; at a uniform 1.0 the term is identically zero."""
 EFFORT_K = (3.3, 3.1, 3.5, 3.2, 3.4, 3.3, 3.25, 3.35, 3.15)
 
 # Cobb-Douglas utility exponents, three private goods then three public goods per consumer.
@@ -111,6 +115,50 @@ def build_economy() -> Economy:
             "entitlement": np.full(N_CONSUMERS, ENTITLEMENT, dtype=np.float64),
             "utility_exponent": np.array(UTILITY_EXPONENT, dtype=np.float64),
             "utility_exponent_commodity": np.arange(2 * N_PER_CLASS, dtype=np.int64),
+        },
+    )
+
+
+NEW_COMMODITY_OF_OLD = np.array(
+    [1, 3, 5, 0, 2, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14], dtype=np.int64
+)
+"""Commodity renumbering used by :func:`build_permuted_economy`.
+
+It interleaves the public goods with the private ones at the low identifiers, so that neither
+the private commodities nor the private utility-exponent columns come first.
+"""
+
+
+def build_permuted_economy() -> Economy:
+    """:func:`build_economy` with the commodities renumbered.
+
+    Same economy, different identifiers. On dep1ex, and on :func:`build_economy`, the private
+    goods hold the lowest commodity identifiers and the first utility-exponent columns, so
+    code that picks the private goods by position rather than by ``commodity_kind`` passes
+    there. Here it does not.
+    """
+    base = build_economy()
+    new_of_old = NEW_COMMODITY_OF_OLD
+    order = np.argsort(new_of_old[np.arange(2 * N_PER_CLASS)])
+
+    kind = np.empty(N_COMMODITIES, dtype=np.int8)
+    kind[new_of_old] = np.asarray(base.commodity_kind)
+    endowment = np.empty(N_COMMODITIES, dtype=np.float64)
+    endowment[new_of_old] = np.asarray(base.endowment)
+
+    exponents = np.asarray(base.consumer_extra["utility_exponent"])[:, order]
+    return dataclasses.replace(
+        base,
+        commodity_kind=kind,
+        endowment=endowment,
+        output_commodity=new_of_old[np.asarray(base.output_commodity)],
+        input_commodity=new_of_old[np.asarray(base.input_commodity)],
+        consumer_extra={
+            "entitlement": np.asarray(base.consumer_extra["entitlement"]),
+            "utility_exponent": exponents,
+            "utility_exponent_commodity": new_of_old[
+                np.asarray(base.consumer_extra["utility_exponent_commodity"])[order]
+            ],
         },
     )
 

@@ -65,6 +65,21 @@ class TestImmutability:
         array = getattr(plan, field)
         assert array.flags.writeable is False
 
+    def test_construction_leaves_the_callers_arrays_writeable(self, synthetic_economy):
+        """Freezing is the plan's own promise, not a side effect on the caller's buffer."""
+        output = np.ones(synthetic_economy.n_units)
+        price = np.full(synthetic_economy.n_commodities, 700.0)
+        Plan(
+            output=output,
+            input_use=np.ones(synthetic_economy.n_inputs),
+            consumption=np.ones((synthetic_economy.n_consumers, 0)),
+            consumption_commodity=np.zeros(0, dtype=np.int64),
+            provision=np.zeros(synthetic_economy.n_commodities),
+            valuation={INDICATIVE_PRICE: price},
+        )
+        assert output.flags.writeable is True
+        assert price.flags.writeable is True
+
     def test_valuation_is_a_read_only_mapping(self, plan):
         with pytest.raises(TypeError):
             plan.valuation["injected"] = np.zeros(1)
@@ -131,6 +146,115 @@ class TestValidate:
         broken = dataclasses.replace(plan, consumption=plan.consumption.reshape(-1))
         with pytest.raises(SchemaError, match="consumption"):
             broken.validate(synthetic_economy)
+
+
+class TestExtraBag:
+    """``extra`` carries physical quantities the fixed fields have no column for."""
+
+    def test_it_defaults_to_empty(self, plan):
+        assert dict(plan.extra) == {}
+
+    def test_it_is_a_read_only_mapping(self, plan, synthetic_economy):
+        carried = dataclasses.replace(
+            plan, extra={"effort": np.ones(synthetic_economy.n_units)}
+        )
+        with pytest.raises(TypeError):
+            carried.extra["injected"] = np.zeros(1)
+        assert carried.extra["effort"].flags.writeable is False
+
+    @pytest.mark.parametrize("rows", ["n_units", "n_consumers", "n_commodities"])
+    def test_each_of_the_three_row_counts_is_accepted(self, plan, synthetic_economy, rows):
+        length = getattr(synthetic_economy, rows)
+        carried = dataclasses.replace(plan, extra={"whatever": np.ones(length)})
+        carried.validate(synthetic_economy)
+
+    def test_a_leading_dimension_matching_none_of_the_three_is_rejected(
+        self, plan, synthetic_economy
+    ):
+        odd = 1 + max(
+            synthetic_economy.n_units,
+            synthetic_economy.n_consumers,
+            synthetic_economy.n_commodities,
+        )
+        carried = dataclasses.replace(plan, extra={"effort": np.ones(odd)})
+        with pytest.raises(SchemaError, match=r"Plan\.extra\['effort'\]"):
+            carried.validate(synthetic_economy)
+
+    @pytest.mark.parametrize("bad", [np.nan, np.inf])
+    def test_a_non_finite_entry_is_rejected(self, plan, synthetic_economy, bad):
+        values = np.ones(synthetic_economy.n_units)
+        values[0] = bad
+        carried = dataclasses.replace(plan, extra={"effort": values})
+        with pytest.raises(SchemaError, match=r"Plan\.extra\['effort'\]"):
+            carried.validate(synthetic_economy)
+
+    def test_a_non_array_value_is_rejected(self, plan, synthetic_economy):
+        carried = dataclasses.replace(plan, extra={"effort": [1.0, 2.0]})
+        with pytest.raises(SchemaError, match=r"Plan\.extra\['effort'\]"):
+            carried.validate(synthetic_economy)
+
+
+class TestAccessorsRejectMisshapenPlans:
+    """A plan built for a different economy has to be named, not silently aggregated.
+
+    ``total_consumption`` in particular scatters into a commodity-length vector whatever the
+    consumption block's shape, so without a check it answers with a wrong vector rather than
+    an error.
+    """
+
+    ACCESSORS = ("total_output", "total_input_use", "total_consumption", "endowment_use")
+
+    @pytest.mark.parametrize("accessor", ACCESSORS)
+    def test_a_short_output_column_is_named(self, plan, synthetic_economy, accessor):
+        broken = dataclasses.replace(plan, output=np.zeros(5))
+        with pytest.raises(SchemaError) as excinfo:
+            getattr(broken, accessor)(synthetic_economy)
+        message = str(excinfo.value)
+        assert "Plan.output" in message
+        assert "5" in message
+        assert str(synthetic_economy.n_units) in message
+
+    @pytest.mark.parametrize("accessor", ACCESSORS)
+    def test_a_short_input_use_column_is_named(self, plan, synthetic_economy, accessor):
+        broken = dataclasses.replace(plan, input_use=np.zeros(2))
+        with pytest.raises(SchemaError, match=r"Plan\.input_use"):
+            getattr(broken, accessor)(synthetic_economy)
+
+    @pytest.mark.parametrize("accessor", ACCESSORS)
+    def test_a_short_provision_column_is_named(self, plan, synthetic_economy, accessor):
+        broken = dataclasses.replace(plan, provision=np.zeros(2))
+        with pytest.raises(SchemaError, match=r"Plan\.provision"):
+            getattr(broken, accessor)(synthetic_economy)
+
+    @pytest.mark.parametrize("accessor", ACCESSORS)
+    def test_a_consumption_block_with_the_wrong_row_count_is_named(
+        self, plan, synthetic_economy, accessor
+    ):
+        broken = dataclasses.replace(plan, consumption=plan.consumption[:-1])
+        with pytest.raises(SchemaError, match=r"Plan\.consumption"):
+            getattr(broken, accessor)(synthetic_economy)
+
+    @pytest.mark.parametrize("accessor", ACCESSORS)
+    def test_a_consumption_commodity_outside_the_commodity_range_is_named(
+        self, plan, synthetic_economy, accessor
+    ):
+        columns = plan.consumption_commodity.copy()
+        columns[0] = synthetic_economy.n_commodities
+        broken = dataclasses.replace(plan, consumption_commodity=columns)
+        with pytest.raises(SchemaError, match=r"Plan\.consumption_commodity"):
+            getattr(broken, accessor)(synthetic_economy)
+
+    def test_total_consumption_does_not_answer_for_a_plan_of_another_size(
+        self, plan, synthetic_economy
+    ):
+        """A five-unit plan is refused against a nine-unit economy, not aggregated into one."""
+        broken = dataclasses.replace(
+            plan,
+            output=np.zeros(5),
+            consumption=np.ones((2, 3)),
+        )
+        with pytest.raises(SchemaError):
+            broken.total_consumption(synthetic_economy)
 
 
 class TestDerivedAccessors:

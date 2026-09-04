@@ -18,10 +18,12 @@
 //! | natural resource     | 3                | `n_goods`                                 |
 //! | labour               | 4                | `n_goods`                                 |
 //!
-//! `n_goods` is the largest number appearing in `:product` or in any of the three
-//! `:production-inputs` segments. The natural resource and labour sections carry
-//! the `endowment` argument; every other section carries zero, because those
-//! commodities have to be produced.
+//! `n_goods` is the largest number appearing in the three `:production-inputs`
+//! segments. `:product` numbers the private and public sections instead, which
+//! are sized by the consumption unit exponent counts, so it takes no part in
+//! `n_goods`. The natural resource and labour sections carry the `endowment`
+//! argument; every other section carries zero, because those commodities have to
+//! be produced.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -47,6 +49,11 @@ const PRODUCTION_UNIT: &str = "production unit";
 
 /// The three input segments of `:production-inputs`, in file order.
 const SEGMENT_NAMES: [&str; 3] = ["intermediate", "nature", "labor"];
+
+/// Name of the section `:industry 0` numbers with `:product`.
+const SECTION_PRIVATE: &str = "private";
+/// Name of the section `:industry 2` numbers with `:product`.
+const SECTION_PUBLIC: &str = "public";
 
 /// `:industry` value placing the output in the private consumption section.
 const INDUSTRY_PRIVATE: i64 = 0;
@@ -171,6 +178,26 @@ pub enum LoadError {
         count: usize,
         /// Number of exponents the first record set.
         expected: usize,
+    },
+
+    /// A commodity number does not fall inside the section it is written in.
+    ///
+    /// Numbering restarts at 1 in every section, so an out-of-range number is not
+    /// a missing commodity: it silently addresses a row of the neighbouring
+    /// section, which carries a different `commodity_kind`.
+    #[error(
+        "production unit {unit}: commodity number {value} in the {section} \
+         section is outside the range [1, {bound}]"
+    )]
+    SectionNumber {
+        /// Position of the production unit within its vector.
+        unit: usize,
+        /// Section the number is written in.
+        section: &'static str,
+        /// Number found.
+        value: i64,
+        /// Largest number the section holds.
+        bound: usize,
     },
 
     /// The assembled economy breaches the data model.
@@ -756,14 +783,17 @@ fn assemble(
         })
         .collect();
 
-    let mut output_commodity = Vec::with_capacity(units.product.len());
+    let n_units = units.product.len();
+
+    let mut output_commodity = Vec::with_capacity(n_units);
     for (unit, (&industry, &product)) in units.industry.iter().zip(&units.product).enumerate() {
-        let base = match industry {
-            INDUSTRY_PRIVATE => base_private,
-            INDUSTRY_INTERMEDIATE => base_intermediate,
-            INDUSTRY_PUBLIC => base_public,
+        let (base, section, bound) = match industry {
+            INDUSTRY_PRIVATE => (base_private, SECTION_PRIVATE, n_priv),
+            INDUSTRY_INTERMEDIATE => (base_intermediate, SEGMENT_NAMES[0], n_goods),
+            INDUSTRY_PUBLIC => (base_public, SECTION_PUBLIC, n_pub),
             value => return Err(LoadError::UnknownIndustry { unit, value }),
         };
+        check_section_number(unit, section, product, bound)?;
         output_commodity.push(base + product - 1);
     }
 
@@ -771,11 +801,16 @@ fn assemble(
     // the section the segment maps to, in place.
     let segment_base = [base_intermediate, base_nature, base_labor];
     let mut input_commodity = units.input_number;
-    for (value, &segment) in input_commodity.iter_mut().zip(&units.input_segment) {
-        *value = segment_base[segment as usize] + *value - 1;
+    for unit in 0..n_units {
+        let window = units.input_offsets[unit] as usize..units.input_offsets[unit + 1] as usize;
+        for index in window {
+            let segment = units.input_segment[index] as usize;
+            let number = input_commodity[index];
+            check_section_number(unit, SEGMENT_NAMES[segment], number, n_goods)?;
+            input_commodity[index] = segment_base[segment] + number - 1;
+        }
     }
 
-    let n_units = units.product.len();
     let unit_extra = BTreeMap::from([
         (
             "effort_c".to_string(),
@@ -849,17 +884,36 @@ fn assemble(
     })
 }
 
-/// Returns the largest commodity number written in the production unit records.
+/// Rejects a commodity number written outside the section that numbers it.
+///
+/// Every section restarts its numbering at 1, so a number past the end of its
+/// section still lands on a valid row: the row belongs to the next section and
+/// carries a different `commodity_kind`, which decides endowment use, material
+/// balance and public-good pricing.
+fn check_section_number(
+    unit: usize,
+    section: &'static str,
+    value: i64,
+    bound: usize,
+) -> Result<(), LoadError> {
+    if value < 1 || value > bound as i64 {
+        return Err(LoadError::SectionNumber {
+            unit,
+            section,
+            value,
+            bound,
+        });
+    }
+    Ok(())
+}
+
+/// Returns the largest commodity number written in the three input segments.
 ///
 /// The file numbers intermediate goods, natural resources and labour with the
-/// same range, so one count sizes all three sections.
+/// same range, so one count sizes all three sections. `:product` is excluded: it
+/// numbers the private and public sections, whose lengths come from the
+/// consumption unit exponent counts.
 fn largest_commodity_number(units: &ProductionUnits) -> usize {
-    let largest = units
-        .product
-        .iter()
-        .chain(&units.input_number)
-        .copied()
-        .max()
-        .unwrap_or(0);
+    let largest = units.input_number.iter().copied().max().unwrap_or(0);
     largest.max(0) as usize
 }

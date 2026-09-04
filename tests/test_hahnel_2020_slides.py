@@ -8,6 +8,7 @@ experiments; they enter through the reference run, not through the prefab.
 
 from __future__ import annotations
 
+import dataclasses
 import gc
 import statistics
 import time
@@ -15,8 +16,21 @@ import time
 import numpy as np
 import pytest
 
-from cyberstride import INDICATIVE_PRICE, CommodityKind, check_determinism, run
+from cyberstride import (
+    INDICATIVE_PRICE,
+    CommodityKind,
+    TechnologyKind,
+    check_determinism,
+    iterate,
+    run,
+)
 from cyberstride.prefabs import HahnelSlides2020
+from cyberstride.prefabs.hahnel_2020_slides import (
+    CouncilModel,
+    _relative_imbalance,
+    slides_2020_rule,
+)
+from cyberstride.tools import segment_sum, unit_of_input
 from reference import synthetic
 from reference.dep1ex_numpy import (
     Dep1exLayout,
@@ -51,6 +65,12 @@ class TestSyntheticEconomy:
         assert result.summary.converged is True
         assert result.summary.rounds is not None
         assert result.summary.rounds < HahnelSlides2020().max_rounds
+
+    def test_the_fixture_exercises_the_effort_scale_term(self, synthetic_economy):
+        """``c * log(effort_s)`` vanishes from the closed form when every ``effort_s`` is 1,
+        which would leave the differential tests below blind to that term."""
+        effort_s = np.asarray(synthetic_economy.unit_extra["effort_s"])
+        assert np.count_nonzero(np.log(effort_s)) > 0
 
     def test_round_count_matches_the_reference(self, synthetic_economy, synthetic_reference_rounds):
         expected_rounds, _, _ = synthetic_reference_rounds
@@ -129,6 +149,25 @@ class TestSyntheticEconomy:
         for plan in result.summary.trajectory:
             plan.validate(synthetic_economy)
 
+    def test_the_returned_plan_is_the_last_round_recorded_or_not(self, synthetic_economy):
+        """The plan a run answers with is the round that stopped it, either way it is driven."""
+        recorded = run(HahnelSlides2020(record_trajectory=True), synthetic_economy, seed=0)
+        quiet = run(HahnelSlides2020(), synthetic_economy, seed=0)
+        last = recorded.summary.trajectory[-1]
+        assert len(recorded.summary.trajectory) > 1
+
+        for field in ("output", "input_use", "consumption", "consumption_commodity", "provision"):
+            np.testing.assert_array_equal(getattr(recorded.plan, field), getattr(last, field))
+            np.testing.assert_array_equal(getattr(quiet.plan, field), getattr(last, field))
+        np.testing.assert_array_equal(
+            recorded.plan.valuation[INDICATIVE_PRICE], last.valuation[INDICATIVE_PRICE]
+        )
+        np.testing.assert_array_equal(
+            quiet.plan.valuation[INDICATIVE_PRICE], last.valuation[INDICATIVE_PRICE]
+        )
+        for key in ("effort", "public_demand"):
+            np.testing.assert_array_equal(quiet.plan.extra[key], last.extra[key])
+
     def test_the_first_trajectory_entry_is_priced_at_the_initial_price(self, synthetic_economy):
         procedure = HahnelSlides2020(record_trajectory=True, initial_price=640.0)
         result = run(procedure, synthetic_economy, seed=0)
@@ -156,6 +195,394 @@ class TestSyntheticEconomy:
         report = check_determinism(HahnelSlides2020(), synthetic_economy, 0, n=3)
         assert report.identical is True
         assert report.differing_fields == []
+
+
+def output_from_the_production_function(economy, plan):
+    """``a * effort**c * prod(x_j ** b_j)`` per unit, read back from the plan.
+
+    Written out here rather than taken from the prefab, so that a prefab that dropped the
+    effort factor would not also drop it from the expectation.
+    """
+    owner = unit_of_input(economy)
+    exponent = np.asarray(economy.input_coefficient)
+    log_output = (
+        np.log(np.asarray(economy.technology_scale))
+        + np.asarray(economy.unit_extra["effort_c"])
+        * np.log(np.asarray(plan.extra["effort"]))
+        + segment_sum(economy, exponent * np.log(np.asarray(plan.input_use)), owner)
+    )
+    return np.exp(log_output)
+
+
+def upstream_output_and_effort(economy, price):
+    """``:output`` and ``:effort`` of the upstream closed form, at ``price``.
+
+    Transcribed from ``upstream/pequod-plus/src/clj/pequod_plus/csvgen.clj``, ``solution-3``,
+    whose ``output`` and ``effort`` are written out term by term for three inputs. The eight
+    ``solution-N`` bodies repeat the same terms once per input, so the sums below are that
+    same expression for any input count.
+
+    This is what pins the effort the prefab records. Reading it back off the production
+    function cannot: any value defined as the residual of that function satisfies it.
+    """
+    owner = unit_of_input(economy)
+    scale = np.asarray(economy.technology_scale)
+    exponent = np.asarray(economy.input_coefficient)
+    effort_c = np.asarray(economy.unit_extra["effort_c"])
+    effort_s = np.asarray(economy.unit_extra["effort_s"])
+    effort_k = np.asarray(economy.unit_extra["effort_k"])
+
+    log_own_price = np.log(price[np.asarray(economy.output_commodity)])
+    log_input_price = np.log(price[np.asarray(economy.input_commodity)])
+    exponent_sum = segment_sum(economy, exponent, owner)
+
+    numerator = (
+        -effort_k * np.log(scale)
+        - effort_k * segment_sum(economy, exponent * np.log(exponent), owner)
+        - effort_c * np.log(effort_c)
+        + effort_c * np.log(effort_k)
+        + effort_k * segment_sum(economy, exponent * log_input_price, owner)
+        + effort_c * np.log(effort_s)
+        - (effort_c + effort_k * exponent_sum) * log_own_price
+    )
+    denominator = effort_c - effort_k + effort_k * exponent_sum
+    log_output = numerator / denominator
+
+    log_effort = (
+        -np.log(scale)
+        - segment_sum(economy, exponent * np.log(exponent), owner)
+        + segment_sum(economy, exponent * log_input_price, owner)
+        - exponent_sum * log_own_price
+        + (1.0 - exponent_sum) * log_output
+    ) / effort_c
+    return np.exp(log_output), np.exp(log_effort)
+
+
+def imbalance_rebuilt_from(economy, plan):
+    """The relative imbalance per commodity, using nothing but the economy and the plan."""
+    supply = plan.total_output(economy) + np.asarray(economy.endowment)
+    demand = (
+        plan.total_input_use(economy)
+        + plan.total_consumption(economy)
+        + np.asarray(plan.extra["public_demand"])
+    )
+    total = supply + demand
+    return np.where(
+        total > 0, np.abs(2 * (supply - demand)) / np.where(total > 0, total, 1.0), 0.0
+    )
+
+
+class RecordingRule:
+    """``slides_2020_rule`` that keeps the imbalance vector of every round it is handed."""
+
+    def __init__(self):
+        self.imbalance = []
+
+    def __call__(self, price, surplus, imbalance):
+        self.imbalance.append(np.asarray(imbalance).copy())
+        return slides_2020_rule(price, surplus, imbalance)
+
+
+def with_a_negative_denominator(economy):
+    """Pushes one unit's ``effort_c`` just below ``effort_k * (1 - sum of exponents)``.
+
+    The worker councils' closed form divides by ``effort_c - effort_k + effort_k * B``. Just
+    below zero the exponentials overflow and the whole plan comes out non-finite.
+    """
+    effort_k = np.asarray(economy.unit_extra["effort_k"])
+    owner = unit_of_input(economy)
+    exponent_sum = segment_sum(economy, np.asarray(economy.input_coefficient), owner)
+    effort_c = np.array(economy.unit_extra["effort_c"], dtype=np.float64)
+    effort_c[0] = effort_k[0] - effort_k[0] * exponent_sum[0] - 1e-5
+    bag = dict(economy.unit_extra)
+    bag["effort_c"] = effort_c
+    return dataclasses.replace(economy, unit_extra=bag)
+
+
+class TestTechnologyGuard:
+    """The closed form is Cobb-Douglas; on a Leontief unit it would be a different theory."""
+
+    def test_an_all_leontief_economy_is_refused(self, synthetic_economy):
+        leontief = dataclasses.replace(
+            synthetic_economy,
+            technology_kind=np.full(
+                synthetic_economy.n_units, TechnologyKind.LEONTIEF, dtype=np.int8
+            ),
+        )
+        with pytest.raises(ValueError, match="Cobb-Douglas"):
+            run(HahnelSlides2020(), leontief, seed=0)
+
+    def test_one_leontief_unit_is_enough_and_the_message_names_it(self, synthetic_economy):
+        kinds = np.array(synthetic_economy.technology_kind, dtype=np.int8)
+        kinds[2] = TechnologyKind.LEONTIEF
+        mixed = dataclasses.replace(synthetic_economy, technology_kind=kinds)
+        with pytest.raises(ValueError, match="unit 2"):
+            run(HahnelSlides2020(), mixed, seed=0)
+
+
+class TestPermutedCommodityOrder:
+    """The private goods are picked by ``commodity_kind``, not by where they sit in the table."""
+
+    def test_the_fixture_does_not_put_the_private_goods_first(self):
+        economy = synthetic.build_permuted_economy()
+        kinds = np.asarray(economy.commodity_kind)
+        assert kinds[0] != CommodityKind.PRIVATE_GOOD
+
+        columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+        private_columns = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        assert private_columns.tolist() != list(range(private_columns.size))
+
+    def test_the_consumption_columns_are_still_the_private_goods(self):
+        economy = synthetic.build_permuted_economy()
+        plan = run(HahnelSlides2020(), economy, seed=0).plan
+        kinds = np.asarray(economy.commodity_kind)
+        columns = np.asarray(plan.consumption_commodity)
+
+        assert np.all(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        np.testing.assert_array_equal(
+            columns, economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
+        )
+        plan.validate(economy)
+
+    def test_the_provision_is_still_confined_to_the_public_goods(self):
+        economy = synthetic.build_permuted_economy()
+        plan = run(HahnelSlides2020(), economy, seed=0).plan
+        public = np.asarray(economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
+        provision = np.asarray(plan.provision)
+        assert np.all(provision[public] > 0.0)
+        assert provision[~public].sum() == 0.0
+
+    def test_renumbering_the_commodities_does_not_change_the_round_count(
+        self, synthetic_economy
+    ):
+        permuted = synthetic.build_permuted_economy()
+        assert (
+            run(HahnelSlides2020(), permuted, seed=0).summary.rounds
+            == run(HahnelSlides2020(), synthetic_economy, seed=0).summary.rounds
+        )
+
+
+class TestNonFiniteRuns:
+    """A plan of NaN is not a feasible plan, whatever the imbalance arithmetic says about it."""
+
+    def test_a_non_finite_supply_counts_as_fully_imbalanced(self):
+        supply = np.array([np.inf, 1.0, np.nan, 3.0])
+        demand = np.array([1.0, 1.0, 1.0, np.inf])
+        imbalance = _relative_imbalance(supply, demand)
+        assert imbalance[0] == np.inf
+        assert imbalance[1] == 0.0
+        assert imbalance[2] == np.inf
+        assert imbalance[3] == np.inf
+
+    def test_an_untouched_commodity_is_still_balanced(self):
+        imbalance = _relative_imbalance(np.array([0.0]), np.array([0.0]))
+        assert imbalance[0] == 0.0
+
+    def test_a_run_that_goes_non_finite_does_not_report_convergence(self, synthetic_economy):
+        economy = with_a_negative_denominator(synthetic_economy)
+        with np.errstate(all="ignore"):
+            result = run(HahnelSlides2020(), economy, seed=0)
+        assert result.summary.converged is False
+
+    def test_the_default_configuration_stops_at_the_non_finite_round(self, synthetic_economy):
+        economy = with_a_negative_denominator(synthetic_economy)
+        model = CouncilModel(economy, 5.0)
+        with np.errstate(all="ignore"):
+            result = iterate(
+                lambda: model.initial_state(700.0),
+                model.step,
+                model.converged,
+                250,
+                plan_of=model.plan_of,
+                keep_trajectory=False,
+            )
+        assert result.diverged is True
+        assert result.converged is False
+        assert result.trajectory is None
+
+    def test_recording_the_trajectory_does_not_change_the_verdict(self, synthetic_economy):
+        economy = with_a_negative_denominator(synthetic_economy)
+        with np.errstate(all="ignore"):
+            quiet = run(HahnelSlides2020(), economy, seed=0)
+            recorded = run(HahnelSlides2020(record_trajectory=True), economy, seed=0)
+        assert quiet.summary.converged == recorded.summary.converged
+        assert quiet.summary.rounds == recorded.summary.rounds
+
+
+class TestPlanRecordsWhatTheMechanismChose:
+    """Whatever the mechanism decided has to be readable back off the plan."""
+
+    def test_the_plan_reproduces_its_own_production_function(self, synthetic_economy):
+        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        np.testing.assert_allclose(
+            np.asarray(plan.output),
+            output_from_the_production_function(synthetic_economy, plan),
+            rtol=1e-9,
+            atol=0,
+        )
+
+    def test_effort_matches_the_upstream_closed_form(self, synthetic_economy):
+        model = CouncilModel(synthetic_economy, 5.0)
+        price = np.full(synthetic_economy.n_commodities, 700.0)
+        _, effort, _ = model._propose(price)
+
+        expected_output, expected_effort = upstream_output_and_effort(synthetic_economy, price)
+        np.testing.assert_allclose(effort, expected_effort, rtol=1e-12, atol=0)
+        np.testing.assert_allclose(
+            model._propose(price)[0], expected_output, rtol=1e-12, atol=0
+        )
+
+    def test_effort_matches_the_upstream_closed_form_at_an_uneven_price(
+        self, synthetic_economy
+    ):
+        """A flat price hides a term that only shows when the prices differ."""
+        model = CouncilModel(synthetic_economy, 5.0)
+        price = 100.0 + 800.0 * np.arange(
+            synthetic_economy.n_commodities, dtype=np.float64
+        ) / synthetic_economy.n_commodities
+        _, effort, _ = model._propose(price)
+
+        _, expected_effort = upstream_output_and_effort(synthetic_economy, price)
+        np.testing.assert_allclose(effort, expected_effort, rtol=1e-12, atol=0)
+
+    def test_effort_is_one_positive_value_per_unit(self, synthetic_economy):
+        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        effort = np.asarray(plan.extra["effort"])
+        assert effort.shape == (synthetic_economy.n_units,)
+        assert effort.dtype == np.float64
+        assert np.all(effort > 0.0)
+
+    def test_dropping_effort_would_not_reproduce_the_output(self, synthetic_economy):
+        """Without the effort factor the identity is off by a factor the tolerance rejects."""
+        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        owner = unit_of_input(synthetic_economy)
+        exponent = np.asarray(synthetic_economy.input_coefficient)
+        without_effort = np.exp(
+            np.log(np.asarray(synthetic_economy.technology_scale))
+            + segment_sum(
+                synthetic_economy, exponent * np.log(np.asarray(plan.input_use)), owner
+            )
+        )
+        assert not np.allclose(np.asarray(plan.output), without_effort, rtol=1e-9, atol=0)
+
+    def test_the_public_good_imbalance_is_the_one_the_mechanism_measured(
+        self, synthetic_economy
+    ):
+        rule = RecordingRule()
+        result = run(HahnelSlides2020(price_rule=rule), synthetic_economy, seed=0)
+        public = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
+
+        rebuilt = imbalance_rebuilt_from(synthetic_economy, result.plan)
+        np.testing.assert_allclose(
+            rebuilt[public], rule.imbalance[-1][public], rtol=1e-12, atol=0
+        )
+        assert rebuilt[public].max() > 0.0
+
+    def test_public_demand_is_zero_off_the_public_goods(self, synthetic_economy):
+        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        stated = np.asarray(plan.extra["public_demand"])
+        public = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
+        assert stated.shape == (synthetic_economy.n_commodities,)
+        assert np.all(stated[public] > 0.0)
+        assert stated[~public].sum() == 0.0
+
+    def test_provision_alone_says_nothing_about_the_public_good_balance(
+        self, synthetic_economy
+    ):
+        """The gap that ``provision`` produces is identically zero: it is the supply side."""
+        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        supply = plan.total_output(synthetic_economy) + np.asarray(synthetic_economy.endowment)
+        demand = (
+            plan.total_input_use(synthetic_economy)
+            + plan.total_consumption(synthetic_economy)
+            + np.asarray(plan.provision)
+        )
+        public = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
+        np.testing.assert_array_equal(supply[public], demand[public])
+
+
+class TestPriceRuleSeam:
+    """Swapping the price rule is the one change the slides procedure is built to take."""
+
+    def test_the_default_is_the_named_2020_rule(self, synthetic_economy):
+        default = run(HahnelSlides2020(), synthetic_economy, seed=0)
+        named = run(
+            HahnelSlides2020(price_rule=slides_2020_rule), synthetic_economy, seed=0
+        )
+        assert default.summary.rounds == named.summary.rounds
+        np.testing.assert_array_equal(default.plan.output, named.plan.output)
+        np.testing.assert_array_equal(
+            default.plan.valuation[INDICATIVE_PRICE], named.plan.valuation[INDICATIVE_PRICE]
+        )
+
+    def test_a_rule_that_never_moves_the_price_never_converges(self, synthetic_economy):
+        def frozen(price, surplus, imbalance):
+            return price
+
+        result = run(
+            HahnelSlides2020(price_rule=frozen, max_rounds=6), synthetic_economy, seed=0
+        )
+        assert result.summary.converged is False
+        assert result.summary.rounds == 6
+        np.testing.assert_array_equal(
+            result.plan.valuation[INDICATIVE_PRICE],
+            np.full(synthetic_economy.n_commodities, HahnelSlides2020().initial_price),
+        )
+
+    def test_the_rule_is_handed_the_surplus_and_the_imbalance_of_that_round(
+        self, synthetic_economy
+    ):
+        """Checked on the private goods, whose supply and demand the plan alone accounts for."""
+        seen = []
+
+        def recording(price, surplus, imbalance):
+            seen.append((price.copy(), surplus.copy(), imbalance.copy()))
+            return slides_2020_rule(price, surplus, imbalance)
+
+        result = run(
+            HahnelSlides2020(price_rule=recording, max_rounds=1, record_trajectory=True),
+            synthetic_economy,
+            seed=0,
+        )
+        plan = result.summary.trajectory[0]
+        _, surplus, imbalance = seen[0]
+
+        private = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PRIVATE_GOOD
+        supply = plan.total_output(synthetic_economy) + np.asarray(synthetic_economy.endowment)
+        demand = plan.total_input_use(synthetic_economy) + plan.total_consumption(
+            synthetic_economy
+        )
+        np.testing.assert_allclose(surplus[private], (supply - demand)[private], rtol=1e-12)
+        total = (supply + demand)[private]
+        np.testing.assert_allclose(
+            imbalance[private], np.abs(2 * (supply - demand)[private]) / total, rtol=1e-12
+        )
+
+    def test_a_custom_rule_matches_a_loop_assembled_from_the_council_model(
+        self, synthetic_economy
+    ):
+        """Driving ``CouncilModel`` through ``iterate`` by hand reaches the same fixed point."""
+        def proportional(price, surplus, imbalance):
+            return price * (1 - 0.2 * np.sign(surplus) * imbalance)
+
+        through_the_seam = run(
+            HahnelSlides2020(price_rule=proportional, max_rounds=60),
+            synthetic_economy,
+            seed=0,
+        )
+
+        model = CouncilModel(synthetic_economy, 5.0, price_rule=proportional)
+        by_hand = iterate(
+            lambda: model.initial_state(HahnelSlides2020().initial_price),
+            model.step,
+            model.converged,
+            60,
+        )
+        assert through_the_seam.summary.rounds == by_hand.rounds
+        assert through_the_seam.summary.converged == by_hand.converged
+        np.testing.assert_array_equal(
+            through_the_seam.plan.output, model.plan_of(by_hand.state).output
+        )
 
 
 @pytest.mark.skipif(not dep1ex_available(1), reason="dep1ex01 archive not available")
@@ -197,6 +624,36 @@ class TestDep1ex01:
             f"prefab {result.summary.wall_seconds:.2f}s "
             f"vs reference {reference_seconds:.2f}s"
         )
+
+    def test_the_plan_reproduces_its_own_production_function(self, dep1ex01_economy):
+        plan = run(HahnelSlides2020(), dep1ex01_economy, seed=0).plan
+        np.testing.assert_allclose(
+            np.asarray(plan.output),
+            output_from_the_production_function(dep1ex01_economy, plan),
+            rtol=1e-9,
+            atol=0,
+        )
+
+    def test_effort_matches_the_upstream_closed_form(self, dep1ex01_economy):
+        model = CouncilModel(dep1ex01_economy, 5.0)
+        price = np.full(dep1ex01_economy.n_commodities, 700.0)
+        _, effort, _ = model._propose(price)
+
+        _, expected_effort = upstream_output_and_effort(dep1ex01_economy, price)
+        np.testing.assert_allclose(effort, expected_effort, rtol=1e-12, atol=0)
+
+    def test_the_public_good_imbalance_is_the_one_the_mechanism_measured(
+        self, dep1ex01_economy
+    ):
+        rule = RecordingRule()
+        result = run(HahnelSlides2020(price_rule=rule), dep1ex01_economy, seed=0)
+        public = np.asarray(dep1ex01_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
+
+        rebuilt = imbalance_rebuilt_from(dep1ex01_economy, result.plan)
+        np.testing.assert_allclose(
+            rebuilt[public], rule.imbalance[-1][public], rtol=1e-12, atol=0
+        )
+        assert rebuilt[public].max() > 0.01
 
     def test_determinism_report(self, dep1ex01_economy):
         report = check_determinism(HahnelSlides2020(), dep1ex01_economy, 0, n=2)

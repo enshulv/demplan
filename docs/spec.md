@@ -98,7 +98,7 @@ Kantorovich 式线性规划，三者能跑在同一个 `Economy` 上，并由同
 | 消费单元 | `entitlement` | f64[n_consumers] | 消费额度，外生流量。dep1ex 的 `income` |
 | 消费单元 | `utility_exponent` | f64[n_consumers, k] | 柯布-道格拉斯效用指数。第 j 列对应的商品由 `utility_exponent_commodity` 给出 |
 | 消费单元 | `utility_exponent_commodity` | int64[k] | 上一项的列到商品的映射 |
-| 生产单元 | `effort_c`、`effort_s`、`effort_k` | f64[n_units] | dep1ex 工人议会闭式解的行为参数 `c`、`s`、`du` |
+| 生产单元 | `effort_c`、`effort_s`、`effort_k` | f64[n_units] | dep1ex 工人议会闭式解的参数 `c`、`s`、`du`。`c` 同时是生产函数里 effort 的指数 |
 
 `extra` 里每个数组的第一维等于该表的行数。**列映射键例外**：它们的形状是 `[k]`，
 k 是另一个二维 `extra` 数组的列数。目前登记的列映射键只有 `utility_exponent_commodity`。
@@ -118,10 +118,16 @@ k 是另一个二维 `extra` 数组的列数。目前登记的列映射键只有
             provision f64[n_commodities]（公共品「总共产多少、共享」；其他商品为 0）
 
 扩展层（机制特有）
-└── valuation：命名数组袋。预定义键 indicative_price / labor_value / shadow_price
-    （f64[n_commodities]，机制未定义的商品为 NaN）与 income（f64[n_consumers]）。
-    其余键自由
+├── valuation：命名数组袋。预定义键 indicative_price / labor_value / shadow_price
+│   （f64[n_commodities]，机制未定义的商品为 NaN）与 income（f64[n_consumers]）。
+│   其余键自由
+└── extra：命名数组袋，放机制特有的实物量。第一维等于 n_units、n_consumers 或 n_commodities 之一。
+    hahnel_2020_slides 写 effort（f64[n_units]，生产函数里的 effort 因子）
+    与 public_demand（f64[n_commodities]，机制用来算失衡的公共品需求，已除以消费单元数；非公共品为 0）
 ```
+
+dep1ex 的生产函数是 `Q = a · e^c · Π x_j^{b_j}`，`e` 是单元每轮选出的 effort，`c` 是 `effort_c`。
+`technology_kind = 1` 描述的是投入侧；完整关系要用 `Plan.extra["effort"]` 才重建得出。
 
 投入用量必须存进实物层，不能当派生量省掉——技术允许替代时，
 投入组合是机制选出来的决策，不是算出来的结果。
@@ -169,7 +175,9 @@ solve(economy, seed) -> Plan
 库另外提供**自愿使用**的循环工具 `iterate(init, step, converged, max_rounds)`。
 用了它，库拿到轮数、上限保护与发散检测；不用，只有最终结果。
 可选参数 `plan_of` 给出「本轮状态怎么看成一个计划」，
-库据此产出跨机制同定义的逐轮轨迹，供诊断用。
+库据此产出跨机制同定义的逐轮轨迹，供诊断用；`keep_trajectory=False` 时只用它检测发散，不保存轨迹。
+轮数定义：`rounds` 是到收敛为止 `step` 被调用的次数，判据在每次 `step` 之后检查，不在 `init` 之后检查。
+含非有限值的状态不算收敛。
 
 `State` 不受约束，是学者的任意对象，库不看里面。
 

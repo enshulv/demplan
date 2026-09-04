@@ -61,6 +61,19 @@ class TestImmutability:
         for array in mapping.values():
             assert array.flags.writeable is False
 
+    def test_construction_leaves_the_callers_column_writeable(self, synthetic_economy):
+        """Freezing is the economy's own promise, not a side effect on the caller's buffer."""
+        column = np.array(synthetic_economy.technology_scale, dtype=np.float64)
+        replaced(synthetic_economy, technology_scale=column)
+        assert column.flags.writeable is True
+        column[0] = 99.0
+
+    def test_construction_leaves_the_callers_extra_array_writeable(self, synthetic_economy):
+        bag = {key: np.array(value) for key, value in synthetic_economy.unit_extra.items()}
+        replaced(synthetic_economy, unit_extra=bag)
+        for array in bag.values():
+            assert array.flags.writeable is True
+
     def test_construction_does_not_share_the_caller_dict(self, synthetic_economy):
         source = dict(synthetic_economy.unit_extra)
         rebuilt = replaced(synthetic_economy, unit_extra=source)

@@ -47,15 +47,20 @@ from cyberstride.prefabs import HahnelSlides2020
 
 economy = load_dep1ex("dep1ex01.clj.gz")
 result = run(HahnelSlides2020(), economy, seed=0)
+plan = result.plan
 
-supply = result.plan.total_output(economy) + economy.endowment
-demand = (result.plan.total_input_use(economy)
-          + result.plan.total_consumption(economy)
-          + result.plan.provision)
+supply = plan.total_output(economy) + economy.endowment
+demand = (plan.total_input_use(economy)
+          + plan.total_consumption(economy)
+          + plan.extra["public_demand"])
 gap = np.abs(2 * (supply - demand)) / np.where(supply + demand > 0, supply + demand, 1.0)
 
 print(result.summary.rounds, result.summary.converged, gap.max())
 ```
+
+`plan.provision` is the supply side of a public good, the quantity produced and shared, and it
+is already inside `total_output`. The demand side is what the consumer councils asked for,
+which the prefab records as `plan.extra["public_demand"]`.
 
 Nothing in that last calculation is privileged. `Plan` stores the full configuration, so any
 measure of feasibility, cost or fairness you want to argue about is a few lines away from the
@@ -73,41 +78,40 @@ That is the whole interface. Implementing it is enough to get the data model, th
 the timing and round accounting and the determinism self-test; your code does not have to be
 merged into this library to get any of it.
 
-If your method drives a fixed point, running the loop through `iterate` lets the library count
-rounds, apply a cap and watch for divergence, none of which it can see from outside:
+If the change you want is to the price rule alone, `HahnelSlides2020` takes one. A price rule
+is a function of the price the proposals were made at, the surplus at that price and the
+relative imbalance, returning the next price. Everything else, the councils and the
+aggregation, stays as the 2020 slides describe it:
 
 ```python
 import numpy as np
-from cyberstride import iterate
+from cyberstride import run
+from cyberstride.prefabs import HahnelSlides2020
 
 
-class ProportionalRule:
-    """Move every price by a fixed fraction of its relative imbalance."""
+def proportional_rule(price, surplus, imbalance):
+    """Move every price by a fifth of its relative imbalance."""
+    return price * (1 - 0.2 * np.sign(surplus) * imbalance)
 
-    def __init__(self, gain=0.2, threshold_pct=5.0, max_rounds=200):
-        self.gain = gain
-        self.threshold_pct = threshold_pct
-        self.max_rounds = max_rounds
 
-    def solve(self, economy, seed):
-        def step(price):
-            plan = self.propose(economy, price)
-            supply = plan.total_output(economy) + economy.endowment
-            demand = (plan.total_input_use(economy) + plan.total_consumption(economy)
-                      + plan.provision)
-            scale = np.where(supply + demand > 0, supply + demand, 1.0)
-            return price * (1 + self.gain * (demand - supply) / scale)
-
-        def settled(price):
-            return self.worst_gap(economy, price) * 100 < self.threshold_pct
-
-        start = np.full(economy.n_commodities, 700.0)
-        return self.propose(economy, iterate(lambda: start, step, settled, self.max_rounds).state)
+result = run(HahnelSlides2020(price_rule=proportional_rule), economy, seed=0)
+print(result.summary.rounds, result.summary.converged)
 ```
 
-`propose` and `worst_gap` are yours: they are where your assumptions about how councils behave
-live. `cyberstride.tools` holds the closed forms of the two technologies the data model knows
-about, and `python/cyberstride/prefabs/hahnel_2020_slides.py` is a complete worked procedure.
+`cyberstride.prefabs.hahnel_2020_slides.slides_2020_rule` is the published rule in the same
+shape, so you can compare against it or wrap it.
+
+To change more than the rule, write `solve` yourself. `CouncilModel` in that same module is
+the councils' side of the slides procedure on its own, with `initial_state`, `step`,
+`converged` and `plan_of` in exactly the shape `iterate` takes, so a procedure that wants a
+different loop can drive it directly; using it commits you to the theory its docstring
+states. `cyberstride.tools` holds the closed forms of the two technologies the data model
+knows about.
+
+If your method drives a fixed point, running the loop through `iterate` lets the library count
+rounds, apply a cap and watch for divergence, none of which it can see from outside. Pass
+`plan_of` to say how a state reads as a plan; `keep_trajectory=False` keeps the divergence
+check without holding one plan per round.
 
 Round counting is worth one sentence of care, because published counts depend on it. `rounds`
 is the number of times `step` was called, and convergence is tested after each `step` and never
@@ -166,6 +170,45 @@ these names are conventions that loaders write and prefabs read.
 | consumer | `utility_exponent_commodity` | int64[k] | which commodity each of those columns is |
 | unit | `effort_c`, `effort_s`, `effort_k` | f64[n_units] | behavioural parameters of the dep1ex worker-council closed form |
 
+**Building one by hand.** Seven commodities, three producing units and two consumer units,
+with Leontief technology. Integer columns are int64 and the kind markers int8; `Economy`
+checks that, and the check is the reason a plan built for one economy cannot be quietly
+aggregated against another.
+
+```python
+import numpy as np
+from cyberstride import CommodityKind, Economy, TechnologyKind
+
+kinds = [CommodityKind.PRIVATE_GOOD, CommodityKind.PRIVATE_GOOD, CommodityKind.PUBLIC_GOOD,
+         CommodityKind.INTERMEDIATE, CommodityKind.INTERMEDIATE,
+         CommodityKind.NATURAL_RESOURCE, CommodityKind.LABOR]
+
+economy = Economy(
+    period=0,
+    commodity_id=np.arange(7, dtype=np.int64),
+    commodity_kind=np.array(kinds, dtype=np.int8),
+    endowment=np.array([0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 200.0]),
+    unit_id=np.arange(3, dtype=np.int64),
+    unit_group=np.array([0, 0, 1], dtype=np.int64),
+    output_commodity=np.array([0, 1, 2], dtype=np.int64),           # two private, one public
+    technology_kind=np.full(3, TechnologyKind.LEONTIEF, dtype=np.int8),
+    technology_scale=np.ones(3),
+    input_offsets=np.array([0, 3, 5, 8], dtype=np.int64),           # unit i owns [o[i], o[i+1])
+    input_commodity=np.array([3, 5, 6, 4, 6, 3, 4, 6], dtype=np.int64),
+    input_coefficient=np.array([0.4, 0.2, 0.5, 0.3, 0.6, 0.1, 0.2, 0.4]),
+    consumer_id=np.arange(2, dtype=np.int64),
+    consumer_group=np.array([0, 1], dtype=np.int64),
+    consumer_extra={"entitlement": np.array([1000.0, 1500.0]),
+                    "utility_exponent": np.array([[0.5, 0.3, 0.2], [0.4, 0.4, 0.2]]),
+                    "utility_exponent_commodity": np.arange(3, dtype=np.int64)},
+)
+economy.validate()
+```
+
+Construction validates already; the last line is there to say so. Nothing in this economy
+produces commodities 3 and 4, so a scenario you would draw conclusions from needs units for
+them; the schema does not require it.
+
 ## `Plan`
 
 One period's plan, in two layers.
@@ -190,6 +233,15 @@ labour times has no prices and one that iterates on prices has no labour times. 
 keys are `indicative_price`, `labor_value` and `shadow_price` (f64[n_commodities], with NaN
 for commodities the mechanism leaves undefined) and `income` (f64[n_consumers]). Any other key
 is yours.
+
+`extra` is a second named-array bag, for physical quantities the fixed fields have no column
+for. Each array is one row per producing unit, per consumer unit or per commodity. Two keys
+are conventions the dep1ex prefab writes:
+
+| key | shape | meaning |
+|---|---|---|
+| `effort` | f64[n_units] | effort each unit chose, when the production function has an effort factor |
+| `public_demand` | f64[n_commodities] | the demand for each public good the mechanism balanced against supply, already divided by the number of consumer councils; 0 elsewhere |
 
 Aggregates over commodities are accessors, not stored columns: `total_output`,
 `total_input_use`, `total_consumption` and `endowment_use`, each taking the economy the plan

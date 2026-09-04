@@ -41,6 +41,7 @@ def iterate(
     converged: Callable[[Any], bool],
     max_rounds: int,
     plan_of: Callable[[Any], Plan] | None = None,
+    keep_trajectory: bool = True,
 ) -> IterateResult:
     """Run ``step`` from ``init()`` until ``converged`` holds or ``max_rounds`` is spent.
 
@@ -49,24 +50,29 @@ def iterate(
     still costs one round. Published iteration counts depend on this: a prefab that reproduces
     "converged in 14 rounds" is reporting 14 calls to ``step``.
 
-    ``plan_of`` turns a state into a :class:`Plan`. Given one, the loop records a trajectory of
-    one plan per round and stops as soon as a plan's physical layer holds a non-finite value,
-    returning ``diverged=True``. Without it the library cannot see the state, so it detects no
+    ``plan_of`` turns a state into a :class:`Plan`. Given one, the loop calls it once a round
+    and stops as soon as a plan's physical layer holds a non-finite value, returning
+    ``diverged=True``. Without it the library cannot see the state, so it detects no
     divergence.
+
+    ``keep_trajectory`` decides whether those plans are also kept. Set it to ``False`` to watch
+    for divergence on a long run without holding one plan per round; ``trajectory`` is then
+    ``None``, as it is whenever ``plan_of`` is absent.
 
     Raises ``ValueError`` when ``max_rounds`` is below 1.
     """
     if max_rounds < 1:
         raise ValueError(f"max_rounds must be at least 1, got {max_rounds}")
 
-    trajectory: list[Plan] | None = [] if plan_of is not None else None
+    trajectory: list[Plan] | None = [] if plan_of is not None and keep_trajectory else None
     state = init()
     round_number = 0
     for round_number in range(1, max_rounds + 1):
         state = step(state)
         if plan_of is not None:
             plan = plan_of(state)
-            trajectory.append(plan)
+            if trajectory is not None:
+                trajectory.append(plan)
             if not _physically_finite(plan):
                 return _record(IterateResult(state, round_number, False, True, trajectory))
         if converged(state):

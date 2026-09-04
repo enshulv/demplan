@@ -39,9 +39,9 @@ def bench_numpy(path):
     t_load = time.perf_counter() - t0
     dims = (cc["priv_exp"].shape[1], cc["pub_exp"].shape[1], int(wc["coef"].max()) + 1)
     t0 = time.perf_counter()
-    rounds, _, worst = E.run(wc, cc, dims, 1000.0, "slides_capv", 5.0)
+    rounds, _, _ = E.run(wc, cc, dims, 1000.0, "slides_capv", 5.0)
     t_run = time.perf_counter() - t0
-    return t_load, t_run, rounds, worst, rss_mb()
+    return t_load, t_run, rounds, rss_mb()
 
 
 def bench_cyberstride(path):
@@ -51,8 +51,7 @@ def bench_cyberstride(path):
     t0 = time.perf_counter()
     result = cyberstride.run(HahnelSlides2020(), economy, seed=0)
     t_run = time.perf_counter() - t0
-    worst = getattr(result.summary, "worst_imbalance_pct", float("nan"))
-    return t_load, t_run, result.summary.rounds, worst, rss_mb()
+    return t_load, t_run, result.summary.rounds, rss_mb()
 
 
 def main(files):
@@ -62,7 +61,7 @@ def main(files):
         path = DATA / name
         rows = []
         for label, fn in (("numpy", bench_numpy), ("cyberstride", bench_cyberstride)):
-            t_load, t_run, rounds, worst, rss = fn(path)
+            t_load, t_run, rounds, rss = fn(path)
             rows.append((label, t_load, t_run, rounds, rss))
             print(f"{name[:8]:<10} {label:<12} {t_load:>8.2f} {t_run:>8.2f} {t_load + t_run:>8.2f} "
                   f"{rounds!s:>6} {rss:>7.0f}", flush=True)

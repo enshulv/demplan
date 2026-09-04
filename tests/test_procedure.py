@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from cyberstride import Plan, Procedure, RunResult, RunSummary, iterate, run
+from cyberstride.iterate import _recorder
 
 
 def trivial_plan(economy) -> Plan:
@@ -155,7 +156,11 @@ class TestRecorderScoping:
         assert outer.inner_result.summary.rounds == 2
 
     def test_the_recorder_is_cleared_after_run(self, synthetic_economy):
+        """``run`` restores the collector it found, so a later loop is not recorded into it."""
+        before = _recorder.get()
         run(LoopingProcedure(), synthetic_economy, seed=0)
+        assert _recorder.get() is before
+
         standalone = iterate(lambda: 0, lambda s: s + 1, lambda s: s >= 1, 5)
         assert standalone.rounds == 1
         follow_up = run(DirectProcedure(), synthetic_economy, seed=0)
@@ -167,7 +172,9 @@ class TestRecorderScoping:
                 iterate(lambda: 0, lambda s: s + 1, lambda s: s >= 3, 5)
                 raise RuntimeError("procedure blew up")
 
+        before = _recorder.get()
         with pytest.raises(RuntimeError, match="procedure blew up"):
             run(Failing(), synthetic_economy, seed=0)
+        assert _recorder.get() is before
         result = run(DirectProcedure(), synthetic_economy, seed=0)
         assert result.summary.rounds is None

@@ -264,6 +264,19 @@ pub enum SchemaError {
         expected: usize,
     },
 
+    /// A floating-point extra array holds a value that is not finite.
+    #[error("`{bag}[\"{key}\"]` holds {value} at index {index}, expected a finite value")]
+    ExtraNonFinite {
+        /// Bag the array belongs to.
+        bag: &'static str,
+        /// Key the array is stored under.
+        key: String,
+        /// Position of the offending value in the row-major payload.
+        index: usize,
+        /// Value found.
+        value: f64,
+    },
+
     /// An extra array has no dimensions at all.
     #[error("`{bag}[\"{key}\"]` has an empty shape, expected at least one dimension")]
     ExtraEmptyShape {
@@ -530,6 +543,19 @@ fn check_extra_bag(
                 product,
                 len: array.len(),
             });
+        }
+
+        if let ExtraArray::F64 { data, .. } = array {
+            if let Some((index, &value)) =
+                data.iter().enumerate().find(|(_, v)| !v.is_finite())
+            {
+                return Err(SchemaError::ExtraNonFinite {
+                    bag,
+                    key: key.clone(),
+                    index,
+                    value,
+                });
+            }
         }
 
         if COLUMN_MAPPING_EXTRA_KEYS.contains(&key.as_str()) {

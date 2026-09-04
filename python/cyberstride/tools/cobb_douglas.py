@@ -3,6 +3,11 @@
 Committing to this functional form is a theoretical choice, which is why it is a tool rather
 than part of the data model. The functions here answer one question only: at these input
 prices, which input bundle reaches a given output at least cost.
+
+The dep1ex prefab does not use this form. Its production function carries an effort factor,
+``Q = scale * effort**effort_c * prod(x_j ** b_j)``, so the bundle
+:func:`cost_minimizing_inputs` returns for a given output is not the bundle that prefab
+chose: it is the bundle for the same output with no effort factor at all.
 """
 
 from __future__ import annotations

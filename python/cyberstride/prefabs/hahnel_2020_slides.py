@@ -5,22 +5,28 @@ current indicative prices, every consumer council states the bundle its entitlem
 those prices, the facilitation board measures the relative imbalance of each commodity and
 moves prices against it. The run stops when the worst imbalance falls below the threshold.
 
-Two details decide whether the round count matches the published figures:
+Two details decide whether the round count matches the published figures. One belongs to the
+loop: the imbalance is measured on the proposals made at the current price, before the price
+is moved, so the round that reports convergence is the round whose price is reported. The
+other belongs to the price rule and is stated on :func:`slides_2020_rule`.
 
-* The imbalance is measured on the proposals made at the current price, before the price is
-  moved, so the round that reports convergence is the round whose price is reported.
-* The price step caps the imbalance at 0.25 first and then computes the step from the capped
-  value, ``w = v(1.05 - 0.5**v)``. Capping the step instead, or the 2023 paper's rule of
-  scaling the previous step, does not converge on the same data.
+The price rule is the seam. :class:`HahnelSlides2020` takes any :class:`PriceRule`; the
+councils' closed forms and the aggregation stay as the slides describe them.
 
 Public goods are priced per consumer unit: a consumer council facing a public good pays the
 listed price divided by the number of consumer units, and its stated demand counts once for
 the whole society rather than once per council.
+
+The production function is ``Q = a * e**c * prod(x_j ** b_j)``: the Cobb-Douglas input bundle
+of the data model with an effort factor, where ``e`` is the effort the worker council chose
+and ``c`` is ``effort_c``. Both the effort and the councils' stated demand for each public
+good go into ``Plan.extra``, because neither can be recovered from the physical layer.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from typing import Protocol
 
 import numpy as np
 
@@ -40,6 +46,21 @@ _REQUIRED_UNIT_KEYS = ("effort_c", "effort_s", "effort_k")
 _REQUIRED_CONSUMER_KEYS = ("entitlement", "utility_exponent", "utility_exponent_commodity")
 
 
+class PriceRule(Protocol):
+    """How the facilitation board turns one round's price into the next round's price.
+
+    The three arguments are ``f64[n_commodities]``: the price the proposals were made at,
+    supply minus demand at that price, and the relative imbalance
+    ``|2(supply - demand) / (supply + demand)|``. The return value is the next price, also
+    ``f64[n_commodities]``.
+    """
+
+    def __call__(
+        self, price: np.ndarray, surplus: np.ndarray, imbalance: np.ndarray
+    ) -> np.ndarray:
+        ...
+
+
 @dataclasses.dataclass(frozen=True)
 class _State:
     """One round: the price it was proposed at, what came out, and the next price."""
@@ -47,27 +68,44 @@ class _State:
     next_price: np.ndarray
     price: np.ndarray | None = None
     output: np.ndarray | None = None
+    effort: np.ndarray | None = None
     input_use: np.ndarray | None = None
     consumption_demand: np.ndarray | None = None
     provision: np.ndarray | None = None
+    public_demand: np.ndarray | None = None
     worst_imbalance: float = float("inf")
 
 
-class _Model:
-    """Per-solve constants of one economy, plus the round the procedure repeats.
+class CouncilModel:
+    """The councils of the 2020 slides: what they propose and what they ask for, at a price.
 
-    Everything that does not change with the price is computed once here: the flat input
-    layout, the price-independent part of the worker councils' closed form, and which columns
-    of the utility exponents are public goods.
+    This is the theory-bearing half of the prefab, and using it commits you to all of it:
+    worker councils that pick output and effort by the closed form maximising output value
+    net of the disutility of effort, over a Cobb-Douglas technology with an effort factor;
+    consumer councils with Cobb-Douglas utility that spend their whole entitlement; and public
+    goods priced to a consumer council at the listed price divided by the number of consumer
+    units, with the stated demand counting once for the whole society.
+
+    Everything that does not change with the price is computed once in ``__init__``: the flat
+    input layout, the price-independent part of the worker councils' closed form, and which
+    columns of the utility exponents are public goods. ``initial_state``, ``step``,
+    ``converged`` and ``plan_of`` are the four arguments :func:`cyberstride.iterate` takes, so
+    a procedure that wants a different loop can drive this model directly.
     """
 
-    def __init__(self, economy: Economy, threshold_pct: float):
+    def __init__(
+        self,
+        economy: Economy,
+        threshold_pct: float,
+        price_rule: PriceRule | None = None,
+    ):
         _require_cobb_douglas(economy)
         _require_keys(economy.unit_extra, _REQUIRED_UNIT_KEYS, "unit_extra")
         _require_keys(economy.consumer_extra, _REQUIRED_CONSUMER_KEYS, "consumer_extra")
 
         self.economy = economy
         self.threshold_pct = threshold_pct
+        self.price_rule = slides_2020_rule if price_rule is None else price_rule
         self.n_commodities = economy.n_commodities
         self.n_consumers = economy.n_consumers
 
@@ -89,6 +127,9 @@ class _Model:
             + effort_c * np.log(effort_k)
             + effort_c * np.log(effort_s)
         )
+        self.effort_intercept = -np.log(economy.technology_scale) - segment_sum(
+            economy, self.exponent * self.log_exponent, self.owner
+        )
 
         self.entitlement = np.asarray(economy.consumer_extra["entitlement"])
         self.utility_exponent = np.asarray(economy.consumer_extra["utility_exponent"])
@@ -108,21 +149,30 @@ class _Model:
 
     def step(self, state: _State) -> _State:
         price = state.next_price
-        output, input_use = self._propose(price)
+        output, effort, input_use = self._propose(price)
         consumption_demand = self._demand(price)
-        supply, demand = self._aggregate(output, input_use, consumption_demand)
+        supply, demand, public_demand = self._aggregate(
+            output, input_use, consumption_demand
+        )
         imbalance = _relative_imbalance(supply, demand)
         return _State(
-            next_price=_adjusted(price, supply - demand, imbalance),
+            next_price=self.price_rule(price, supply - demand, imbalance),
             price=price,
             output=output,
+            effort=effort,
             input_use=input_use,
             consumption_demand=consumption_demand,
             provision=np.where(self.public_commodity, supply, 0.0),
-            worst_imbalance=float(np.nanmax(imbalance)),
+            public_demand=public_demand,
+            worst_imbalance=float(np.max(imbalance)),
         )
 
     def converged(self, state: _State) -> bool:
+        """Whether the worst relative imbalance is under the threshold.
+
+        ``worst_imbalance`` is a plain maximum rather than a NaN-skipping one, so a NaN
+        anywhere in the imbalance vector keeps the answer False.
+        """
         return bool(state.worst_imbalance * PERCENT < self.threshold_pct)
 
     def plan_of(self, state: _State) -> Plan:
@@ -133,22 +183,38 @@ class _Model:
             consumption_commodity=self.consumption_commodity,
             provision=state.provision,
             valuation={INDICATIVE_PRICE: state.price},
+            extra={
+                "effort": state.effort,
+                "public_demand": state.public_demand,
+            },
         )
 
     def _propose(self, price: np.ndarray):
-        """Worker councils' closed-form output and input bundle at ``price``."""
+        """Worker councils' closed-form output, effort and input bundle at ``price``.
+
+        Effort follows from the other two: inverting ``Q = a * e**c * prod(x_j ** b_j)`` for
+        the cost-minimising bundle gives ``c * log(e)`` as the residual of the log production
+        function, which is what the expression below spells out.
+        """
         input_price = price[self.economy.input_commodity]
         log_input_price = np.log(input_price)
         log_own_price = np.log(price[self.economy.output_commodity])
+        log_spending = segment_sum(self.economy, self.exponent * log_input_price, self.owner)
         log_output = (
             self.intercept
-            + self.effort_k * segment_sum(self.economy, self.exponent * log_input_price, self.owner)
+            + self.effort_k * log_spending
             - self.own_price_weight * log_own_price
         ) / self.denominator
+        log_effort = (
+            self.effort_intercept
+            + log_spending
+            - self.exponent_sum * log_own_price
+            + (1.0 - self.exponent_sum) * log_output
+        ) / self.effort_c
         input_use = np.exp(
             self.log_exponent + log_own_price[self.owner] - log_input_price + log_output[self.owner]
         )
-        return np.exp(log_output), input_use
+        return np.exp(log_output), np.exp(log_effort), input_use
 
     def _demand(self, price: np.ndarray) -> np.ndarray:
         """Consumer councils' stated bundle, one row per council, one column per exponent."""
@@ -159,6 +225,7 @@ class _Model:
         )
 
     def _aggregate(self, output: np.ndarray, input_use: np.ndarray, consumption_demand: np.ndarray):
+        """Supply, demand and the public-good half of demand, one value per commodity."""
         supply = np.bincount(
             self.economy.output_commodity, weights=output, minlength=self.n_commodities
         ) + np.asarray(self.economy.endowment)
@@ -167,10 +234,12 @@ class _Model:
         )
         stated = consumption_demand.sum(axis=0)
         shared = np.where(self.public_column, stated / self.n_consumers, stated)
-        demand += np.bincount(
+        consumption = np.bincount(
             self.exponent_commodity, weights=shared, minlength=self.n_commodities
         )
-        return supply, demand
+        demand += consumption
+        public_demand = np.where(self.public_commodity, consumption, 0.0)
+        return supply, demand, public_demand
 
 
 def _require_cobb_douglas(economy: Economy) -> None:
@@ -189,14 +258,31 @@ def _require_keys(bag, keys, name: str) -> None:
 
 
 def _relative_imbalance(supply: np.ndarray, demand: np.ndarray) -> np.ndarray:
-    """``|2(supply - demand) / (supply + demand)|``, zero where the commodity is untouched."""
+    """``|2(supply - demand) / (supply + demand)|``, zero where the commodity is untouched.
+
+    A commodity whose supply or demand is not finite counts as fully imbalanced. The ratio
+    itself would be ``inf/inf``, which is NaN, and NaN compares below every threshold: a plan
+    that had overflowed would be reported as the most balanced plan of the run.
+    """
     total = supply + demand
-    return np.where(
-        total > 0, np.abs(2 * (supply - demand)) / np.where(total > 0, total, 1.0), 0.0
-    )
+    measurable = np.isfinite(supply) & np.isfinite(demand)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ratio = np.where(
+            total > 0, np.abs(2 * (supply - demand)) / np.where(total > 0, total, 1.0), 0.0
+        )
+    return np.where(measurable, ratio, np.inf)
 
 
-def _adjusted(price: np.ndarray, surplus: np.ndarray, imbalance: np.ndarray) -> np.ndarray:
+def slides_2020_rule(
+    price: np.ndarray, surplus: np.ndarray, imbalance: np.ndarray
+) -> np.ndarray:
+    """The price rule of the 2020 slides: move each price against its imbalance.
+
+    The step caps the imbalance at 0.25 first and then computes the step from the capped
+    value, ``w = v(1.05 - 0.5**v)``. Capping the step instead, or the 2023 paper's rule of
+    scaling the previous step, does not converge on the same data. A commodity in surplus
+    loses ``w`` of its price, one in shortage gains ``w``, one in balance keeps it.
+    """
     capped = np.minimum(imbalance, IMBALANCE_CAP)
     step = capped * (PRICE_STEP_CEILING - PRICE_STEP_DECAY_BASE**capped)
     return price * np.where(surplus > 0, 1 - step, np.where(surplus < 0, 1 + step, 1.0))
@@ -210,23 +296,29 @@ class HahnelSlides2020:
     the plan feasible; the slides report runs at 5 and at 3. ``initial_price`` is the flat
     price every commodity starts at, which is a cold start.
 
+    ``price_rule`` replaces the board's rule while leaving the councils alone; ``None`` is
+    :func:`slides_2020_rule`, the rule the published round counts come from.
+
     The rule is deterministic, so ``seed`` is accepted and ignored. Set
     ``record_trajectory`` to keep one plan per round, at the cost of holding all of them.
+    Divergence is watched for either way.
     """
 
     threshold_pct: float = 5.0
     max_rounds: int = 250
     initial_price: float = 700.0
     record_trajectory: bool = False
+    price_rule: PriceRule | None = None
 
     def solve(self, economy: Economy, seed: int) -> Plan:
-        model = _Model(economy, self.threshold_pct)
+        model = CouncilModel(economy, self.threshold_pct, price_rule=self.price_rule)
         result = iterate(
             lambda: model.initial_state(self.initial_price),
             model.step,
             model.converged,
             self.max_rounds,
-            plan_of=model.plan_of if self.record_trajectory else None,
+            plan_of=model.plan_of,
+            keep_trajectory=self.record_trajectory,
         )
         if result.trajectory:
             return result.trajectory[-1]

@@ -40,8 +40,8 @@
 
 | 项目 | 状态 | 说明 |
 |---|---|---|
-| 阶段 0 | 🟡 | Rust 侧完成：`Economy`、`validate`、dep1ex 加载器与绑定，54 条 Rust 测试、43 条差分测试。加载 dep1ex01 0.70 秒（numpy 4.46 秒）。Python 侧数据类进行中 |
-| 阶段 1 | 🟡 | 与阶段 0 同一条交付线 |
+| 阶段 0 | 🟡 | 蓝方交付已整合，待红方总检察。Rust：`Economy`、`validate`、dep1ex 加载器（0.70 秒，numpy 4.46 秒）；Python：`Economy`、`Plan`、`iterate`、`run`、`split_seed`、`check_determinism`、技术工具 |
+| 阶段 1 | 🟡 | 蓝方交付已整合，待红方总检察。prefab `hahnel_2020_slides` 在 dep1ex01 到 05 上逐组复现参考轮数（14、13、13、14、13），3% 均值 22.80；Rust 加载器与 numpy 适配器逐位一致 |
 
 次序按 [决策/纲领定位.md](决策/纲领定位.md) 的价值排序定：
 消除多少重复劳动 × 惠及多少人。

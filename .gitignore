@@ -15,3 +15,5 @@ upstream/
 python/cyberstride/*.pyd
 python/cyberstride/*.pdb
 python/cyberstride/*.so
+.pytest_cache/
+.hypothesis/

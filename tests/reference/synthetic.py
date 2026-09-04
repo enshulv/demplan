@@ -1,0 +1,167 @@
+"""A hand-built economy small enough to run without the dep1ex archives.
+
+One source table drives two builders: :func:`build_economy` produces the ``Economy`` the
+library works on, :func:`build_reference_inputs` produces the ``wc``/``cc`` dicts that the
+numpy reference in ``research/bench/endowment.py`` expects. The two builders share the input
+numbers only; every expected value in the tests comes from running the reference, never from
+the table.
+
+Three commodities per class keeps the reference usable: ``endowment.proposals`` indexes all
+three of its output price vectors with the same ``product`` column, so the private, public and
+intermediate sections have to be equally long.
+
+``unit_group`` is deliberately not equal to ``output_commodity`` here. On dep1ex the two
+coincide, so an implementation that aggregates supply by the wrong column still passes on the
+real data; this economy separates them.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+from cyberstride import CommodityKind, Economy, TechnologyKind
+
+N_PER_CLASS = 3
+N_CONSUMERS = 4
+
+PRIV_BASE = 0
+PUB_BASE = 3
+INTER_BASE = 6
+NATURE_BASE = 9
+LABOR_BASE = 12
+N_COMMODITIES = 15
+
+ENDOWMENT = 5.0
+"""Per-commodity endowment of every natural resource and every kind of labor."""
+
+ENTITLEMENT = 10000.0
+"""Consumption entitlement of every consumer unit."""
+
+# (output commodity, unit group, [(input commodity, Cobb-Douglas exponent), ...])
+UNITS = (
+    (0, 0, ((6, 0.16), (7, 0.15), (9, 0.14), (12, 0.16), (13, 0.15))),
+    (1, 0, ((6, 0.17), (10, 0.15), (12, 0.16), (14, 0.14))),
+    (2, 0, ((7, 0.15), (9, 0.16), (11, 0.14), (13, 0.17))),
+    (3, 1, ((6, 0.15), (8, 0.16), (9, 0.15), (12, 0.16))),
+    (4, 1, ((7, 0.18), (10, 0.16), (13, 0.17))),
+    (5, 1, ((8, 0.16), (11, 0.15), (14, 0.16), (12, 0.13))),
+    (6, 2, ((9, 0.15), (10, 0.14), (12, 0.16), (13, 0.15))),
+    (7, 2, ((10, 0.17), (13, 0.16), (14, 0.15))),
+    (8, 2, ((11, 0.16), (9, 0.13), (14, 0.17), (12, 0.14))),
+)
+
+TECHNOLOGY_SCALE = (5.0, 4.6, 5.4, 4.8, 5.2, 5.0, 4.9, 5.1, 4.7)
+EFFORT_C = (0.08, 0.07, 0.09, 0.075, 0.085, 0.08, 0.078, 0.082, 0.072)
+EFFORT_S = (1.0,) * 9
+EFFORT_K = (3.3, 3.1, 3.5, 3.2, 3.4, 3.3, 3.25, 3.35, 3.15)
+
+# Cobb-Douglas utility exponents, three private goods then three public goods per consumer.
+UTILITY_EXPONENT = (
+    (0.20, 0.15, 0.10, 0.25, 0.30, 0.12),
+    (0.12, 0.22, 0.14, 0.28, 0.24, 0.15),
+    (0.18, 0.11, 0.19, 0.22, 0.30, 0.11),
+    (0.14, 0.17, 0.13, 0.31, 0.25, 0.13),
+)
+CONSUMER_GROUP = (0, 0, 1, 1)
+
+
+def build_economy() -> Economy:
+    """The synthetic economy as the library sees it."""
+    kind = np.empty(N_COMMODITIES, dtype=np.int8)
+    kind[PRIV_BASE:PUB_BASE] = CommodityKind.PRIVATE_GOOD
+    kind[PUB_BASE:INTER_BASE] = CommodityKind.PUBLIC_GOOD
+    kind[INTER_BASE:NATURE_BASE] = CommodityKind.INTERMEDIATE
+    kind[NATURE_BASE:LABOR_BASE] = CommodityKind.NATURAL_RESOURCE
+    kind[LABOR_BASE:N_COMMODITIES] = CommodityKind.LABOR
+
+    endowment = np.zeros(N_COMMODITIES, dtype=np.float64)
+    endowment[NATURE_BASE:N_COMMODITIES] = ENDOWMENT
+
+    counts = [len(inputs) for _, _, inputs in UNITS]
+    offsets = np.zeros(len(UNITS) + 1, dtype=np.int64)
+    np.cumsum(counts, out=offsets[1:])
+    input_commodity = np.array(
+        [commodity for _, _, inputs in UNITS for commodity, _ in inputs], dtype=np.int64
+    )
+    input_coefficient = np.array(
+        [coefficient for _, _, inputs in UNITS for _, coefficient in inputs], dtype=np.float64
+    )
+
+    return Economy(
+        period=0,
+        commodity_id=np.arange(N_COMMODITIES, dtype=np.int64),
+        commodity_kind=kind,
+        endowment=endowment,
+        unit_id=np.arange(len(UNITS), dtype=np.int64),
+        unit_group=np.array([group for _, group, _ in UNITS], dtype=np.int64),
+        output_commodity=np.array([output for output, _, _ in UNITS], dtype=np.int64),
+        technology_kind=np.full(len(UNITS), TechnologyKind.COBB_DOUGLAS, dtype=np.int8),
+        technology_scale=np.array(TECHNOLOGY_SCALE, dtype=np.float64),
+        input_offsets=offsets,
+        input_commodity=input_commodity,
+        input_coefficient=input_coefficient,
+        consumer_id=np.arange(N_CONSUMERS, dtype=np.int64),
+        consumer_group=np.array(CONSUMER_GROUP, dtype=np.int64),
+        unit_extra={
+            "effort_c": np.array(EFFORT_C, dtype=np.float64),
+            "effort_s": np.array(EFFORT_S, dtype=np.float64),
+            "effort_k": np.array(EFFORT_K, dtype=np.float64),
+        },
+        consumer_extra={
+            "entitlement": np.full(N_CONSUMERS, ENTITLEMENT, dtype=np.float64),
+            "utility_exponent": np.array(UTILITY_EXPONENT, dtype=np.float64),
+            "utility_exponent_commodity": np.arange(2 * N_PER_CLASS, dtype=np.int64),
+        },
+    )
+
+
+_INDUSTRY_OF_SECTION = {PRIV_BASE: 0, INTER_BASE: 1, PUB_BASE: 2}
+_CAT_OF_SECTION = {INTER_BASE: 0, NATURE_BASE: 1, LABOR_BASE: 2}
+
+
+def _section_base(commodity: int) -> int:
+    for base in (LABOR_BASE, NATURE_BASE, INTER_BASE, PUB_BASE, PRIV_BASE):
+        if commodity >= base:
+            return base
+    raise ValueError(f"commodity {commodity} is below the first section base")
+
+
+def build_reference_inputs() -> tuple[dict, dict, tuple[int, int, int], float]:
+    """The same economy in the shape ``endowment.run`` expects: ``(wc, cc, dims, S)``."""
+    width = max(len(inputs) for _, _, inputs in UNITS)
+    n_units = len(UNITS)
+    coef = np.zeros((n_units, width), dtype=np.int64)
+    b = np.zeros((n_units, width), dtype=np.float64)
+    cat = np.full((n_units, width), -1, dtype=np.int8)
+    industry = np.empty(n_units, dtype=np.int64)
+    product = np.empty(n_units, dtype=np.int64)
+
+    for row, (output, _, inputs) in enumerate(UNITS):
+        out_base = _section_base(output)
+        industry[row] = _INDUSTRY_OF_SECTION[out_base]
+        product[row] = output - out_base
+        for column, (commodity, coefficient) in enumerate(inputs):
+            in_base = _section_base(commodity)
+            cat[row, column] = _CAT_OF_SECTION[in_base]
+            coef[row, column] = commodity - in_base
+            b[row, column] = coefficient
+
+    wc = {
+        "a": np.array(TECHNOLOGY_SCALE, dtype=np.float64),
+        "c": np.array(EFFORT_C, dtype=np.float64),
+        "s": np.array(EFFORT_S, dtype=np.float64),
+        "k": np.array(EFFORT_K, dtype=np.float64),
+        "industry": industry,
+        "product": product,
+        "coef": coef,
+        "b": b,
+        "cat": cat,
+        "mask": cat >= 0,
+    }
+    exponents = np.array(UTILITY_EXPONENT, dtype=np.float64)
+    cc = {
+        "priv_exp": exponents[:, :N_PER_CLASS].copy(),
+        "pub_exp": exponents[:, N_PER_CLASS:].copy(),
+        "income": np.full(N_CONSUMERS, ENTITLEMENT, dtype=np.float64),
+    }
+    return wc, cc, (N_PER_CLASS, N_PER_CLASS, N_PER_CLASS), ENDOWMENT

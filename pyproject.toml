@@ -9,10 +9,10 @@ description = "Shared research infrastructure for democratic economic planning"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.26"]
+dependencies = ["numpy>=1.26", "scipy>=1.11"]
 
 [project.optional-dependencies]
-dev = ["pytest", "hypothesis", "scipy", "pyarrow", "psutil"]
+dev = ["pytest", "hypothesis", "pyarrow", "psutil"]
 
 [tool.maturin]
 python-source = "python"

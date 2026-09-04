@@ -12,12 +12,26 @@ from cyberstride.checks import DeterminismReport, check_determinism
 from cyberstride.economy import CommodityKind, Economy, SchemaError, TechnologyKind
 from cyberstride.io import load_dep1ex
 from cyberstride.iterate import IterateResult, iterate
+from cyberstride.objectives import MaximizeWeightedConsumption, MinimizeLabor, Objective
 from cyberstride.plan import INCOME, INDICATIVE_PRICE, LABOR_VALUE, SHADOW_PRICE, Plan
 from cyberstride.procedure import Procedure, RunResult, RunSummary, run
+from cyberstride.reference import (
+    ReferenceInfeasible,
+    ReferenceProcedure,
+    ReferenceResult,
+    reference_solution,
+)
 from cyberstride.seeds import rng, split_seed
 from cyberstride import prefabs, tools
 
 __all__ = [
+    "MaximizeWeightedConsumption",
+    "MinimizeLabor",
+    "Objective",
+    "ReferenceInfeasible",
+    "ReferenceProcedure",
+    "ReferenceResult",
+    "reference_solution",
     "INCOME",
     "INDICATIVE_PRICE",
     "LABOR_VALUE",

@@ -10,3 +10,8 @@ research/data/*.gz
 
 # 上游仓库有自己的 .git，不纳入本仓
 upstream/
+
+# maturin develop 的构建产物
+python/cyberstride/*.pyd
+python/cyberstride/*.pdb
+python/cyberstride/*.so

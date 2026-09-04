@@ -2,25 +2,37 @@
 
 Shared research infrastructure for democratic economic planning.
 
-Write a coordination procedure, run it on a published economy, and get output raw enough that
-anyone can recompute any metric from it afterwards. The library covers democratic and
-participatory planning; the benchmark it offers against a mechanism is a centrally computed
-optimum under an objective function you declare, not a market.
+Write a coordination procedure, run it on a published economy, and get the full plan back as
+plain arrays, raw enough that any metric can be recomputed from it afterwards. The library
+covers democratic and participatory planning; the benchmark it offers against a mechanism is a
+centrally computed optimum under an objective function you declare, not a market.
 
-MIT licensed.
+MIT licensed. Status: early. What exists today is the data model, the dep1ex loader, one
+published procedure, the loop and seed tools, and the determinism self-test. Not yet built:
+the on-disk output format and run manifest, the invariant residual toolbox, and the reference
+optimum. Those are the next three pieces, in that order.
 
 ## Install
 
-There is no release on PyPI yet. Building from source needs a Rust toolchain, because the
-data model, the loaders and the output writer are Rust behind a Python extension module.
+There is no release on PyPI yet. Building from source needs a Rust toolchain
+(<https://rustup.rs>), because the data model and the loaders are Rust behind a Python
+extension module. Python 3.10 or newer; the only runtime dependency is numpy.
 
 ```sh
-pip install maturin
-maturin develop --release
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scriptsctivate
+pip install maturin numpy
+maturin develop --release        # first build takes about a minute
 ```
 
 `maturin develop` without `--release` builds faster and runs slower; use the release build
 when you are timing anything.
+
+The dep1ex archives are 56 MB each, gzipped:
+
+```sh
+curl -sSL -o dep1ex01.clj.gz https://www.szcz.org/depexperiments/dep1ex01.clj.gz
+```
 
 ## Ten lines
 
@@ -58,8 +70,8 @@ def solve(self, economy: Economy, seed: int) -> Plan: ...
 ```
 
 That is the whole interface. Implementing it is enough to get the data model, the loaders,
-the timing and round accounting, the determinism self-test and the output format; your code
-does not have to be merged into this library to get any of it.
+the timing and round accounting and the determinism self-test; your code does not have to be
+merged into this library to get any of it.
 
 If your method drives a fixed point, running the loop through `iterate` lets the library count
 rounds, apply a cap and watch for divergence, none of which it can see from outside:
@@ -81,7 +93,8 @@ class ProportionalRule:
         def step(price):
             plan = self.propose(economy, price)
             supply = plan.total_output(economy) + economy.endowment
-            demand = plan.total_input_use(economy) + plan.total_consumption(economy)
+            demand = (plan.total_input_use(economy) + plan.total_consumption(economy)
+                      + plan.provision)
             scale = np.where(supply + demand > 0, supply + demand, 1.0)
             return price * (1 + self.gain * (demand - supply) / scale)
 
@@ -184,10 +197,11 @@ was made for.
 
 ## What this library is answerable for
 
-The infrastructure half: the data model, the optional invariant checks, the definitions of the
-measures, deterministic seed distribution, and the provenance record of a run.
+The infrastructure half: the data model, the loaders, deterministic seed distribution, the
+determinism self-test, and, once built, the invariant residuals and the provenance record of
+a run.
 
 The coordination method is yours. Whether your implementation is correct and whether your
 conclusions follow are yours too. The library does not read your code, does not judge whether
 two procedures are equivalent, and does not pick the quantity a comparison rests on; you
-declare that, and the declaration goes in the run manifest.
+declare that, and once the run manifest exists the declaration goes there.

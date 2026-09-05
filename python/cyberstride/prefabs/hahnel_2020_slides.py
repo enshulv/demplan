@@ -95,9 +95,13 @@ class CouncilModel:
     fully spent entitlement fixes each column's share of the spending whatever price that
     column is charged, so the factor that goes in comes straight back out. Remove both halves
     and the plan comes out with the same quantities, the same prices and the same round count.
-    On dep1ex01, at 30000 consumer units, the run still converges in 14 rounds, and output,
-    input use, consumption, per-commodity demand and the indicative price all stay within
-    3e-14 relative of the run that applies the rule, which is rounding error. The upstream
+
+    Measured on dep1ex01, at 30000 consumer units, at the 5 percent and at the 3 percent
+    threshold: the run converges in 14 rounds and in 23 rounds either way, and every array the
+    plan carries -- ``output``, ``input_use``, ``consumption``, ``provision``,
+    ``valuation["indicative_price"]``, ``extra["effort"]`` and ``extra["consumer_demand"]`` --
+    stays within 1e-13 relative of the run that applies the rule, which is rounding error.
+    That figure is what those runs measure, not a bound proved over the model. The upstream
     source divides both ways too, and so does the reference implementation these round counts
     are checked against, so reproducing the published counts puts the rule to no test.
 

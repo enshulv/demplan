@@ -263,3 +263,48 @@ def build_economy_with_a_third_kind_column() -> Economy:
             "utility_exponent_commodity": commodity,
         },
     )
+
+
+UNORDERED_COLUMN_COMMODITY = np.array([4, 2, 0, 5, 1, 3], dtype=np.int64)
+"""Commodity each utility-exponent column names in
+:func:`build_economy_with_unordered_private_columns`.
+
+The private-good columns sit at positions 1, 2 and 4 and name commodities 2, 0 and 1 in that
+order. The plan's ``consumption_commodity`` is therefore neither ascending nor equal to
+``commodities_of_kind(PRIVATE_GOOD)``, so code that sorts the labels without reordering the
+consumption block alongside them pairs every column with the wrong commodity.
+"""
+
+UNEVEN_ENTITLEMENT = (9000.0, 10500.0, 11750.0, 8250.0)
+"""Consumption entitlement of each consumer unit in
+:func:`build_economy_with_unordered_private_columns`.
+
+The values differ from one unit to the next, and their mean is not one of them. Every other
+economy here gives every unit the same entitlement, so a stated bundle built from the mean
+entitlement instead of each unit's own comes out identical there.
+"""
+
+
+def build_economy_with_unordered_private_columns() -> Economy:
+    """:func:`build_economy` with the utility-exponent columns permuted and uneven entitlements.
+
+    Two assumptions hold in every other economy here and hold in dep1ex as well: the private
+    utility-exponent columns name their commodities in ascending order, and every consumer unit
+    is entitled to the same amount. Both are properties of the inputs rather than of the
+    mechanism, and code that leans on either passes everywhere else.
+
+    The commodities, the producing units and the utility exponent each unit places on each
+    commodity are the ones :func:`build_economy` sets. Only the column order and the
+    entitlements differ, so this economy states the same preferences as that one.
+    """
+    base = build_economy()
+    columns = UNORDERED_COLUMN_COMMODITY
+    exponent = np.asarray(base.consumer_extra["utility_exponent"])[:, columns]
+    return dataclasses.replace(
+        base,
+        consumer_extra={
+            "entitlement": np.array(UNEVEN_ENTITLEMENT, dtype=np.float64),
+            "utility_exponent": exponent,
+            "utility_exponent_commodity": columns.copy(),
+        },
+    )

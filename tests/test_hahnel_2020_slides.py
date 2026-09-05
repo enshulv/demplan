@@ -756,6 +756,63 @@ def stated_bundle(economy, price):
     )
 
 
+def stated_bundle_at_a_shared_entitlement(economy, price):
+    """``stated_bundle`` with every consumer unit spending the mean entitlement.
+
+    On an economy that entitles every unit to the same amount this equals ``stated_bundle``,
+    which is what makes the distinction between the two invisible there.
+    """
+    entitlement = np.asarray(economy.consumer_extra["entitlement"])
+    exponent = np.asarray(economy.consumer_extra["utility_exponent"])
+    columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+    public = np.asarray(economy.commodity_kind)[columns] == CommodityKind.PUBLIC_GOOD
+    listed = np.asarray(price)[columns]
+    paid = np.where(public, listed / economy.n_consumers, listed)
+    return (entitlement.mean() * exponent) / (
+        exponent.sum(axis=1)[:, None] * paid[None, :]
+    )
+
+
+def stated_quantity_of(economy, price, commodity):
+    """What each consumer unit states for one commodity, written out from the rule.
+
+    ``entitlement[i] * utility_exponent[i, j] / (total_exponent[i] * price[commodity])``, where
+    ``j`` is the utility-exponent column naming the commodity; a private good pays the listed
+    price, so nothing here is divided over the consumer units. The commodity has to be named by
+    exactly one column for the answer to be that column's own quantity.
+
+    The expectation is keyed by commodity rather than by column position, so it stays put when
+    the columns are reordered.
+    """
+    columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+    at = np.flatnonzero(columns == commodity)
+    assert at.size == 1, f"commodity {commodity} is named by {at.size} columns, expected 1"
+    entitlement = np.asarray(economy.consumer_extra["entitlement"])
+    exponent = np.asarray(economy.consumer_extra["utility_exponent"])
+    return entitlement * exponent[:, at[0]] / (
+        exponent.sum(axis=1) * np.asarray(price)[commodity]
+    )
+
+
+def assert_consumption_columns_are_paired_with_their_labels(economy, plan, price):
+    """Check column ``j`` of the consumption block against ``consumption_commodity[j]``.
+
+    The contract of the block is a pairing: column ``j`` holds what the consumer units state
+    for the commodity the label at ``j`` names. Reordering one side without the other keeps
+    both sides individually correct as sets, so only a column-by-column comparison sees it.
+    """
+    columns = np.asarray(plan.consumption_commodity)
+    consumption = np.asarray(plan.consumption)
+    assert columns.size > 0
+    assert consumption.shape == (economy.n_consumers, columns.size)
+    for at, commodity in enumerate(columns.tolist()):
+        np.testing.assert_array_equal(
+            consumption[:, at],
+            stated_quantity_of(economy, price, commodity),
+            err_msg=f"consumption column {at} does not hold commodity {commodity}",
+        )
+
+
 def commodity_demand_rebuilt_from(economy, plan, price):
     """Demand per commodity: the units' input use plus the councils' stated consumption.
 
@@ -882,8 +939,10 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
     ):
         """A public-good column contributes its total divided by the number of consumer units.
 
-        Masking ``consumer_demand`` down to the public goods is what the plan used to report
-        on its own, so the mask is asserted here as well as the value.
+        The value and the mask are both asserted: dividing over the consumer units is the only
+        thing that separates a public-good column from the other two cases, so a check that
+        did not also pin which commodities carry the divided total would pass on an
+        implementation that divided the wrong ones.
         """
         plan, price, _ = second_round
         kinds = np.asarray(third_kind_economy.commodity_kind)
@@ -973,11 +1032,14 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
     def test_the_column_stays_out_of_the_consumption_block(
         self, third_kind_economy, second_round
     ):
-        plan, _, _ = second_round
+        plan, price, _ = second_round
         columns = np.asarray(plan.consumption_commodity)
         assert synthetic.THIRD_KIND_COMMODITY not in columns.tolist()
         np.testing.assert_array_equal(
             columns, third_kind_economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
+        )
+        assert_consumption_columns_are_paired_with_their_labels(
+            third_kind_economy, plan, price
         )
         plan.validate(third_kind_economy)
 
@@ -1005,6 +1067,99 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
         result.plan.validate(third_kind_economy)
 
 
+class TestPrivateColumnsOutOfCommodityOrder:
+    """The consumption block is paired with its labels one column at a time.
+
+    Column ``j`` of ``Plan.consumption`` holds what the consumer units state for the commodity
+    ``consumption_commodity[j]`` names. The other economies here name the private commodities
+    in ascending order, as dep1ex does, which makes the labels equal to
+    ``commodities_of_kind(PRIVATE_GOOD)`` and makes sorting either side a no-op. This economy
+    names them 2, 0, 1.
+
+    It also entitles each consumer unit to a different amount, so a stated bundle built from
+    the mean entitlement rather than each unit's own is a different bundle here.
+    """
+
+    @pytest.fixture
+    def economy(self):
+        return synthetic.build_economy_with_unordered_private_columns()
+
+    @pytest.fixture
+    def second_round(self, economy):
+        """``(plan, price)`` of the second round, whose price is no longer flat."""
+        seen = []
+
+        def recording(price, surplus, imbalance):
+            seen.append(price.copy())
+            return slides_2020_rule(price, surplus, imbalance)
+
+        result = run(
+            HahnelSlides2020(price_rule=recording, max_rounds=2, record_trajectory=True),
+            economy,
+            seed=0,
+        )
+        assert len(result.summary.trajectory) == 2
+        price = seen[-1]
+        assert np.unique(price).size > 1
+        return result.summary.trajectory[-1], price
+
+    def test_the_fixture_is_out_of_order_and_unevenly_entitled(self, economy, second_round):
+        _, price = second_round
+        kinds = np.asarray(economy.commodity_kind)
+        columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+        private = columns[kinds[columns] == CommodityKind.PRIVATE_GOOD]
+        assert private.tolist() != sorted(private.tolist())
+
+        entitlement = np.asarray(economy.consumer_extra["entitlement"])
+        assert np.unique(entitlement).size == entitlement.size
+
+        # How far the mean-entitlement bundle sits from the per-unit one, which is the margin
+        # the expectations below hold over an implementation that spent the mean.
+        bundle = stated_bundle(economy, price)
+        shared = stated_bundle_at_a_shared_entitlement(economy, price)
+        assert np.max(np.abs(bundle - shared) / np.abs(bundle)) > 0.05
+
+    def test_the_labels_are_the_private_columns_in_column_order(self, economy, second_round):
+        plan, _ = second_round
+        kinds = np.asarray(economy.commodity_kind)
+        columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+        private = columns[kinds[columns] == CommodityKind.PRIVATE_GOOD]
+        np.testing.assert_array_equal(plan.consumption_commodity, private)
+        assert np.asarray(plan.consumption_commodity).tolist() != np.asarray(
+            economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
+        ).tolist()
+        plan.validate(economy)
+
+    def test_each_consumption_column_holds_the_commodity_its_label_names(
+        self, economy, second_round
+    ):
+        plan, price = second_round
+        assert_consumption_columns_are_paired_with_their_labels(economy, plan, price)
+
+    def test_consumer_demand_spends_each_unit_own_entitlement(self, economy, second_round):
+        """Per commodity, so that the private columns and the rest are both accounted for."""
+        plan, price = second_round
+        kinds = np.asarray(economy.commodity_kind)
+        columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+        public = kinds[columns] == CommodityKind.PUBLIC_GOOD
+        stated = stated_bundle(economy, price).sum(axis=0)
+        shared = np.where(public, stated / economy.n_consumers, stated)
+        expected = np.bincount(columns, weights=shared, minlength=economy.n_commodities)
+
+        assert expected[np.unique(columns)].min() > 0.0
+        np.testing.assert_allclose(
+            np.asarray(plan.extra["consumer_demand"]), expected, rtol=1e-13, atol=0
+        )
+
+    def test_a_run_over_the_unordered_columns_converges(self, economy):
+        result = run(HahnelSlides2020(), economy, seed=0)
+        assert result.summary.converged is True
+        result.plan.validate(economy)
+        assert_consumption_columns_are_paired_with_their_labels(
+            economy, result.plan, result.plan.valuation[INDICATIVE_PRICE]
+        )
+
+
 class TestStatedDemandSplit:
     """``_demand`` returns the private-good columns and the rest as two separate blocks.
 
@@ -1012,6 +1167,10 @@ class TestStatedDemandSplit:
     good states ``n_consumers`` times as much at ``price / n_consumers``, and the aggregation
     divides that column's total by ``n_consumers`` again, so the two halves of the rule cancel
     in every commodity-level number the plan reports.
+
+    The tests below are therefore the whole of the coverage of the public-good pricing rule,
+    and they reach it through the private method ``_demand`` because no public surface exposes
+    it. Changing that method's signature rewrites the only check the rule has.
     """
 
     @pytest.fixture

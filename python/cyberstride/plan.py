@@ -68,10 +68,15 @@ class Plan:
         ``f64[n_units]``, the effort each producing unit chose. A technology whose production
         function carries an effort factor cannot be read back from ``output`` and
         ``input_use`` alone.
-    ``public_demand``
-        ``f64[n_commodities]``, how much of each public good the consumer councils asked for,
-        zero for every other commodity. ``provision`` is the supply side of a public good;
-        without the demand side its material balance cannot be rebuilt from the plan.
+    ``consumer_demand``
+        ``f64[n_commodities]``, how much of each commodity the consumer councils asked for, as
+        it entered this round's material balance: a private good carries the same total
+        ``consumption`` holds, a public good carries the quantity shared once over the whole
+        society, and a commodity that is neither carries the councils' whole stated total.
+        Zero where no council asked for the commodity. ``consumption`` covers the private
+        goods alone and ``provision`` is a public good's supply side, so without this key the
+        demand side of every other commodity is missing and the material balance cannot be
+        rebuilt from the plan.
 
     Equality is identity, for the same reason as on :class:`Economy`.
     """

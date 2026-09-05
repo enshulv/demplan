@@ -15,12 +15,14 @@ councils' closed forms and the aggregation stay as the slides describe them.
 
 Public goods are priced per consumer unit: a consumer council facing a public good pays the
 listed price divided by the number of consumer units, and its stated demand counts once for
-the whole society rather than once per council.
+the whole society rather than once per council. The two halves of that rule cancel, so it
+moves no number the plan reports; :class:`CouncilModel` sets out why, and what it would take
+to give the rule consequences.
 
 The production function is ``Q = a * e**c * prod(x_j ** b_j)``: the Cobb-Douglas input bundle
 of the data model with an effort factor, where ``e`` is the effort the worker council chose
-and ``c`` is ``effort_c``. Both the effort and the councils' stated demand for each public
-good go into ``Plan.extra``, because neither can be recovered from the physical layer.
+and ``c`` is ``effort_c``. Both the effort and the consumer councils' demand per commodity
+go into ``Plan.extra``, because neither can be recovered from the physical layer.
 """
 
 from __future__ import annotations
@@ -72,7 +74,7 @@ class _State:
     input_use: np.ndarray | None = None
     consumption: np.ndarray | None = None
     provision: np.ndarray | None = None
-    public_demand: np.ndarray | None = None
+    consumer_demand: np.ndarray | None = None
     worst_imbalance: float = float("inf")
 
 
@@ -85,6 +87,31 @@ class CouncilModel:
     consumer councils with Cobb-Douglas utility that spend their whole entitlement; and public
     goods priced to a consumer council at the listed price divided by the number of consumer
     units, with the stated demand counting once for the whole society.
+
+    The public-good pricing rule changes none of the numbers this model reports. A council
+    facing a public good pays ``price / n_consumers`` and therefore states ``n_consumers``
+    times the quantity; the aggregation divides that column's total by ``n_consumers`` again.
+    The two cancel as algebra rather than as an approximation: Cobb-Douglas utility over a
+    fully spent entitlement fixes each column's share of the spending whatever price that
+    column is charged, so the factor that goes in comes straight back out. Remove both halves
+    and the plan comes out with the same quantities, the same prices and the same round count.
+    On dep1ex01, at 30000 consumer units, the run still converges in 14 rounds, and output,
+    input use, consumption, per-commodity demand and the indicative price all stay within
+    3e-14 relative of the run that applies the rule, which is rounding error. The upstream
+    source divides both ways too, and so does the reference implementation these round counts
+    are checked against, so reproducing the published counts puts the rule to no test.
+
+    To give the rule consequences, take a utility function whose spending shares move with
+    price, or let a consumer council leave part of its entitlement unspent. The rule is still
+    observable one column at a time: on a public-good column :meth:`_demand` states
+    ``n_consumers`` times what it states on a private-good column carrying the same exponent.
+
+    A utility-exponent column names a commodity of any kind, so the columns fall into three
+    cases and not two. The private-good columns are the plan's ``consumption`` block. The
+    public-good columns, and the columns whose commodity is neither a private nor a public
+    good, reach the plan only through ``extra["consumer_demand"]``; that array reports all
+    three cases together, as the quantity each commodity's columns put into this round's
+    demand.
 
     Everything that does not change with the price is computed once in ``__init__``: the flat
     input layout, the price-independent part of the worker councils' closed form, and the split
@@ -139,10 +166,8 @@ class CouncilModel:
         kinds = np.asarray(economy.commodity_kind)
         self.public_commodity = kinds == CommodityKind.PUBLIC_GOOD
 
-        # A utility-exponent column names a commodity of any kind, so the columns fall into
-        # three cases and not two: private goods, public goods, and commodities that are
-        # neither. The private-good columns are the plan's consumption block and nothing else
-        # is, which is why the split is by that one question.
+        # The split is by one question -- is the column's commodity a private good -- because
+        # the private-good columns are the plan's consumption block and nothing else is.
         column_kind = kinds[self.exponent_commodity]
         self.private_column = np.flatnonzero(column_kind == CommodityKind.PRIVATE_GOOD)
         other_column = np.flatnonzero(column_kind != CommodityKind.PRIVATE_GOOD)
@@ -159,7 +184,7 @@ class CouncilModel:
         price = state.next_price
         output, effort, input_use = self._propose(price)
         private_demand, other_demand = self._demand(price)
-        supply, demand, public_demand = self._aggregate(
+        supply, demand, consumer_demand = self._aggregate(
             output, input_use, private_demand, other_demand
         )
         imbalance = _relative_imbalance(supply, demand)
@@ -171,7 +196,7 @@ class CouncilModel:
             input_use=input_use,
             consumption=private_demand,
             provision=np.where(self.public_commodity, supply, 0.0),
-            public_demand=public_demand,
+            consumer_demand=consumer_demand,
             worst_imbalance=float(np.max(imbalance)),
         )
 
@@ -193,7 +218,7 @@ class CouncilModel:
             valuation={INDICATIVE_PRICE: state.price},
             extra={
                 "effort": state.effort,
-                "public_demand": state.public_demand,
+                "consumer_demand": state.consumer_demand,
             },
         )
 
@@ -233,7 +258,9 @@ class CouncilModel:
 
         A council facing a public good pays the listed price divided by the number of consumer
         units. Every other column pays the listed price, private goods included, which is why
-        the first block has no price adjustment at all.
+        the first block has no price adjustment at all. A single column is the only
+        place the public-good price is observable; :class:`CouncilModel` says why it leaves
+        every commodity-level number of the plan alone.
         """
         private_price = price[self.consumption_commodity]
         private = (self.entitlement[:, None] * self.private_exponent) / (
@@ -253,10 +280,12 @@ class CouncilModel:
         private_demand: np.ndarray,
         other_demand: np.ndarray,
     ):
-        """Supply, demand and the public-good half of demand, one value per commodity.
+        """Supply, total demand, and the consumer councils' part of it, one per commodity.
 
         The two blocks of stated demand scatter onto disjoint commodities, because a commodity
-        carries one ``commodity_kind`` and the blocks are split by that kind.
+        carries one ``commodity_kind`` and the blocks are split by that kind. A public-good
+        column contributes its total divided by the number of consumer units; every other
+        column contributes its total whole.
         """
         supply = np.bincount(
             self.economy.output_commodity, weights=output, minlength=self.n_commodities
@@ -276,8 +305,7 @@ class CouncilModel:
             self.other_commodity, weights=shared_other, minlength=self.n_commodities
         )
         demand += consumption
-        public_demand = np.where(self.public_commodity, consumption, 0.0)
-        return supply, demand, public_demand
+        return supply, demand, consumption
 
 
 def _require_cobb_douglas(economy: Economy) -> None:

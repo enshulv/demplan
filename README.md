@@ -51,17 +51,16 @@ result = run(HahnelSlides2020(), economy, seed=0)
 plan = result.plan
 
 supply = plan.total_output(economy) + economy.endowment
-demand = (plan.total_input_use(economy)
-          + plan.total_consumption(economy)
-          + plan.extra["public_demand"])
+demand = plan.total_input_use(economy) + plan.extra["consumer_demand"]
 gap = np.abs(2 * (supply - demand)) / np.where(supply + demand > 0, supply + demand, 1.0)
 
 print(result.summary.rounds, result.summary.converged, gap.max())
 ```
 
 `plan.provision` is the supply side of a public good, the quantity produced and shared, and it
-is already inside `total_output`. The demand side is what the consumer councils asked for,
-which the prefab records as `plan.extra["public_demand"]`.
+is already inside `total_output`. The demand side is `plan.extra["consumer_demand"]`: what the
+consumer councils asked for, one entry per commodity, private goods included. It is the whole
+consumption side of the balance, which is why `total_consumption` is not added to it.
 
 Nothing in that last calculation is privileged. `Plan` stores the full configuration, so any
 measure of feasibility, cost or fairness you want to argue about is a few lines away from the
@@ -242,7 +241,7 @@ are conventions the dep1ex prefab writes:
 | key | shape | meaning |
 |---|---|---|
 | `effort` | f64[n_units] | effort each unit chose, when the production function has an effort factor |
-| `public_demand` | f64[n_commodities] | the demand for each public good the mechanism balanced against supply, already divided by the number of consumer councils; 0 elsewhere |
+| `consumer_demand` | f64[n_commodities] | what the consumer councils asked for per commodity, as the mechanism balanced it against supply: for a private good the whole total, the same one `consumption` holds; for a public good the total already divided by the number of consumer councils; for a commodity that is neither, the whole total; 0 where no council asked for it |
 
 Aggregates over commodities are accessors, not stored columns: `total_output`,
 `total_input_use`, `total_consumption` and `endowment_use`, each taking the economy the plan

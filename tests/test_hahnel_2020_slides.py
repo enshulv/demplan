@@ -165,7 +165,7 @@ class TestSyntheticEconomy:
         np.testing.assert_array_equal(
             quiet.plan.valuation[INDICATIVE_PRICE], last.valuation[INDICATIVE_PRICE]
         )
-        for key in ("effort", "public_demand"):
+        for key in ("effort", "consumer_demand"):
             np.testing.assert_array_equal(quiet.plan.extra[key], last.extra[key])
 
     def test_the_first_trajectory_entry_is_priced_at_the_initial_price(self, synthetic_economy):
@@ -261,11 +261,7 @@ def upstream_output_and_effort(economy, price):
 def imbalance_rebuilt_from(economy, plan):
     """The relative imbalance per commodity, using nothing but the economy and the plan."""
     supply = plan.total_output(economy) + np.asarray(economy.endowment)
-    demand = (
-        plan.total_input_use(economy)
-        + plan.total_consumption(economy)
-        + np.asarray(plan.extra["public_demand"])
-    )
+    demand = plan.total_input_use(economy) + np.asarray(plan.extra["consumer_demand"])
     total = supply + demand
     return np.where(
         total > 0, np.abs(2 * (supply - demand)) / np.where(total > 0, total, 1.0), 0.0
@@ -513,13 +509,21 @@ class TestPlanRecordsWhatTheMechanismChose:
         )
         assert rebuilt[public].max() > 0.0
 
-    def test_public_demand_is_zero_off_the_public_goods(self, synthetic_economy):
+    def test_consumer_demand_is_zero_where_no_column_names_the_commodity(
+        self, synthetic_economy
+    ):
+        """No utility-exponent column names the commodity, so the councils ask for none of it."""
         plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
-        stated = np.asarray(plan.extra["public_demand"])
-        public = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
+        stated = np.asarray(plan.extra["consumer_demand"])
+        columns = np.asarray(synthetic_economy.consumer_extra["utility_exponent_commodity"])
+        named = np.zeros(synthetic_economy.n_commodities, dtype=bool)
+        named[columns] = True
+
         assert stated.shape == (synthetic_economy.n_commodities,)
-        assert np.all(stated[public] > 0.0)
-        assert stated[~public].sum() == 0.0
+        assert stated.dtype == np.float64
+        assert named.any() and not named.all()
+        assert np.all(stated[named] > 0.0)
+        np.testing.assert_array_equal(stated[~named], np.zeros(int((~named).sum())))
 
     def test_provision_alone_says_nothing_about_the_public_good_balance(
         self, synthetic_economy
@@ -802,7 +806,8 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
 
     A column on an intermediate good is priced at the listed price and counts into that
     commodity's demand, like a private-good column. It stays out of the plan's consumption
-    block and out of ``provision``, because both are defined by ``commodity_kind``.
+    block and out of ``provision``, because both are defined by ``commodity_kind``;
+    ``extra["consumer_demand"]`` is where it reaches the plan.
     """
 
     @pytest.fixture
@@ -875,6 +880,11 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
     def test_the_public_columns_are_still_shared_over_the_consumer_units(
         self, third_kind_economy, second_round
     ):
+        """A public-good column contributes its total divided by the number of consumer units.
+
+        Masking ``consumer_demand`` down to the public goods is what the plan used to report
+        on its own, so the mask is asserted here as well as the value.
+        """
         plan, price, _ = second_round
         kinds = np.asarray(third_kind_economy.commodity_kind)
         columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
@@ -887,7 +897,78 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
             minlength=third_kind_economy.n_commodities,
         )
         assert expected[kinds == CommodityKind.PUBLIC_GOOD].min() > 0.0
-        np.testing.assert_array_equal(np.asarray(plan.extra["public_demand"]), expected)
+        consumer_demand = np.asarray(plan.extra["consumer_demand"])
+        np.testing.assert_array_equal(
+            np.where(kinds == CommodityKind.PUBLIC_GOOD, consumer_demand, 0.0), expected
+        )
+
+    def test_the_private_columns_reach_consumer_demand_whole(
+        self, third_kind_economy, second_round
+    ):
+        """A private-good column contributes its whole total, the one ``consumption`` holds."""
+        plan, price, _ = second_round
+        kinds = np.asarray(third_kind_economy.commodity_kind)
+        columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
+        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        stated = stated_bundle(third_kind_economy, price).sum(axis=0)
+
+        expected = np.bincount(
+            columns[private],
+            weights=stated[private],
+            minlength=third_kind_economy.n_commodities,
+        )
+        on_private = kinds == CommodityKind.PRIVATE_GOOD
+        consumer_demand = np.asarray(plan.extra["consumer_demand"])
+        assert expected[on_private].min() > 0.0
+        np.testing.assert_allclose(
+            consumer_demand[on_private], expected[on_private], rtol=1e-13, atol=0
+        )
+        np.testing.assert_array_equal(
+            consumer_demand[on_private],
+            plan.total_consumption(third_kind_economy)[on_private],
+        )
+
+    def test_the_third_kind_column_reaches_consumer_demand_whole(
+        self, third_kind_economy, second_round
+    ):
+        """A column on a commodity of neither kind contributes its whole total, undivided."""
+        plan, price, _ = second_round
+        commodity = synthetic.THIRD_KIND_COMMODITY
+        columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
+        stated = stated_bundle(third_kind_economy, price).sum(axis=0)
+        expected = stated[columns == commodity].sum()
+
+        consumer_demand = np.asarray(plan.extra["consumer_demand"])
+        assert expected > 0.0
+        np.testing.assert_allclose(consumer_demand[commodity], expected, rtol=1e-13, atol=0)
+        assert not np.isclose(
+            consumer_demand[commodity],
+            expected / third_kind_economy.n_consumers,
+            rtol=1e-9,
+            atol=0,
+        )
+
+    def test_input_use_and_consumer_demand_are_the_whole_of_demand(
+        self, third_kind_economy, second_round
+    ):
+        """Supply minus those two is the surplus the board measured, so no column is missing
+        from ``consumer_demand`` and none is counted twice."""
+        plan, _, surplus = second_round
+        supply = plan.total_output(third_kind_economy) + np.asarray(
+            third_kind_economy.endowment
+        )
+        rebuilt = supply - (
+            plan.total_input_use(third_kind_economy)
+            + np.asarray(plan.extra["consumer_demand"])
+        )
+        np.testing.assert_array_equal(rebuilt, surplus)
+
+    def test_the_plan_carries_consumer_demand_and_not_a_public_good_key(
+        self, third_kind_economy, second_round
+    ):
+        plan, _, _ = second_round
+        assert "consumer_demand" in plan.extra
+        assert "public_demand" not in plan.extra
 
     def test_the_column_stays_out_of_the_consumption_block(
         self, third_kind_economy, second_round

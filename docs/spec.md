@@ -127,7 +127,8 @@ k 是另一个二维 `extra` 数组的列数。目前登记的列映射键只有
 │   其余键自由
 └── extra：命名数组袋，放机制特有的实物量。第一维等于 n_units、n_consumers 或 n_commodities 之一。
     hahnel_2020_slides 写 effort（f64[n_units]，生产函数里的 effort 因子）
-    与 public_demand（f64[n_commodities]，机制用来算失衡的公共品需求，已除以消费单元数；非公共品为 0）
+    与 consumer_demand（f64[n_commodities]，消费议会的申报量对每种商品需求的贡献：
+    私人品记各议会之和，公共品记全社会只算一次的共享量，其余商品记不除的合计；无人申报的商品为 0）
 ```
 
 dep1ex 的生产函数是 `Q = a · e^c · Π x_j^{b_j}`，`e` 是单元每轮选出的 effort，`c` 是 `effort_c`。

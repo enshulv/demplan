@@ -56,14 +56,23 @@ class PriceRule(Protocol):
     ``|2(supply - demand) / (supply + demand)|``. The return value is the next price, also
     ``f64[n_commodities]``.
 
-    All three arrive as read-only views: compute the next price into an array of your own
-    rather than writing over an argument. A rule that writes to one in place raises
-    ``ValueError`` where it would otherwise change a number the run reports and say nothing.
+    Compute the next price into an array of your own rather than writing over an argument.
     The board files the plan under the price it stepped with, as
-    ``valuation["indicative_price"]``, so a rule writing to ``price`` would put a plan on
-    record under a price its proposals were never made at; the board tests convergence on the
-    imbalance it measured, so a rule writing to ``imbalance`` would decide the round count,
-    which is the figure this prefab reproduces.
+    ``valuation["indicative_price"]``, so a rule writing to ``price`` puts a plan on record
+    under a price its proposals were never made at; the board tests convergence on the
+    imbalance it measured, so a rule writing to ``imbalance`` decides the round count, which
+    is the figure this prefab reproduces.
+
+    The three arguments arrive as read-only views, which stops a direct write and nothing
+    else. Two ways around it are open and neither raises: writing through ``arg.base``, and
+    returning a buffer the rule keeps and writes again next round, because the board holds
+    that buffer as the price it steps with. Measured on the synthetic economy, a rule that
+    reuses its output buffer files prices of ``[902.05, 945.72, 711.81]`` where the run
+    proposed at ``[899.51, 943.76, 711.26]``, and a rule writing through ``imbalance.base``
+    turns a 25-round run into a 1-round run that still reports ``converged``. Closing those
+    needs the board to take ownership of the arrays rather than to hand out views of arrays
+    it does not own; until it does, the read-only views are a guard against the direct write
+    and not a guarantee about the rule.
     """
 
     def __call__(

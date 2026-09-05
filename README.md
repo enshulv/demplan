@@ -103,9 +103,11 @@ result = run(HahnelSlides2020(price_rule=proportional_rule), economy, seed=0)
 print(result.summary.rounds, result.summary.converged)
 ```
 
-The three arguments are read-only views, and a rule that writes into one of them raises rather
-than quietly rewriting the price the plan records or the imbalance the loop tests convergence
-on. Return a new array.
+Return a new array each round. The three arguments arrive as read-only views, which stops a
+direct write; writing through `arg.base`, or returning a buffer you keep and write again next
+round, still reaches the price the plan records and the imbalance the loop tests convergence
+on, and neither raises. Closing that needs the board to own those arrays, which it does not
+yet.
 
 `cyberstride.prefabs.hahnel_2020_slides.slides_2020_rule` is the published rule in the same
 shape, so you can compare against it or wrap it.

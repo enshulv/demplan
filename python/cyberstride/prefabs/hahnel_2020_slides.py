@@ -70,7 +70,7 @@ class _State:
     output: np.ndarray | None = None
     effort: np.ndarray | None = None
     input_use: np.ndarray | None = None
-    consumption_demand: np.ndarray | None = None
+    consumption: np.ndarray | None = None
     provision: np.ndarray | None = None
     public_demand: np.ndarray | None = None
     worst_imbalance: float = float("inf")
@@ -87,10 +87,10 @@ class CouncilModel:
     units, with the stated demand counting once for the whole society.
 
     Everything that does not change with the price is computed once in ``__init__``: the flat
-    input layout, the price-independent part of the worker councils' closed form, and which
-    columns of the utility exponents are public goods. ``initial_state``, ``step``,
-    ``converged`` and ``plan_of`` are the four arguments :func:`cyberstride.iterate` takes, so
-    a procedure that wants a different loop can drive this model directly.
+    input layout, the price-independent part of the worker councils' closed form, and the split
+    of the utility-exponent columns into the private goods and the rest. ``initial_state``,
+    ``step``, ``converged`` and ``plan_of`` are the four arguments :func:`cyberstride.iterate`
+    takes, so a procedure that wants a different loop can drive this model directly.
     """
 
     def __init__(
@@ -138,11 +138,19 @@ class CouncilModel:
 
         kinds = np.asarray(economy.commodity_kind)
         self.public_commodity = kinds == CommodityKind.PUBLIC_GOOD
-        self.public_column = self.public_commodity[self.exponent_commodity]
-        self.private_column = np.flatnonzero(
-            kinds[self.exponent_commodity] == CommodityKind.PRIVATE_GOOD
-        )
+
+        # A utility-exponent column names a commodity of any kind, so the columns fall into
+        # three cases and not two: private goods, public goods, and commodities that are
+        # neither. The private-good columns are the plan's consumption block and nothing else
+        # is, which is why the split is by that one question.
+        column_kind = kinds[self.exponent_commodity]
+        self.private_column = np.flatnonzero(column_kind == CommodityKind.PRIVATE_GOOD)
+        other_column = np.flatnonzero(column_kind != CommodityKind.PRIVATE_GOOD)
         self.consumption_commodity = self.exponent_commodity[self.private_column].astype(np.int64)
+        self.other_commodity = self.exponent_commodity[other_column].astype(np.int64)
+        self.other_is_public = self.public_commodity[self.other_commodity]
+        self.private_exponent = self.utility_exponent[:, self.private_column]
+        self.other_exponent = self.utility_exponent[:, other_column]
 
     def initial_state(self, initial_price: float) -> _State:
         return _State(next_price=np.full(self.n_commodities, initial_price, dtype=np.float64))
@@ -150,9 +158,9 @@ class CouncilModel:
     def step(self, state: _State) -> _State:
         price = state.next_price
         output, effort, input_use = self._propose(price)
-        consumption_demand = self._demand(price)
+        private_demand, other_demand = self._demand(price)
         supply, demand, public_demand = self._aggregate(
-            output, input_use, consumption_demand
+            output, input_use, private_demand, other_demand
         )
         imbalance = _relative_imbalance(supply, demand)
         return _State(
@@ -161,7 +169,7 @@ class CouncilModel:
             output=output,
             effort=effort,
             input_use=input_use,
-            consumption_demand=consumption_demand,
+            consumption=private_demand,
             provision=np.where(self.public_commodity, supply, 0.0),
             public_demand=public_demand,
             worst_imbalance=float(np.max(imbalance)),
@@ -179,7 +187,7 @@ class CouncilModel:
         return Plan(
             output=state.output,
             input_use=state.input_use,
-            consumption=state.consumption_demand[:, self.private_column],
+            consumption=state.consumption,
             consumption_commodity=self.consumption_commodity,
             provision=state.provision,
             valuation={INDICATIVE_PRICE: state.price},
@@ -216,26 +224,56 @@ class CouncilModel:
         )
         return np.exp(log_output), np.exp(log_effort), input_use
 
-    def _demand(self, price: np.ndarray) -> np.ndarray:
-        """Consumer councils' stated bundle, one row per council, one column per exponent."""
-        listed = price[self.exponent_commodity]
-        paid = np.where(self.public_column, listed / self.n_consumers, listed)
-        return (self.entitlement[:, None] * self.utility_exponent) / (
+    def _demand(self, price: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Consumer councils' stated bundle at ``price``, as two blocks of columns.
+
+        The first block is the private-good columns, in the order of
+        ``consumption_commodity``; it is what the plan reports as ``consumption``. The second
+        is every other column, the public goods and the commodities that are neither.
+
+        A council facing a public good pays the listed price divided by the number of consumer
+        units. Every other column pays the listed price, private goods included, which is why
+        the first block has no price adjustment at all.
+        """
+        private_price = price[self.consumption_commodity]
+        private = (self.entitlement[:, None] * self.private_exponent) / (
+            self.total_exponent[:, None] * private_price[None, :]
+        )
+        listed = price[self.other_commodity]
+        paid = np.where(self.other_is_public, listed / self.n_consumers, listed)
+        other = (self.entitlement[:, None] * self.other_exponent) / (
             self.total_exponent[:, None] * paid[None, :]
         )
+        return private, other
 
-    def _aggregate(self, output: np.ndarray, input_use: np.ndarray, consumption_demand: np.ndarray):
-        """Supply, demand and the public-good half of demand, one value per commodity."""
+    def _aggregate(
+        self,
+        output: np.ndarray,
+        input_use: np.ndarray,
+        private_demand: np.ndarray,
+        other_demand: np.ndarray,
+    ):
+        """Supply, demand and the public-good half of demand, one value per commodity.
+
+        The two blocks of stated demand scatter onto disjoint commodities, because a commodity
+        carries one ``commodity_kind`` and the blocks are split by that kind.
+        """
         supply = np.bincount(
             self.economy.output_commodity, weights=output, minlength=self.n_commodities
         ) + np.asarray(self.economy.endowment)
         demand = np.bincount(
             self.economy.input_commodity, weights=input_use, minlength=self.n_commodities
         )
-        stated = consumption_demand.sum(axis=0)
-        shared = np.where(self.public_column, stated / self.n_consumers, stated)
+        stated_other = other_demand.sum(axis=0)
+        shared_other = np.where(
+            self.other_is_public, stated_other / self.n_consumers, stated_other
+        )
         consumption = np.bincount(
-            self.exponent_commodity, weights=shared, minlength=self.n_commodities
+            self.consumption_commodity,
+            weights=private_demand.sum(axis=0),
+            minlength=self.n_commodities,
+        ) + np.bincount(
+            self.other_commodity, weights=shared_other, minlength=self.n_commodities
         )
         demand += consumption
         public_demand = np.where(self.public_commodity, consumption, 0.0)

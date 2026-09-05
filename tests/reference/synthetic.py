@@ -213,3 +213,53 @@ def build_reference_inputs() -> tuple[dict, dict, tuple[int, int, int], float]:
         "income": np.full(N_CONSUMERS, ENTITLEMENT, dtype=np.float64),
     }
     return wc, cc, (N_PER_CLASS, N_PER_CLASS, N_PER_CLASS), ENDOWMENT
+
+
+THIRD_KIND_COMMODITY = INTER_BASE
+"""Commodity that :func:`build_economy_with_a_third_kind_column` puts a utility exponent on.
+
+An intermediate good, so it is neither a private good nor a public good. Other producing units
+already take it as an input, which is what makes the consumer councils' share of its demand
+visible next to a producer's share.
+"""
+
+THIRD_KIND_COLUMN = 1
+"""Where that exponent sits among the utility-exponent columns.
+
+Between two private-good columns, so that neither the private-good columns nor the rest form a
+contiguous run. Code that splits the columns by position rather than by ``commodity_kind``
+fails here.
+"""
+
+THIRD_KIND_EXPONENT = (0.16, 0.13, 0.17, 0.14)
+"""Cobb-Douglas utility exponent each consumer unit places on :data:`THIRD_KIND_COMMODITY`."""
+
+
+def build_economy_with_a_third_kind_column() -> Economy:
+    """:func:`build_economy` with one more utility-exponent column, on an intermediate good.
+
+    A utility-exponent column names a commodity of any kind, and the commodity table has five.
+    This economy holds three of them at once: private-good columns, public-good columns, and
+    one column whose commodity is neither. That third column is priced like a private-good
+    column and reported like neither, so code that reads the columns as two cases drops it.
+    """
+    base = build_economy()
+    exponent = np.insert(
+        np.asarray(base.consumer_extra["utility_exponent"]),
+        THIRD_KIND_COLUMN,
+        np.array(THIRD_KIND_EXPONENT, dtype=np.float64),
+        axis=1,
+    )
+    commodity = np.insert(
+        np.asarray(base.consumer_extra["utility_exponent_commodity"]),
+        THIRD_KIND_COLUMN,
+        THIRD_KIND_COMMODITY,
+    ).astype(np.int64)
+    return dataclasses.replace(
+        base,
+        consumer_extra={
+            "entitlement": np.asarray(base.consumer_extra["entitlement"]),
+            "utility_exponent": exponent,
+            "utility_exponent_commodity": commodity,
+        },
+    )

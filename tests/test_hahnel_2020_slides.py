@@ -719,3 +719,282 @@ class TestPublishedExperiments:
         assert cold5_ours == cold5_reference
         assert sorted(cold5_ours) == COLD_5_PERCENT_ROUNDS
         assert abs(statistics.fmean(cold3_ours) - COLD_3_PERCENT_MEAN) < 0.05
+
+
+def uneven_price(economy):
+    """A price vector whose commodities do not all cost the same.
+
+    A flat price hides every term that only shows when two commodities are priced apart.
+    """
+    return 100.0 + 800.0 * np.arange(economy.n_commodities, dtype=np.float64) / (
+        economy.n_commodities
+    )
+
+
+def stated_bundle(economy, price):
+    """Consumer councils' stated demand at ``price``: row per council, column per exponent.
+
+    ``demand[i, j] = entitlement[i] * utility_exponent[i, j] / (total_exponent[i] * paid[j])``,
+    where ``paid[j]`` is the listed price of the commodity column ``j`` names, divided by the
+    number of consumer units when that commodity is a public good and left whole otherwise.
+
+    Written out from the rule rather than read off the prefab, so that a prefab which priced a
+    column differently would not also move the expectation.
+    """
+    entitlement = np.asarray(economy.consumer_extra["entitlement"])
+    exponent = np.asarray(economy.consumer_extra["utility_exponent"])
+    columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+    public = np.asarray(economy.commodity_kind)[columns] == CommodityKind.PUBLIC_GOOD
+    listed = np.asarray(price)[columns]
+    paid = np.where(public, listed / economy.n_consumers, listed)
+    return (entitlement[:, None] * exponent) / (
+        exponent.sum(axis=1)[:, None] * paid[None, :]
+    )
+
+
+def commodity_demand_rebuilt_from(economy, plan, price):
+    """Demand per commodity: the units' input use plus the councils' stated consumption.
+
+    A public good's stated demand counts once for the whole society, so its column total is
+    divided by the number of consumer units before it is scattered onto its commodity. Every
+    other column is scattered whole, whatever kind its commodity is.
+    """
+    columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+    public = np.asarray(economy.commodity_kind)[columns] == CommodityKind.PUBLIC_GOOD
+    stated = stated_bundle(economy, price).sum(axis=0)
+    shared = np.where(public, stated / economy.n_consumers, stated)
+    return plan.total_input_use(economy) + np.bincount(
+        columns, weights=shared, minlength=economy.n_commodities
+    )
+
+
+class TestConsumptionBlockIsNotCopied:
+    """``plan_of`` hands over the block the round produced rather than a copy of it.
+
+    The block is ``f64[n_consumers, n_private_columns]``: 24 MB on dep1ex01, and the default
+    configuration turns every round's state into a plan, so a copy here is a copy per round.
+    """
+
+    def test_the_plan_shares_the_state_consumption_block(self, synthetic_economy):
+        model = CouncilModel(synthetic_economy, 5.0)
+        state = model.step(model.initial_state(700.0))
+        plan = model.plan_of(state)
+        assert np.shares_memory(np.asarray(plan.consumption), state.consumption)
+
+    def test_it_shares_when_the_private_columns_are_not_contiguous(self):
+        """Non-contiguous columns are where a split by position would fall back to a copy."""
+        economy = synthetic.build_permuted_economy()
+        model = CouncilModel(economy, 5.0)
+        state = model.step(model.initial_state(700.0))
+        plan = model.plan_of(state)
+        assert np.shares_memory(np.asarray(plan.consumption), state.consumption)
+
+    def test_it_shares_when_a_column_is_neither_private_nor_public(self):
+        economy = synthetic.build_economy_with_a_third_kind_column()
+        model = CouncilModel(economy, 5.0)
+        state = model.step(model.initial_state(700.0))
+        plan = model.plan_of(state)
+        assert np.shares_memory(np.asarray(plan.consumption), state.consumption)
+
+
+class TestColumnsThatAreNeitherPrivateNorPublic:
+    """A utility-exponent column names a commodity of any kind, and there are five kinds.
+
+    A column on an intermediate good is priced at the listed price and counts into that
+    commodity's demand, like a private-good column. It stays out of the plan's consumption
+    block and out of ``provision``, because both are defined by ``commodity_kind``.
+    """
+
+    @pytest.fixture
+    def third_kind_economy(self):
+        return synthetic.build_economy_with_a_third_kind_column()
+
+    @pytest.fixture
+    def second_round(self, third_kind_economy):
+        """``(plan, price, surplus)`` of the second round, whose price is no longer flat."""
+        seen = []
+
+        def recording(price, surplus, imbalance):
+            seen.append((price.copy(), surplus.copy()))
+            return slides_2020_rule(price, surplus, imbalance)
+
+        result = run(
+            HahnelSlides2020(price_rule=recording, max_rounds=2, record_trajectory=True),
+            third_kind_economy,
+            seed=0,
+        )
+        assert len(result.summary.trajectory) == 2
+        price, surplus = seen[-1]
+        assert np.unique(price).size > 1
+        return result.summary.trajectory[-1], price, surplus
+
+    def test_the_fixture_holds_a_column_of_each_of_the_three_cases(self, third_kind_economy):
+        kinds = np.asarray(third_kind_economy.commodity_kind)
+        columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
+        column_kinds = set(kinds[columns].tolist())
+        assert CommodityKind.PRIVATE_GOOD in column_kinds
+        assert CommodityKind.PUBLIC_GOOD in column_kinds
+        assert column_kinds - {CommodityKind.PRIVATE_GOOD, CommodityKind.PUBLIC_GOOD}
+
+        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        assert private.tolist() != list(range(private.size))
+
+    def test_the_surplus_accounts_for_every_column(self, third_kind_economy, second_round):
+        """The demand the board measured is the one the three kinds of column add up to."""
+        plan, price, surplus = second_round
+        supply = plan.total_output(third_kind_economy) + np.asarray(
+            third_kind_economy.endowment
+        )
+        np.testing.assert_array_equal(
+            surplus,
+            supply - commodity_demand_rebuilt_from(third_kind_economy, plan, price),
+        )
+
+    def test_the_third_kind_commodity_is_counted_whole(self, third_kind_economy, second_round):
+        plan, price, surplus = second_round
+        commodity = synthetic.THIRD_KIND_COMMODITY
+        supply = plan.total_output(third_kind_economy) + np.asarray(
+            third_kind_economy.endowment
+        )
+        demand = (supply - surplus)[commodity]
+
+        columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
+        stated = stated_bundle(third_kind_economy, price).sum(axis=0)
+        from_the_councils = stated[columns == commodity].sum()
+        from_the_units = plan.total_input_use(third_kind_economy)[commodity]
+
+        assert from_the_councils > 0.0
+        np.testing.assert_allclose(
+            demand, from_the_units + from_the_councils, rtol=1e-12, atol=0
+        )
+        per_consumer_unit = (
+            from_the_units + from_the_councils / third_kind_economy.n_consumers
+        )
+        assert not np.isclose(demand, per_consumer_unit, rtol=1e-9, atol=0)
+
+    def test_the_public_columns_are_still_shared_over_the_consumer_units(
+        self, third_kind_economy, second_round
+    ):
+        plan, price, _ = second_round
+        kinds = np.asarray(third_kind_economy.commodity_kind)
+        columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
+        public = np.flatnonzero(kinds[columns] == CommodityKind.PUBLIC_GOOD)
+        stated = stated_bundle(third_kind_economy, price).sum(axis=0)
+
+        expected = np.bincount(
+            columns[public],
+            weights=stated[public] / third_kind_economy.n_consumers,
+            minlength=third_kind_economy.n_commodities,
+        )
+        assert expected[kinds == CommodityKind.PUBLIC_GOOD].min() > 0.0
+        np.testing.assert_array_equal(np.asarray(plan.extra["public_demand"]), expected)
+
+    def test_the_column_stays_out_of_the_consumption_block(
+        self, third_kind_economy, second_round
+    ):
+        plan, _, _ = second_round
+        columns = np.asarray(plan.consumption_commodity)
+        assert synthetic.THIRD_KIND_COMMODITY not in columns.tolist()
+        np.testing.assert_array_equal(
+            columns, third_kind_economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
+        )
+        plan.validate(third_kind_economy)
+
+    def test_provision_stays_zero_on_the_third_kind_commodity(
+        self, third_kind_economy, second_round
+    ):
+        plan, _, _ = second_round
+        assert np.asarray(plan.provision)[synthetic.THIRD_KIND_COMMODITY] == 0.0
+
+    def test_the_consumption_block_is_the_private_columns_of_the_stated_bundle(
+        self, third_kind_economy, second_round
+    ):
+        plan, price, _ = second_round
+        kinds = np.asarray(third_kind_economy.commodity_kind)
+        columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
+        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        np.testing.assert_array_equal(
+            np.asarray(plan.consumption),
+            stated_bundle(third_kind_economy, price)[:, private],
+        )
+
+    def test_a_run_over_the_three_cases_converges(self, third_kind_economy):
+        result = run(HahnelSlides2020(), third_kind_economy, seed=0)
+        assert result.summary.converged is True
+        result.plan.validate(third_kind_economy)
+
+
+class TestStatedDemandSplit:
+    """``_demand`` returns the private-good columns and the rest as two separate blocks.
+
+    Per column is the only place the public-good price is visible. A council facing a public
+    good states ``n_consumers`` times as much at ``price / n_consumers``, and the aggregation
+    divides that column's total by ``n_consumers`` again, so the two halves of the rule cancel
+    in every commodity-level number the plan reports.
+    """
+
+    @pytest.fixture
+    def model_and_price(self):
+        economy = synthetic.build_economy_with_a_third_kind_column()
+        return CouncilModel(economy, 5.0), economy, uneven_price(economy)
+
+    def test_the_two_blocks_are_the_stated_bundle_split_by_commodity_kind(
+        self, model_and_price
+    ):
+        model, economy, price = model_and_price
+        private_block, other_block = model._demand(price)
+
+        kinds = np.asarray(economy.commodity_kind)
+        columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        other = np.flatnonzero(kinds[columns] != CommodityKind.PRIVATE_GOOD)
+        expected = stated_bundle(economy, price)
+
+        np.testing.assert_array_equal(private_block, expected[:, private])
+        np.testing.assert_array_equal(other_block, expected[:, other])
+
+    def test_a_public_good_column_pays_the_listed_price_per_consumer_unit(
+        self, model_and_price
+    ):
+        model, economy, price = model_and_price
+        _, other_block = model._demand(price)
+
+        kinds = np.asarray(economy.commodity_kind)
+        columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+        other = np.flatnonzero(kinds[columns] != CommodityKind.PRIVATE_GOOD)
+        at = int(np.flatnonzero(kinds[columns[other]] == CommodityKind.PUBLIC_GOOD)[0])
+
+        entitlement = np.asarray(economy.consumer_extra["entitlement"])
+        exponent = np.asarray(economy.consumer_extra["utility_exponent"])
+        paid = price[columns[other[at]]] / economy.n_consumers
+        expected = entitlement * exponent[:, other[at]] / (exponent.sum(axis=1) * paid)
+        np.testing.assert_array_equal(other_block[:, at], expected)
+
+    def test_a_column_that_is_neither_pays_the_whole_listed_price(self, model_and_price):
+        model, economy, price = model_and_price
+        _, other_block = model._demand(price)
+
+        kinds = np.asarray(economy.commodity_kind)
+        columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+        other = np.flatnonzero(kinds[columns] != CommodityKind.PRIVATE_GOOD)
+        at = int(np.flatnonzero(columns[other] == synthetic.THIRD_KIND_COMMODITY)[0])
+
+        entitlement = np.asarray(economy.consumer_extra["entitlement"])
+        exponent = np.asarray(economy.consumer_extra["utility_exponent"])
+        paid = price[synthetic.THIRD_KIND_COMMODITY]
+        expected = entitlement * exponent[:, other[at]] / (exponent.sum(axis=1) * paid)
+        np.testing.assert_array_equal(other_block[:, at], expected)
+
+    def test_a_private_good_column_pays_the_whole_listed_price(self, model_and_price):
+        model, economy, price = model_and_price
+        private_block, _ = model._demand(price)
+
+        kinds = np.asarray(economy.commodity_kind)
+        columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
+        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+
+        entitlement = np.asarray(economy.consumer_extra["entitlement"])
+        exponent = np.asarray(economy.consumer_extra["utility_exponent"])
+        paid = price[columns[private[0]]]
+        expected = entitlement * exponent[:, private[0]] / (exponent.sum(axis=1) * paid)
+        np.testing.assert_array_equal(private_block[:, 0], expected)

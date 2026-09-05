@@ -17,6 +17,8 @@ import numpy as np
 import pytest
 
 from cyberstride import (
+    CONSUMER_DEMAND,
+    EFFORT,
     INDICATIVE_PRICE,
     CommodityKind,
     TechnologyKind,
@@ -443,6 +445,13 @@ class TestNonFiniteRuns:
 class TestPlanRecordsWhatTheMechanismChose:
     """Whatever the mechanism decided has to be readable back off the plan."""
 
+    def test_the_extra_bag_holds_exactly_the_two_documented_keys(self, synthetic_economy):
+        """Addressed through the exported constants, so the prefab and a reader cannot drift."""
+        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        assert sorted(plan.extra) == sorted([CONSUMER_DEMAND, EFFORT])
+        assert plan.extra[EFFORT].shape == (synthetic_economy.n_units,)
+        assert plan.extra[CONSUMER_DEMAND].shape == (synthetic_economy.n_commodities,)
+
     def test_the_plan_reproduces_its_own_production_function(self, synthetic_economy):
         plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
         np.testing.assert_allclose(
@@ -621,6 +630,105 @@ class TestPriceRuleSeam:
         assert through_the_seam.summary.converged == by_hand.converged
         np.testing.assert_array_equal(
             through_the_seam.plan.output, model.plan_of(by_hand.state).output
+        )
+
+
+class TestPriceRuleArgumentsAreReadOnly:
+    """The board hands its price rule read-only views, so a rule that writes to one is stopped.
+
+    Two of the three arguments feed numbers the run reports, and a rule that wrote to either
+    changed those numbers with nothing raised. Measured on ``synthetic_economy`` before the
+    views were put in, against an honest run of 25 rounds ending at prices
+    ``[899.507166, 943.756043, 711.263594, ...]``:
+
+    * a rule writing to ``price`` left the run's own output untouched and
+      ``valuation["indicative_price"]`` holding ``[0, 0, 0, ...]`` -- a plan filed under a price
+      its proposals were never made at;
+    * a rule writing to ``imbalance`` decided the convergence test, and the run stopped after
+      1 round instead of 25, reporting ``converged=True`` on the initial flat price of 700.
+
+    ``surplus`` reaches nothing the run reports today; it is handed over read-only because the
+    contract covers the argument list, not because a corruption through it was observed.
+    """
+
+    ARGUMENTS = ("price", "surplus", "imbalance")
+
+    def scribble_on(self, argument: str):
+        """``slides_2020_rule`` that writes zeros over one of the arguments it was handed."""
+
+        def rule(price, surplus, imbalance):
+            next_price = slides_2020_rule(price, surplus, imbalance)
+            {"price": price, "surplus": surplus, "imbalance": imbalance}[argument][:] = 0.0
+            return next_price
+
+        return rule
+
+    def test_all_three_arguments_arrive_read_only(self, synthetic_economy):
+        seen = []
+
+        def inspect(price, surplus, imbalance):
+            seen.append(tuple(bool(a.flags.writeable) for a in (price, surplus, imbalance)))
+            return slides_2020_rule(price, surplus, imbalance)
+
+        run(HahnelSlides2020(price_rule=inspect, max_rounds=3), synthetic_economy, seed=0)
+        assert len(seen) == 3
+        assert seen == [(False, False, False)] * 3
+
+    @pytest.mark.parametrize("argument", ARGUMENTS)
+    def test_a_rule_that_writes_to_an_argument_is_stopped(self, synthetic_economy, argument):
+        with pytest.raises(ValueError, match="read-only"):
+            run(
+                HahnelSlides2020(price_rule=self.scribble_on(argument), max_rounds=25),
+                synthetic_economy,
+                seed=0,
+            )
+
+    def test_the_price_the_plan_records_is_the_price_the_rule_was_handed(
+        self, synthetic_economy
+    ):
+        """What writing to ``price`` used to break, stated as the property it broke."""
+        handed = []
+
+        def recording(price, surplus, imbalance):
+            handed.append(np.asarray(price).copy())
+            return slides_2020_rule(price, surplus, imbalance)
+
+        result = run(HahnelSlides2020(price_rule=recording), synthetic_economy, seed=0)
+        np.testing.assert_array_equal(
+            result.plan.valuation[INDICATIVE_PRICE], handed[-1]
+        )
+
+    def test_the_round_count_is_the_one_the_measured_imbalance_produces(
+        self, synthetic_economy
+    ):
+        """What writing to ``imbalance`` used to break: it decided when the loop stopped."""
+        rule = RecordingRule()
+        result = run(HahnelSlides2020(price_rule=rule), synthetic_economy, seed=0)
+
+        assert result.summary.converged is True
+        assert len(rule.imbalance) == result.summary.rounds
+        threshold = HahnelSlides2020().threshold_pct / 100.0
+        assert rule.imbalance[-1].max() < threshold
+        assert all(measured.max() >= threshold for measured in rule.imbalance[:-1])
+
+    def test_the_state_keeps_the_array_it_was_stepped_with(self, synthetic_economy):
+        """The read-only views are for the rule alone and do not become the recorded state."""
+        model = CouncilModel(synthetic_economy, 5.0)
+        start = model.initial_state(700.0)
+        stepped = model.step(start)
+        assert stepped.price is start.next_price
+
+    def test_a_rule_that_returns_its_own_argument_still_runs(self, synthetic_economy):
+        """A rule may hand an argument straight back; only writing to one is refused."""
+        result = run(
+            HahnelSlides2020(price_rule=lambda price, surplus, imbalance: price, max_rounds=4),
+            synthetic_economy,
+            seed=0,
+        )
+        assert result.summary.rounds == 4
+        np.testing.assert_array_equal(
+            result.plan.valuation[INDICATIVE_PRICE],
+            np.full(synthetic_economy.n_commodities, HahnelSlides2020().initial_price),
         )
 
 

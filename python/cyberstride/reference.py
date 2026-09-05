@@ -29,7 +29,11 @@ from scipy.optimize import linprog
 from scipy.sparse import coo_matrix
 
 from cyberstride.economy import Economy, TechnologyKind
-from cyberstride.objectives import Objective
+from cyberstride.objectives import (
+    Objective,
+    _require_consumable_support,
+    _require_non_negative,
+)
 from cyberstride.plan import SHADOW_PRICE, Plan
 from cyberstride.tools import unit_of_input
 from cyberstride.tools.leontief import input_requirements_flat
@@ -89,6 +93,26 @@ def _require_the_whole_minimisation_pair(objective, lower_bound, minimize_kind) 
     )
 
 
+def _require_a_well_formed_floor(objective, economy: Economy, floor: np.ndarray) -> None:
+    """Check the floor of any objective read as a minimisation, whoever wrote that objective.
+
+    :class:`cyberstride.objectives.MinimizeLabor` checks its own targets, but a minimisation is
+    recognised here by :data:`MINIMISATION_ATTRIBUTES` and not by type, so an objective a
+    researcher wrote reaches the program with those checks unrun. Either malformed floor then
+    comes back with status ``"optimal"``: a negative entry lets the plan cover part of its own
+    input use out of the floor and report a lower cost than any plan meeting the floor as
+    written, and an entry on a commodity no consumer unit can hold makes the program optimise a
+    quantity its own output never records.
+
+    This checks that the declaration is well formed rather than that the plan satisfies an
+    invariant, so it applies whatever the researcher enabled from the invariant toolbox.
+    """
+    lower_bound_attribute, _ = MINIMISATION_ATTRIBUTES
+    label = f"{objective.name}: {lower_bound_attribute}"
+    _require_non_negative(floor, label)
+    _require_consumable_support(floor, economy, label)
+
+
 class _Program:
     """One assembled linear program, plus what is needed to read its answer back as a plan."""
 
@@ -108,6 +132,8 @@ class _Program:
                 f"{objective.name}: the declaration it optimises has shape {declared.shape}, "
                 f"expected one entry per commodity ({economy.n_commodities},)"
             )
+        if self.minimises:
+            _require_a_well_formed_floor(objective, economy, declared)
         self.consumable = np.flatnonzero(declared != 0.0).astype(np.int64)
         self.n_variables = economy.n_units + self.consumable.shape[0]
 

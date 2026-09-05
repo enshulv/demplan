@@ -27,13 +27,18 @@ class Procedure(Protocol):
 class RunSummary:
     """How the run went, as opposed to what it produced.
 
-    ``rounds`` and ``converged`` are ``None`` when the procedure did not use
+    ``rounds``, ``converged`` and ``diverged`` are ``None`` when the procedure did not use
     :func:`cyberstride.iterate`: the library has no way to count rounds it never saw. That is
-    a different statement from "ran zero rounds" or "did not converge".
+    a different statement from "ran zero rounds", "did not converge" or "did not diverge".
+
+    ``converged`` and ``diverged`` are both false when the loop spent its round cap, and a
+    researcher reads the two cases differently: a run that blew up says something about the
+    mechanism, a run that ran out of rounds says the cap was set too low.
     """
 
     rounds: int | None
     converged: bool | None
+    diverged: bool | None
     wall_seconds: float
     trajectory: list[Plan] | None
 
@@ -64,6 +69,7 @@ def run(procedure: Procedure, economy: Economy, seed: int) -> RunResult:
     summary = RunSummary(
         rounds=None if loop is None else loop.rounds,
         converged=None if loop is None else loop.converged,
+        diverged=None if loop is None else loop.diverged,
         wall_seconds=wall_seconds,
         trajectory=None if loop is None else loop.trajectory,
     )

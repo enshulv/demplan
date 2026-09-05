@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import time
 
 import numpy as np
@@ -55,11 +56,41 @@ class LoopingProcedure:
         return plan
 
 
+class DivergingProcedure:
+    """A procedure whose loop produces a plan holding a non-finite output.
+
+    The loop's convergence test never fires, so a summary that reported convergence alone
+    could not tell this run apart from one that merely ran out of rounds.
+    """
+
+    def __init__(self, round_that_blows_up: int = 2, max_rounds: int = 10):
+        self.round_that_blows_up = round_that_blows_up
+        self.max_rounds = max_rounds
+
+    def solve(self, economy, seed: int) -> Plan:
+        def plan_of(state: int) -> Plan:
+            output = np.zeros(economy.n_units)
+            if state >= self.round_that_blows_up:
+                output = np.full(economy.n_units, np.inf)
+            return dataclasses.replace(trivial_plan(economy), output=output)
+
+        iterate(lambda: 0, lambda s: s + 1, lambda s: False, self.max_rounds, plan_of=plan_of)
+        return trivial_plan(economy)
+
+
 class TwoLoopProcedure:
     def solve(self, economy, seed: int) -> Plan:
         iterate(lambda: 0, lambda s: s + 1, lambda s: s >= 2, 10)
         iterate(lambda: 0, lambda s: s + 1, lambda s: s >= 7, 10)
         return trivial_plan(economy)
+
+
+class DivergingAfterConvergingProcedure:
+    """Two loops, of which only the second diverges. The summary reports the second."""
+
+    def solve(self, economy, seed: int) -> Plan:
+        iterate(lambda: 0, lambda s: s + 1, lambda s: s >= 2, 10)
+        return DivergingProcedure(round_that_blows_up=3).solve(economy, seed)
 
 
 class NestingProcedure:
@@ -95,6 +126,7 @@ class TestRunWithoutIterate:
         assert isinstance(result.summary, RunSummary)
         assert result.summary.rounds is None
         assert result.summary.converged is None
+        assert result.summary.diverged is None
         assert result.summary.trajectory is None
 
     def test_the_plan_is_passed_through(self, synthetic_economy):
@@ -137,6 +169,73 @@ class TestRunWithIterate:
         assert result.summary.rounds == 7
 
 
+class TestDivergenceReachesTheSummary:
+    """Divergence and a spent round cap are opposite findings, so the summary separates them.
+
+    A run that stopped because the plan blew up says something about the mechanism; a run that
+    stopped because the cap ran out says the cap was set too low. Both report
+    ``converged=False``, so ``converged`` alone cannot tell a researcher which one happened.
+    """
+
+    def test_diverged_sits_next_to_converged(self):
+        names = [field.name for field in dataclasses.fields(RunSummary)]
+        assert names[names.index("converged") + 1] == "diverged"
+
+    def test_a_converging_loop_reports_no_divergence(self, synthetic_economy):
+        result = run(LoopingProcedure(rounds_to_converge=4, record=True), synthetic_economy, 0)
+        assert result.summary.converged is True
+        assert result.summary.diverged is False
+
+    def test_a_loop_that_spends_its_round_cap_reports_no_divergence(self, synthetic_economy):
+        result = run(
+            LoopingProcedure(rounds_to_converge=99, max_rounds=6, record=True),
+            synthetic_economy,
+            0,
+        )
+        assert result.summary.converged is False
+        assert result.summary.diverged is False
+        assert result.summary.rounds == 6
+
+    def test_a_loop_whose_plan_blows_up_reports_divergence(self, synthetic_economy):
+        result = run(DivergingProcedure(round_that_blows_up=2), synthetic_economy, seed=0)
+        assert result.summary.diverged is True
+        assert result.summary.converged is False
+        assert result.summary.rounds == 2
+
+    def test_a_loop_the_library_cannot_see_inside_reports_neither(self, synthetic_economy):
+        """Without ``plan_of`` the loop shows the library no plan, so divergence is unobserved."""
+        result = run(LoopingProcedure(rounds_to_converge=99, max_rounds=3), synthetic_economy, 0)
+        assert result.summary.converged is False
+        assert result.summary.diverged is False
+
+    def test_the_last_loop_decides_the_verdict(self, synthetic_economy):
+        result = run(DivergingAfterConvergingProcedure(), synthetic_economy, seed=0)
+        assert result.summary.diverged is True
+        assert result.summary.rounds == 3
+
+    def test_the_summary_carries_the_value_the_loop_reported(self, synthetic_economy):
+        """Read off the loop rather than restated, so the two cannot say different things."""
+        captured = []
+
+        class Capturing:
+            def solve(self, economy, seed):
+                plan = trivial_plan(economy)
+                captured.append(
+                    iterate(
+                        lambda: 0,
+                        lambda s: s + 1,
+                        lambda s: s >= 3,
+                        10,
+                        plan_of=lambda s: plan,
+                    )
+                )
+                return plan
+
+        result = run(Capturing(), synthetic_economy, seed=0)
+        assert result.summary.diverged is captured[0].diverged
+        assert result.summary.converged is captured[0].converged
+
+
 class TestRecorderScoping:
     def test_iterate_works_outside_run(self):
         result = iterate(lambda: 0, lambda s: s + 1, lambda s: s >= 2, 5)
@@ -153,6 +252,7 @@ class TestRecorderScoping:
         result = run(outer, synthetic_economy, seed=0)
         assert result.summary.rounds is None
         assert result.summary.converged is None
+        assert result.summary.diverged is None
         assert outer.inner_result.summary.rounds == 2
 
     def test_the_recorder_is_cleared_after_run(self, synthetic_economy):

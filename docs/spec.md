@@ -84,7 +84,7 @@ Kantorovich 式线性规划，三者能跑在同一个 `Economy` 上，并由同
 | 列 | 类型 | 含义 |
 |---|---|---|
 | `unit_id` | int64 | 稳定标识符，等于行号 |
-| `unit_group` | int64 | 单元到部门的分组映射。dep1ex 里等于产出商品 |
+| `unit_group` | int64 | 单元到部门的分组映射，取值是任意分组标签，库不校验范围。dep1ex 里等于产出商品 |
 | `output_commodity` | int64 | 产出的商品 |
 | `technology_kind` | int8 | 0 Leontief、1 柯布-道格拉斯。可扩展 |
 | `technology_scale` | f64 | 规模系数。dep1ex 的 `a` |
@@ -130,6 +130,9 @@ k 是另一个二维 `extra` 数组的列数。目前登记的列映射键只有
     与 consumer_demand（f64[n_commodities]，消费议会的申报量对每种商品需求的贡献：
     私人品记各议会之和，公共品记全社会只算一次的共享量，其余商品记不除的合计；无人申报的商品为 0）
 ```
+
+这两个键各有一个导出常量（`EFFORT`、`CONSUMER_DEMAND`），判准是「读一份计划所必需的共同词汇」。
+`Economy` 三张表的 `extra` 键是机制的输入参数，不是读计划的词汇，保持裸字符串。
 
 dep1ex 的生产函数是 `Q = a · e^c · Π x_j^{b_j}`，`e` 是单元每轮选出的 effort，`c` 是 `effort_c`。
 `technology_kind = 1` 描述的是投入侧；完整关系要用 `Plan.extra["effort"]` 才重建得出。

@@ -380,6 +380,90 @@ class TestMinimisationDeclaredByAttribute:
             reference_solution(build_bread_economy(labor_endowment=20.0), objective)
 
 
+class TestTheDeclaredFloorIsCheckedWhereTheProgramReadsIt:
+    """A floor is checked at the program, not only in the objective that happens to ship here.
+
+    ``MinimizeLabor`` refuses a negative floor and a floor on a commodity nobody can consume,
+    but ``reference_solution`` recognises a minimisation by its two attributes, so an objective
+    a researcher wrote reaches the program with neither check applied. What came out was an
+    optimum in name only. On this economy, at a labour endowment of 20:
+
+    * floor ``[6, -3, 0]`` reported an ``objective_value`` of 6 where the sound floor reports
+      12, on output ``[6, 0]`` that draws 3 of commodity 1 while producing none of it;
+    * floor ``[6, 3, 0]`` reported 18, spending 6 extra labour on 6 units of an intermediate
+      good that the plan's own final use records as 0.
+
+    Both came back with status ``"optimal"``. The reference solution is what every mechanism is
+    scored against, so a wrong one is wrong everywhere at once and nothing downstream can see it.
+    """
+
+    def floor(self, commodity: int, value: float) -> np.ndarray:
+        targets = np.zeros(N_BREAD_COMMODITIES)
+        targets[BREAD] = 6.0
+        targets[commodity] = value
+        return targets
+
+    def solve_with(self, targets: np.ndarray) -> ReferenceResult:
+        objective = PairDeclaredObjective(
+            lower_bound=targets, minimize_kind=CommodityKind.LABOR
+        )
+        return reference_solution(build_bread_economy(labor_endowment=20.0), objective)
+
+    def test_a_well_formed_floor_still_reaches_the_optimum(self):
+        """The check refuses malformed declarations without narrowing the sound ones."""
+        result = self.solve_with(self.floor(BREAD, 6.0))
+        assert result.status == "optimal"
+        assert result.objective_value == pytest.approx(12.0, abs=EXACT)
+        np.testing.assert_allclose(result.plan.output, [6.0, 3.0], atol=EXACT)
+
+    def test_a_negative_floor_is_refused(self):
+        with pytest.raises(ValueError, match="cannot be negative"):
+            self.solve_with(self.floor(FLOUR, -3.0))
+
+    def test_the_negative_floor_message_names_the_objective_and_the_commodity(self):
+        with pytest.raises(ValueError, match=r"pair_declared.*commodity 1 carries -3\.0"):
+            self.solve_with(self.floor(FLOUR, -3.0))
+
+    def test_a_floor_on_an_intermediate_good_is_refused(self):
+        with pytest.raises(ValueError, match="neither a private good nor a public good"):
+            self.solve_with(self.floor(FLOUR, 3.0))
+
+    def test_a_floor_on_labour_is_refused(self):
+        with pytest.raises(ValueError, match="neither a private good nor a public good"):
+            self.solve_with(self.floor(WORK, 2.0))
+
+    def test_the_unconsumable_floor_message_names_the_objective_and_the_commodity(self):
+        with pytest.raises(ValueError, match=r"pair_declared.*commodity 1 is intermediate"):
+            self.solve_with(self.floor(FLOUR, 3.0))
+
+    @pytest.mark.parametrize(
+        "targets", [(6.0, -3.0, 0.0), (6.0, 3.0, 0.0), (6.0, 0.0, 2.0)]
+    )
+    def test_no_malformed_floor_reaches_the_solver(self, targets):
+        """Whatever the number would have been, a malformed floor never produces a result."""
+        with pytest.raises(ValueError):
+            self.solve_with(np.array(targets, dtype=np.float64))
+
+    def test_minimize_labor_still_refuses_a_negative_floor_at_construction(self):
+        """The earlier check stays: it fails nearer to where the researcher wrote the floor."""
+        with pytest.raises(ValueError, match="cannot be negative"):
+            MinimizeLabor(self.floor(FLOUR, -3.0))
+
+    def test_minimize_labor_still_refuses_an_unconsumable_floor(self):
+        with pytest.raises(ValueError, match="neither a private good nor a public good"):
+            reference_solution(
+                build_bread_economy(labor_endowment=20.0),
+                MinimizeLabor(self.floor(FLOUR, 3.0)),
+            )
+
+    def test_a_maximising_objective_is_not_put_through_the_floor_check(self):
+        """The check reads ``final_demand_lower_bound``, which a maximisation does not carry."""
+        result = reference_solution(
+            build_bread_economy(), MaximizeWeightedConsumption(bread_weights())
+        )
+        assert result.objective_value == pytest.approx(6.0, abs=EXACT)
+
+
 class TestRefusedInputs:
     def test_a_cobb_douglas_economy_is_refused_and_points_at_the_linearising_tool(self):
         cobb_douglas = dataclasses.replace(

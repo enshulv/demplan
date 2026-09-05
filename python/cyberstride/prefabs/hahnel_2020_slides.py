@@ -32,9 +32,9 @@ from typing import Protocol
 
 import numpy as np
 
-from cyberstride.economy import CommodityKind, Economy, TechnologyKind
+from cyberstride.economy import CommodityKind, Economy, TechnologyKind, _freeze_array
 from cyberstride.iterate import iterate
-from cyberstride.plan import INDICATIVE_PRICE, Plan
+from cyberstride.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, Plan
 from cyberstride.tools import segment_sum, unit_of_input
 
 IMBALANCE_CAP = 0.25
@@ -55,6 +55,15 @@ class PriceRule(Protocol):
     supply minus demand at that price, and the relative imbalance
     ``|2(supply - demand) / (supply + demand)|``. The return value is the next price, also
     ``f64[n_commodities]``.
+
+    All three arrive as read-only views: compute the next price into an array of your own
+    rather than writing over an argument. A rule that writes to one in place raises
+    ``ValueError`` where it would otherwise change a number the run reports and say nothing.
+    The board files the plan under the price it stepped with, as
+    ``valuation["indicative_price"]``, so a rule writing to ``price`` would put a plan on
+    record under a price its proposals were never made at; the board tests convergence on the
+    imbalance it measured, so a rule writing to ``imbalance`` would decide the round count,
+    which is the figure this prefab reproduces.
     """
 
     def __call__(
@@ -192,8 +201,11 @@ class CouncilModel:
             output, input_use, private_demand, other_demand
         )
         imbalance = _relative_imbalance(supply, demand)
+        next_price = self.price_rule(
+            _freeze_array(price), _freeze_array(supply - demand), _freeze_array(imbalance)
+        )
         return _State(
-            next_price=self.price_rule(price, supply - demand, imbalance),
+            next_price=next_price,
             price=price,
             output=output,
             effort=effort,
@@ -221,8 +233,8 @@ class CouncilModel:
             provision=state.provision,
             valuation={INDICATIVE_PRICE: state.price},
             extra={
-                "effort": state.effort,
-                "consumer_demand": state.consumer_demand,
+                EFFORT: state.effort,
+                CONSUMER_DEMAND: state.consumer_demand,
             },
         )
 

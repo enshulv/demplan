@@ -38,6 +38,12 @@ SHADOW_PRICE = "shadow_price"
 INCOME = "income"
 """Valuation key: income per consumer unit, ``f64[n_consumers]``."""
 
+EFFORT = "effort"
+"""Extra key: the effort each producing unit chose, ``f64[n_units]``."""
+
+CONSUMER_DEMAND = "consumer_demand"
+"""Extra key: what the consumer units asked for per commodity, ``f64[n_commodities]``."""
+
 _PHYSICAL_ARRAYS = ("output", "input_use", "consumption", "provision")
 
 _PHYSICAL_VECTORS = (
@@ -77,6 +83,12 @@ class Plan:
         goods alone and ``provision`` is a public good's supply side, so without this key the
         demand side of every other commodity is missing and the material balance cannot be
         rebuilt from the plan.
+
+    Both carry a constant, :data:`EFFORT` and :data:`CONSUMER_DEMAND`, because a reader needs
+    them to take a plan apart: two researchers comparing their runs have to spell such a key
+    the same way, or the two sets of output do not line up. The ``extra`` keys of
+    :class:`Economy` carry no constant, being parameters a mechanism reads on the way in
+    rather than vocabulary for reading a plan back; each prefab says what its own mean.
 
     Equality is identity, for the same reason as on :class:`Economy`.
     """

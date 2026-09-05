@@ -57,6 +57,11 @@ gap = np.abs(2 * (supply - demand)) / np.where(supply + demand > 0, supply + dem
 print(result.summary.rounds, result.summary.converged, gap.max())
 ```
 
+`result.summary` also carries `diverged`. A run that stops because a plan went non-finite is a
+different fact from one that spends its round cap while still converging: the first says
+something about the mechanism, the second about the budget it was given. Both are `None` when
+the procedure never called `iterate`, because then the library saw no loop to judge.
+
 `plan.provision` is the supply side of a public good, the quantity produced and shared, and it
 is already inside `total_output`. The demand side is `plan.extra["consumer_demand"]`: what the
 consumer councils asked for, one entry per commodity, private goods included. It is the whole
@@ -97,6 +102,10 @@ def proportional_rule(price, surplus, imbalance):
 result = run(HahnelSlides2020(price_rule=proportional_rule), economy, seed=0)
 print(result.summary.rounds, result.summary.converged)
 ```
+
+The three arguments are read-only views, and a rule that writes into one of them raises rather
+than quietly rewriting the price the plan records or the imbalance the loop tests convergence
+on. Return a new array.
 
 `cyberstride.prefabs.hahnel_2020_slides.slides_2020_rule` is the published rule in the same
 shape, so you can compare against it or wrap it.
@@ -236,7 +245,10 @@ is yours.
 
 `extra` is a second named-array bag, for physical quantities the fixed fields have no column
 for. Each array is one row per producing unit, per consumer unit or per commodity. Two keys
-are conventions the dep1ex prefab writes:
+are conventions the dep1ex prefab writes, and both are exported as constants, `EFFORT` and
+`CONSUMER_DEMAND`, because reading a plan back needs them: without them the production
+function and the material balance cannot be rebuilt from what the plan carries. The `extra`
+keys of `Economy` are the mechanism's own input parameters and stay plain strings.
 
 | key | shape | meaning |
 |---|---|---|

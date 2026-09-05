@@ -12,7 +12,10 @@ import dataclasses
 import numpy as np
 import pytest
 
+import cyberstride.plan
 from cyberstride import (
+    CONSUMER_DEMAND,
+    EFFORT,
     INCOME,
     INDICATIVE_PRICE,
     LABOR_VALUE,
@@ -51,6 +54,31 @@ class TestValuationKeys:
         assert LABOR_VALUE == "labor_value"
         assert SHADOW_PRICE == "shadow_price"
         assert INCOME == "income"
+
+
+class TestExtraKeys:
+    """The two ``extra`` keys :class:`Plan` documents, addressed by constant."""
+
+    def test_predefined_keys(self):
+        assert EFFORT == "effort"
+        assert CONSUMER_DEMAND == "consumer_demand"
+
+    def test_the_package_re_exports_the_names_the_plan_module_defines(self):
+        assert EFFORT is cyberstride.plan.EFFORT
+        assert CONSUMER_DEMAND is cyberstride.plan.CONSUMER_DEMAND
+
+    def test_a_bag_written_under_the_constants_reads_back_under_them(
+        self, plan, synthetic_economy
+    ):
+        carried = dataclasses.replace(
+            plan,
+            extra={
+                EFFORT: np.ones(synthetic_economy.n_units),
+                CONSUMER_DEMAND: np.ones(synthetic_economy.n_commodities),
+            },
+        )
+        carried.validate(synthetic_economy)
+        assert sorted(carried.extra) == sorted([EFFORT, CONSUMER_DEMAND])
 
 
 class TestImmutability:

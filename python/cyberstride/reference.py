@@ -246,8 +246,11 @@ class _Program:
     def plan_of(self, solution: np.ndarray, shadow_price: np.ndarray) -> AllocatedPlan:
         """The solved program as a plan. ``consumption`` is what the optimum allocates.
 
-        The program balances every commodity, so the objective hands out a feasible
-        allocation rather than a statement of what anyone asked for.
+        The objective's ``allocate`` divides the optimum's final consumption among the consumer
+        units, so this block is a division of what the program produced rather than a
+        statement of what anyone asked for. The program itself constrains each commodity by
+        ``A_ub x <= endowment``, which allows free disposal: a commodity may end the period in
+        surplus, so a balance is not what makes this an allocation.
         """
         output = np.ascontiguousarray(solution[: self.economy.n_units], dtype=np.float64)
         aggregate = np.zeros(self.economy.n_commodities, dtype=np.float64)

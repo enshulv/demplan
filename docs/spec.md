@@ -163,7 +163,8 @@ dep1ex 的生产函数是 `Q = a · e^c · Π x_j^{b_j}`，`e` 是单元每轮�
 禀赋使用（自然资源、劳动各用了多少）是投入用量按商品的聚合，由访问器派生，不另存。
 
 **实物层的三个字段可以缺席**：`consumption`、`consumption_commodity`、`provision`
-传 `None` 即声明「本机制没有这个量」。`output` 与 `input_use` 必填——规划生产的机制都有这两个。
+传 `None` 即声明「本机制没有这个量」。`output` 与 `input_use` 必填——规划生产的机制都有这两个，
+**传 `None` 在构造期就报错**，不等到 `validate`。
 字段不给默认值，所以**漏填仍然是缺参数报错**，缺席只能是学者写出来的。
 `consumption` 与 `consumption_commodity` 描述同一个量，同进同出。
 `Plan.absent_fields` 读回声明。访问器遇到它需要的字段缺席时抛 `PlanFieldAbsent`，
@@ -281,6 +282,9 @@ solve(economy, seed) -> Plan
 学者提供的协调方法是任意 Python，库保证不了它的确定性。库把种子递给他
 （`solve(economy, seed)`），并提供 `check_determinism(procedure, economy, seed, n)`
 供自测——跑若干次比对输出，不一致就报告差在哪。这是工具，不是闸门。
+**比的是三类：实物列、`valuation` 与 `extra`**，后两者的条目带 `valuation.<key>`
+与 `extra.<key>` 前缀；顺序是实物列、`valuation`、`extra`，袋内按键名排序。
+一侧缺席另一侧有值的实物列报成 `<列> (absent from one run)`，不报成数值差。
 不做运行时强制：Python 没有真沙箱，而且随机化的协调方法是合法研究。
 要保的是「给定种子后可复现」，不是「不许随机」。
 
@@ -298,12 +302,16 @@ solve(economy, seed) -> Plan
 `configuration_version`、`library_version`、`core_version`、`seed`、`economy`、
 `procedure`、`loader`、`plan_fields_absent`。
 
-**经济体算内容哈希**，逐字节不降精度，算法标识 `sha256-columns-v1`：
+**经济体算内容哈希**，逐字节不降精度，算法标识 `sha256-columns-v2`：
 每列先转 C 序、规范成小端，把 `列名
  dtype
  形状
 ` 接上字节喂 sha256；
 三个 `extra` 袋的键带前缀一并作为列；整体摘要是列名排序后各列摘要拼接再 sha256。
+**标量列的形状那一行写 `1`**（0 维数组升成一维），整数标量先规范成 int64。
+**只哈得了数值 dtype**：object、结构化与文本 dtype 一律拒收并说清是哪一列——
+它们的字节要么是内存地址、要么是第二个语言复现不出的宽度。
+**换任何一步都要升算法标识。**
 **除整体摘要外另存逐列摘要**，`compare_economy_digests` 比对两份并返回
 `EconomyDigestReport`，点名哪几列不同——跨平台的浮点末位差异因此可诊断。
 两份摘要的 `algorithm` 不同时拒绝比对。**库不自动核对**，比对是学者显式调的工具。
@@ -315,6 +323,16 @@ solve(economy, seed) -> Plan
 版本规则：文档缺键用默认值（旧文档喂新库要能跑），未知键报错且分清两种成因
 （库比文档旧 / 该键已退役，后者查已退役键的登记表），`configuration_version`
 比库新直接报错。**新增的键，默认值必须保持旧行为**——做不到就不能悄悄加。
+
+**这份文档不承诺的三件事，学者要知道：**
+
+- `plan_fields_absent` 记的是学者声明的字段名，**库不校验它们是不是 `Plan` 真有的字段**。
+  这是「只做鸭子类型、不导入 `Plan`」的直接后果：字段名写错一个字会原样进档，
+  没有任何东西转红。
+- `source_digest` 哈的是**整个模块源文件**，所以它对**注释级改动同样敏感**。
+  两份文档的 `source_digest` 不同时，那可能是行为变了，也可能只是有人改了个文档字符串。
+- 参数里的 `Enum`、`datetime`、`complex`、`set` **落到「未声明」形式，值不进档**。
+  JSON 原生的标量与容器（含 numpy 标量）按值记，`np.ndarray` 因为大小无界不记。
 
 ## 执行与存储
 

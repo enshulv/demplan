@@ -231,6 +231,12 @@ class CouncilModel:
         The councils' stated bundles are what the price rule iterates on, and the loop stops
         on a relative imbalance threshold rather than on a balance, so the plan is a statement
         of demand and not an allocation of supply.
+
+        It takes a state :meth:`step` produced. The state :meth:`initial_state` returns carries
+        a price and nothing else, so this raises :class:`cyberstride.SchemaError` on it:
+        ``Plan`` refuses ``output`` and ``input_use`` as ``None``, those being quantities no
+        mechanism may declare absent. :func:`cyberstride.iterate` calls this after every
+        ``step`` and never on the starting state, so a loop driven through it never meets that.
         """
         return StatedPlan(
             output=state.output,

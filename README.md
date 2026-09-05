@@ -305,6 +305,14 @@ better version control than any hash the library could compute. Parameters are r
 both: a parameter is data, not code, and the library can read your dataclass as well as its
 own.
 
+Three things the document does not promise, so that you do not read more into it than it says.
+The `source_digest` covers the whole module file, so it moves when a docstring moves and not
+only when behaviour does. Field names in `plan_fields_absent` come from your plan and are
+never checked against `Plan`, because the document reads your plan by duck typing rather than
+validating it. Parameters that JSON has no form for -- an `Enum`, a `datetime`, a `set` --
+are recorded as undeclared rather than converted, since converting would pick a
+representation on your behalf.
+
 ## What this library is answerable for
 
 The infrastructure half: the data model, the loaders, deterministic seed distribution, the

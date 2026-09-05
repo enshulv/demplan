@@ -7,7 +7,9 @@ as a failure instead of cancelling out.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
+import inspect
 
 import numpy as np
 import pytest
@@ -32,6 +34,19 @@ from cyberstride import (
 )
 
 
+CONSUMPTION_COMMODITY = (2, 0, 1)
+"""Commodity each column of the ``plan`` fixture's consumption block stands for.
+
+The three private goods of ``synthetic_economy``, in an order that is not the column order.
+Under the identity mapping ``(0, 1, 2)`` an implementation that dropped the mapping and filed
+column ``j`` under commodity ``j`` produces the same totals, so the aggregation tests here
+would pass on code that never reads the mapping.
+"""
+
+REQUIRED_FIELDS = ("output", "input_use")
+"""The fixed fields no mechanism may declare absent."""
+
+
 @pytest.fixture
 def plan(synthetic_economy):
     economy = synthetic_economy
@@ -41,7 +56,7 @@ def plan(synthetic_economy):
         consumption=np.array(
             [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]]
         ),
-        consumption_commodity=np.array([0, 1, 2], dtype=np.int64),
+        consumption_commodity=np.array(CONSUMPTION_COMMODITY, dtype=np.int64),
         provision=np.array([0.0] * 3 + [11.0, 12.0, 13.0] + [0.0] * 9),
         valuation={INDICATIVE_PRICE: np.full(economy.n_commodities, 700.0)},
     )
@@ -52,6 +67,11 @@ def expected_scatter(indices, weights, size) -> np.ndarray:
     for index, weight in zip(indices, weights):
         totals[int(index)] += float(weight)
     return np.array(totals)
+
+
+def expected_column_sums(block) -> list[float]:
+    """Column totals of a consumption block, added with a plain loop."""
+    return [sum(float(row[column]) for row in block) for column in range(len(block[0]))]
 
 
 class TestValuationKeys:
@@ -227,6 +247,101 @@ class TestExtraBag:
         with pytest.raises(SchemaError, match=r"Plan\.extra\['effort'\]"):
             carried.validate(synthetic_economy)
 
+    def test_a_zero_dimensional_array_is_named_rather_than_crashing(
+        self, plan, synthetic_economy
+    ):
+        """``np.array(1.0)`` is a float64 array with no leading dimension to read."""
+        carried = dataclasses.replace(plan, extra={"effort": np.array(1.0)})
+        with pytest.raises(SchemaError, match=r"Plan\.extra\['effort'\]"):
+            carried.validate(synthetic_economy)
+
+    def test_a_second_dimension_is_left_alone(self, plan, synthetic_economy):
+        """An array per consumer unit and producing unit is one row per consumer unit."""
+        carried = dataclasses.replace(
+            plan,
+            extra={
+                "utility": np.ones((synthetic_economy.n_consumers, synthetic_economy.n_units))
+            },
+        )
+        carried.validate(synthetic_economy)
+
+    def test_it_is_the_leading_dimension_that_is_checked(self, plan, synthetic_economy):
+        """The trailing dimension matching one of the three counts does not stand in for it."""
+        odd = 1 + max(
+            synthetic_economy.n_units,
+            synthetic_economy.n_consumers,
+            synthetic_economy.n_commodities,
+        )
+        carried = dataclasses.replace(
+            plan, extra={"utility": np.ones((odd, synthetic_economy.n_units))}
+        )
+        with pytest.raises(SchemaError, match=r"Plan\.extra\['utility'\]"):
+            carried.validate(synthetic_economy)
+
+
+THREE_EXTRA_KEYS = ("effort", "consumer_demand", "utility")
+"""Three ``extra`` keys, so that a check can be shown to reach the middle and the last one."""
+
+
+class TestEveryExtraKeyIsChecked:
+    """Each key of a three-key bag, not the one that happens to come first.
+
+    A check that stopped after the first key passes every single-key case, and a bag with one
+    key is what a mechanism writes only until it writes a second quantity.
+    """
+
+    def bag(self, economy, position, value):
+        rows = {key: np.ones(economy.n_units) for key in THREE_EXTRA_KEYS}
+        rows[THREE_EXTRA_KEYS[position]] = value
+        return rows
+
+    @pytest.mark.parametrize("position", [0, 1, 2])
+    def test_a_leading_dimension_matching_none_of_the_three_is_found(
+        self, plan, synthetic_economy, position
+    ):
+        odd = 1 + max(
+            synthetic_economy.n_units,
+            synthetic_economy.n_consumers,
+            synthetic_economy.n_commodities,
+        )
+        carried = dataclasses.replace(
+            plan, extra=self.bag(synthetic_economy, position, np.ones(odd))
+        )
+        with pytest.raises(SchemaError, match=THREE_EXTRA_KEYS[position]):
+            carried.validate(synthetic_economy)
+
+    @pytest.mark.parametrize("position", [1, 2])
+    def test_a_non_array_value_behind_a_good_key_is_found(
+        self, plan, synthetic_economy, position
+    ):
+        carried = dataclasses.replace(
+            plan, extra=self.bag(synthetic_economy, position, [1.0, 2.0])
+        )
+        with pytest.raises(SchemaError, match=THREE_EXTRA_KEYS[position]):
+            carried.validate(synthetic_economy)
+
+    @pytest.mark.parametrize("position", [1, 2])
+    def test_a_non_finite_entry_behind_a_good_key_is_found(
+        self, plan, synthetic_economy, position
+    ):
+        values = np.ones(synthetic_economy.n_units)
+        values[0] = np.nan
+        carried = dataclasses.replace(
+            plan, extra=self.bag(synthetic_economy, position, values)
+        )
+        with pytest.raises(SchemaError, match=THREE_EXTRA_KEYS[position]):
+            carried.validate(synthetic_economy)
+
+    @pytest.mark.parametrize("position", [1, 2])
+    def test_a_zero_dimensional_array_behind_a_good_key_is_found(
+        self, plan, synthetic_economy, position
+    ):
+        carried = dataclasses.replace(
+            plan, extra=self.bag(synthetic_economy, position, np.array(1.0))
+        )
+        with pytest.raises(SchemaError, match=THREE_EXTRA_KEYS[position]):
+            carried.validate(synthetic_economy)
+
 
 class TestAccessorsRejectMisshapenPlans:
     """A plan built for a different economy has to be named, not silently aggregated.
@@ -312,11 +427,22 @@ class TestDerivedAccessors:
 
     def test_total_consumption(self, plan, synthetic_economy):
         expected = expected_scatter(
-            plan.consumption_commodity,
-            plan.consumption.sum(axis=0),
+            CONSUMPTION_COMMODITY,
+            expected_column_sums(plan.consumption),
             synthetic_economy.n_commodities,
         )
         np.testing.assert_allclose(plan.total_consumption(synthetic_economy), expected)
+
+    def test_total_consumption_reads_the_column_mapping(self, plan, synthetic_economy):
+        """Filing column ``j`` under commodity ``j`` is a different answer on this fixture."""
+        ignoring_the_mapping = expected_scatter(
+            range(len(CONSUMPTION_COMMODITY)),
+            expected_column_sums(plan.consumption),
+            synthetic_economy.n_commodities,
+        )
+        assert not np.array_equal(
+            plan.total_consumption(synthetic_economy), ignoring_the_mapping
+        )
 
     def test_endowment_use_covers_only_natural_resources_and_labor(self, plan, synthetic_economy):
         used = plan.endowment_use(synthetic_economy)
@@ -382,22 +508,73 @@ class TestAbsenceIsDeclaredNotDefaulted:
             plan, consumption=None, consumption_commodity=None
         ).validate(synthetic_economy)
 
-    def test_a_none_output_is_refused_rather_than_skipped(self, plan, synthetic_economy):
-        """``output`` stays required, so absence handling must not swallow it."""
-        broken = dataclasses.replace(plan, output=None)
-        with pytest.raises(SchemaError, match=r"Plan\.output"):
-            broken.validate(synthetic_economy)
+    @pytest.mark.parametrize("field", REQUIRED_FIELDS)
+    def test_a_required_field_may_not_be_declared_absent(self, plan, field):
+        """The two required fields are refused where absence would be declared, not later."""
+        with pytest.raises(SchemaError, match=rf"Plan\.{field}"):
+            dataclasses.replace(plan, **{field: None})
 
-    def test_a_none_input_use_is_refused_rather_than_skipped(self, plan, synthetic_economy):
-        broken = dataclasses.replace(plan, input_use=None)
-        with pytest.raises(SchemaError, match=r"Plan\.input_use"):
-            broken.validate(synthetic_economy)
 
-    def test_a_none_output_does_not_reach_the_aggregation(self, plan, synthetic_economy):
-        """Skipping the shape check on ``None`` would let ``bincount`` weight every unit by one."""
-        broken = dataclasses.replace(plan, output=None)
+class TestTheRequiredArraysAreRefusedAtConstruction:
+    """``output`` and ``input_use`` carry arrays, or the plan does not come into existence.
+
+    The refusal is at construction rather than in :meth:`Plan.validate` because nothing obliges
+    a mechanism to call ``validate`` and ``run`` does not. A plan holding ``None`` in both has
+    no physical column at all, and every tool that reads "the columns this plan carries" then
+    reads nothing: the divergence watch of ``iterate`` finds no array to test and reports the
+    loop as finite, and ``check_determinism`` finds no column to compare.
+    """
+
+    @pytest.mark.parametrize("field", REQUIRED_FIELDS)
+    def test_the_refusal_names_the_field(self, plan, field):
+        with pytest.raises(SchemaError) as excinfo:
+            dataclasses.replace(plan, **{field: None})
+        assert f"Plan.{field}" in str(excinfo.value)
+
+    @pytest.mark.parametrize("field", REQUIRED_FIELDS)
+    def test_the_refusal_names_the_fields_that_may_be_absent(self, plan, field):
+        """A researcher who reaches this needs to know which absences are available."""
+        with pytest.raises(SchemaError) as excinfo:
+            dataclasses.replace(plan, **{field: None})
+        message = str(excinfo.value)
+        for optional in OPTIONAL_FIELDS:
+            assert optional in message
+
+    def test_both_absent_together_is_refused_as_well(self, plan):
         with pytest.raises(SchemaError, match=r"Plan\.output"):
-            broken.total_output(synthetic_economy)
+            dataclasses.replace(plan, output=None, input_use=None)
+
+    @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
+    def test_a_subclass_refuses_it_too(self, plan, subclass):
+        with pytest.raises(SchemaError, match=r"Plan\.output"):
+            subclass(
+                output=None,
+                input_use=plan.input_use,
+                consumption=None,
+                consumption_commodity=None,
+                provision=None,
+            )
+
+    def test_it_answers_before_the_consumption_pairing_check(self, plan):
+        """A plan missing a required column says so, rather than naming the pair it also lacks."""
+        with pytest.raises(SchemaError) as excinfo:
+            Plan(
+                output=None,
+                input_use=None,
+                consumption=None,
+                consumption_commodity=plan.consumption_commodity,
+                provision=None,
+            )
+        assert "Plan.output" in str(excinfo.value)
+
+    def test_the_widest_absence_a_plan_may_declare_still_leaves_two_columns(self, bare_plan):
+        """What the divergence watch and the determinism comparison are left to read."""
+        carried = [
+            name
+            for name in ("output", "input_use", "consumption", "provision")
+            if getattr(bare_plan, name) is not None
+        ]
+        assert carried == ["output", "input_use"]
 
 
 class TestConsumptionPairing:
@@ -588,6 +765,39 @@ class TestValuationIsCheckedOnTheWayIn:
         with pytest.raises(SchemaError, match="labor_value"):
             broken.validate(synthetic_economy)
 
+    @pytest.mark.parametrize("position", [0, 1, 2])
+    def test_the_dtype_check_reaches_every_key_whatever_its_position(
+        self, plan, synthetic_economy, position
+    ):
+        """Three keys, one of them integer-typed, taking each place in the bag in turn."""
+        keys = [INDICATIVE_PRICE, LABOR_VALUE, SHADOW_PRICE]
+        bag = {key: np.full(synthetic_economy.n_commodities, 700.0) for key in keys}
+        bag[keys[position]] = np.full(synthetic_economy.n_commodities, 700, dtype=np.int64)
+        with pytest.raises(SchemaError, match=keys[position]):
+            dataclasses.replace(plan, valuation=bag)
+
+    @pytest.mark.parametrize("position", [1, 2])
+    def test_a_float32_key_behind_a_float64_one_is_still_refused(
+        self, plan, synthetic_economy, position
+    ):
+        keys = [INDICATIVE_PRICE, LABOR_VALUE, SHADOW_PRICE]
+        bag = {key: np.full(synthetic_economy.n_commodities, 700.0) for key in keys}
+        bag[keys[position]] = np.full(
+            synthetic_economy.n_commodities, 700.0, dtype=np.float32
+        )
+        with pytest.raises(SchemaError, match=keys[position]):
+            dataclasses.replace(plan, valuation=bag)
+
+    @pytest.mark.parametrize("position", [1, 2])
+    def test_a_plain_list_behind_an_array_is_still_refused(
+        self, plan, synthetic_economy, position
+    ):
+        keys = [INDICATIVE_PRICE, LABOR_VALUE, SHADOW_PRICE]
+        bag = {key: np.full(synthetic_economy.n_commodities, 700.0) for key in keys}
+        bag[keys[position]] = [700.0] * synthetic_economy.n_commodities
+        with pytest.raises(SchemaError, match=keys[position]):
+            dataclasses.replace(plan, valuation=bag)
+
 
 class TestPlanSubclasses:
     """``StatedPlan`` and ``AllocatedPlan`` add an identity and nothing else."""
@@ -774,6 +984,25 @@ class TestValuationLengthFollowsTheKey:
         carried = self.valued(plan, "utility", np.zeros((synthetic_economy.n_consumers, 2)))
         carried.validate(synthetic_economy)
 
+    def test_an_unregistered_key_refuses_a_zero_dimensional_array(
+        self, plan, synthetic_economy
+    ):
+        """A scalar array has no leading dimension, so the rank guard has to answer first."""
+        carried = self.valued(plan, "utility", np.array(1.0))
+        with pytest.raises(SchemaError, match="utility"):
+            carried.validate(synthetic_economy)
+
+    @pytest.mark.parametrize("position", [1, 2])
+    def test_the_length_check_reaches_every_key_whatever_its_position(
+        self, plan, synthetic_economy, position
+    ):
+        keys = [INDICATIVE_PRICE, LABOR_VALUE, SHADOW_PRICE]
+        bag = {key: np.zeros(synthetic_economy.n_commodities) for key in keys}
+        bag[keys[position]] = np.zeros(synthetic_economy.n_commodities + 1)
+        carried = dataclasses.replace(plan, valuation=bag)
+        with pytest.raises(SchemaError, match=keys[position]):
+            carried.validate(synthetic_economy)
+
     def test_a_registered_key_may_not(self, plan, synthetic_economy):
         carried = self.valued(
             plan, INDICATIVE_PRICE, np.zeros((synthetic_economy.n_commodities, 2))
@@ -787,3 +1016,67 @@ class TestValuationLengthFollowsTheKey:
         for key in (INCOME, "utility"):
             with pytest.raises(SchemaError, match="float64"):
                 self.valued(plan, key, np.zeros(synthetic_economy.n_consumers, dtype=np.int64))
+
+
+def key_constants_documented_as(role: str) -> set[str]:
+    """The string constants of :mod:`cyberstride.plan` whose docstring opens with ``role``.
+
+    The role is read from the source because a module-level constant's docstring is not kept
+    at runtime. Reading it is what makes this a check on the module rather than on a list
+    written out beside it: a constant added under ``role`` joins the set without anyone
+    editing the test.
+    """
+    module = ast.parse(inspect.getsource(cyberstride.plan))
+    found = set()
+    for statement, following in zip(module.body, module.body[1:]):
+        if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+            continue
+        if not isinstance(statement.targets[0], ast.Name):
+            continue
+        if not isinstance(statement.value, ast.Constant) or not isinstance(
+            statement.value.value, str
+        ):
+            continue
+        if (
+            isinstance(following, ast.Expr)
+            and isinstance(following.value, ast.Constant)
+            and isinstance(following.value.value, str)
+            and following.value.value.startswith(role)
+        ):
+            found.add(statement.value.value)
+    return found
+
+
+def published_key_constants() -> set[str]:
+    """The public upper-case string constants :mod:`cyberstride.plan` exports."""
+    return {
+        value
+        for name, value in vars(cyberstride.plan).items()
+        if not name.startswith("_") and name.isupper() and isinstance(value, str)
+    }
+
+
+class TestTheValuationRegistryIsComplete:
+    """Every valuation key the module publishes is registered with a row count.
+
+    An unregistered key falls through to the loose check that any of the three row counts
+    passes, so a per-consumer-unit key would be accepted at commodity length and back. The
+    cases above name their keys one by one, so a fifth constant added without a registration
+    turns nothing red there; this is where it does.
+    """
+
+    def test_the_source_carries_both_roles(self):
+        """The reading is a check only while it finds something to read."""
+        assert key_constants_documented_as("Valuation key:")
+        assert key_constants_documented_as("Extra key:")
+
+    def test_every_valuation_key_constant_is_registered(self):
+        assert key_constants_documented_as("Valuation key:") == set(
+            cyberstride.plan._VALUATION_ROWS
+        )
+
+    def test_every_published_key_constant_declares_which_bag_it_belongs_to(self):
+        roles = key_constants_documented_as("Valuation key:") | key_constants_documented_as(
+            "Extra key:"
+        )
+        assert published_key_constants() == roles

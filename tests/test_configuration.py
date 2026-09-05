@@ -26,6 +26,9 @@ import importlib
 import importlib.metadata as metadata
 import inspect
 import json
+import sys
+import types
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -232,9 +235,16 @@ class PlanStub:
 
 
 def module_file_digest(module_name: str) -> str:
-    """sha256 of the source file of ``module_name``, read as bytes."""
+    """sha256 of the source file of ``module_name``, with its line endings normalised.
+
+    ``TestSourceDigestLineEndings`` is what pins the normalisation itself. This helper
+    only has to reach the same answer for a file already in the checkout, whose line
+    endings depend on how git wrote it out.
+    """
     path = Path(importlib.import_module(module_name).__file__)
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    raw = path.read_bytes()
+    source = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(source).hexdigest()
 
 
 class TestEconomyDigestShape:
@@ -243,8 +253,8 @@ class TestEconomyDigestShape:
         assert set(block) == {"algorithm", "digest", "columns"}
 
     def test_the_algorithm_is_named_and_versioned(self, economy):
-        assert economy_digest(economy)["algorithm"] == "sha256-columns-v1"
-        assert ECONOMY_DIGEST_ALGORITHM == "sha256-columns-v1"
+        assert economy_digest(economy)["algorithm"] == "sha256-columns-v2"
+        assert ECONOMY_DIGEST_ALGORITHM == "sha256-columns-v2"
 
     def test_every_digest_is_sha256_in_lower_case_hex(self, economy):
         block = economy_digest(economy)
@@ -854,7 +864,7 @@ class TestDigestComparison:
     def test_two_digests_under_different_algorithms_are_refused(self, economy):
         """Not a judgement to hand back: two normalisations produce incomparable figures."""
         recorded = economy_digest(economy)
-        current = dict(economy_digest(economy), algorithm="sha256-columns-v2")
+        current = dict(economy_digest(economy), algorithm="sha256-columns-v1")
         with pytest.raises(ConfigurationError) as raised:
             compare_economy_digests(recorded, current)
         message = str(raised.value)
@@ -1018,3 +1028,727 @@ class TestNumpyScalars:
             LibraryLikeProcedure(absent=np.array([1.0, 2.0])), economy, seed=0
         )
         assert config.procedure["parameters"]["absent"]["kind"] == "researcher"
+
+
+@dataclasses.dataclass(frozen=True)
+class SpecColumns:
+    """A stand-in whose two columns are the worked example the preimage tests spell out."""
+
+    alpha: object
+    beta: object
+
+
+@dataclasses.dataclass(frozen=True)
+class OneBag:
+    """A stand-in carrying nothing but a bag, so that a bag key alone names a column."""
+
+    bag: dict
+
+
+SPEC_ALPHA = np.array([1, 2], dtype="<i8")
+SPEC_BETA = np.array([3.5], dtype="<f8")
+
+ALPHA_PREIMAGE = (
+    b"alpha\n<i8\n2\n"
+    b"\x01\x00\x00\x00\x00\x00\x00\x00"
+    b"\x02\x00\x00\x00\x00\x00\x00\x00"
+)
+"""The bytes ``docs/决策/可复现性.md`` says a column of ``SPEC_ALPHA`` is hashed over.
+
+Spelled out here rather than assembled the way the module assembles it. A test that built the
+header from ``dtype.str`` and the shape the same way the module does would agree with the
+module under every change to either, which is what left the separator, the field order, the
+encoding and the hash function itself unguarded.
+"""
+
+BETA_PREIMAGE = b"beta\n<f8\n1\n\x00\x00\x00\x00\x00\x00\x0c\x40"
+
+ALPHA_DIGEST = "c43cb1d4c425408af8aa237ec476878c9d9e49e9c2c978764352e7b9530f6884"
+"""sha256 of :data:`ALPHA_PREIMAGE`, written down so that no change here can move it."""
+
+BETA_DIGEST = "24840ce6c6a618f829f6e0d02305bd1e24890b77ee563ec1d38704edfb124e21"
+
+SPEC_WHOLE_DIGEST = "44c9149f00624e5da7f51fc95868c3439aa4a97837239f2da7eea5b0f92392f9"
+"""sha256 of ``ALPHA_DIGEST + BETA_DIGEST`` as ASCII: the two column digests in name order."""
+
+UTF_8_BAG_DIGEST = "a77c1f58f2ec9778e098a819f3e57da10cf93413ce802b9c48cf9dc58f9d676c"
+"""sha256 over ``b"bag.\\xcf\\x80\\n<i8\\n1\\n\\x05\\x00\\x00\\x00\\x00\\x00\\x00\\x00"``.
+
+The column name is ``bag.π``, whose UTF-8 encoding is two bytes and whose UTF-16 encoding is
+neither those bytes nor that length.
+"""
+
+TWO_DIMENSIONAL_DIGEST = "89644899311b3d694aa1abb3fe659b8b62e10dbd5153936f44681c755863b9d5"
+"""sha256 over ``b"bag.grid\\n<i8\\n2,3\\n"`` and the six little-endian integers 0 to 5.
+
+The one column here with more than one dimension. Every shape of one dimension joins to the
+same string under any separator, so a suite built only from those says nothing about which
+separator the shape uses, and the header is what another language has to reproduce.
+"""
+
+PERIOD_ZERO_DIGEST = "8113d5816eadf76f26daf54aa71f51fb07b8f9cbf01405b462591049c0c68840"
+"""sha256 over ``b"period\\n<i8\\n1\\n" + eight zero bytes``: period 0 as a 64-bit integer."""
+
+BOOLEAN_COLUMN_DIGEST = "25cb94084fa0961e60f619fbb4e94f3a96270983f958a69b764873178103ea87"
+"""sha256 over ``b"alpha\\n|b1\\n1\\n\\x01"``: a true column keeps the boolean dtype string."""
+
+NORMALISED_SOURCE_DIGEST = "a57d7057293d0884af041598b2fdf66fe281746e1cf34253633f57b65381ee2e"
+"""sha256 over ``b"ALPHA = 1\\nBETA = 2\\n"``, the line-ending-normalised form of a module."""
+
+DEFAULTS_DOCUMENT_BYTES = (
+    b'{\n'
+    b'  "configuration_version": 1,\n'
+    b'  "core_version": null,\n'
+    b'  "economy": null,\n'
+    b'  "library_version": null,\n'
+    b'  "loader": null,\n'
+    b'  "plan_fields_absent": [\n'
+    b'    "provision"\n'
+    b'  ],\n'
+    b'  "procedure": null,\n'
+    b'  "seed": 7\n'
+    b'}\n'
+)
+"""Every byte of one written document, so that "compares as bytes" has something reading them.
+
+Sorted keys, two-space indent, a newline between every pair of lines and one at the end, and
+no carriage return anywhere, on Windows as on anything else.
+"""
+
+PINNED_DIGEST_INSTRUCTION = (
+    "This digest was spelled out by hand from the specification text in "
+    "docs/决策/可复现性.md, not read off the module. It moves for one of two reasons. "
+    "Either a step of the normalisation broke, and the fix belongs in the module; or a step "
+    "was changed on purpose, and then ECONOMY_DIGEST_ALGORITHM takes a new version in this "
+    "same commit and the decision record says which step moved. There is no third reason. A "
+    "version string left behind names a normalisation it no longer describes, and every "
+    "document already written under it becomes unreadable without saying so."
+)
+"""What to do about a pinned digest that has moved, said in the failure itself.
+
+The specification says any change to any step of the normalisation takes a new version
+string, and nothing enforces that: the version is a string somebody types. These constants
+at least make the change fail loudly, and the message is what turns "the digest moved" into
+"you owe a version bump".
+"""
+
+CONFIGURATION_EXPORTS = (
+    "ConfigurationError",
+    "EconomyDigestReport",
+    "RunConfiguration",
+    "compare_economy_digests",
+    "economy_digest",
+    "run_configuration",
+)
+"""What this module contributes to the package's public surface."""
+
+
+def labelled(count: int) -> np.ndarray:
+    """``count`` object-dtype labels built at run time, so no two arrays share a pointer.
+
+    Short string literals are interned, which would make two separately built arrays hold the
+    same pointers and hide the very failure these tests are about.
+    """
+    return np.array(["label " + str(index) for index in range(count)], dtype=object)
+
+
+@dataclasses.dataclass(frozen=True)
+class ContainerProcedure:
+    """A procedure holding the JSON-native containers a researcher's parameters arrive in.
+
+    A weight tuple is one of the commonest parameter shapes there is, and the document is
+    worth nothing to whoever reruns the procedure if it records the tuple as "not declared".
+    """
+
+    weights: object = (0.1, 0.9)
+    rounds: object = dataclasses.field(default_factory=lambda: [1, 2, 3])
+    thresholds: object = dataclasses.field(default_factory=lambda: {"price": 0.05})
+
+    def solve(self, economy, seed):
+        raise AssertionError("writing a configuration document must not run the procedure")
+
+
+class TestTheColumnPreimage:
+    """What exactly goes into a column's sha256, byte for byte.
+
+    ``sha256-columns-v2`` is a promise that another implementation, in another language, can
+    read the specification and arrive at the same hex string. Nothing keeps that promise
+    except a test that writes the preimage out by hand: every inequality assertion in this
+    file passes just as happily under a different separator, a different field order, a
+    different encoding or a different hash function.
+    """
+
+    def test_the_written_preimage_matches_the_written_digest(self):
+        """A self-check on the two constants: a typo in either turns this red rather than
+        turning a real assertion green for the wrong reason."""
+        typo = "the written preimage and the written digest disagree: one has a typo"
+        assert hashlib.sha256(ALPHA_PREIMAGE).hexdigest() == ALPHA_DIGEST, typo
+        assert hashlib.sha256(BETA_PREIMAGE).hexdigest() == BETA_DIGEST, typo
+
+    def test_a_column_digest_is_sha256_over_the_hand_written_preimage(self):
+        columns = economy_digest(SpecColumns(alpha=SPEC_ALPHA, beta=SPEC_BETA))["columns"]
+        assert columns["alpha"] == ALPHA_DIGEST, PINNED_DIGEST_INSTRUCTION
+        assert columns["beta"] == BETA_DIGEST, PINNED_DIGEST_INSTRUCTION
+
+    def test_the_column_digest_is_sha256_and_not_another_hash_of_the_same_length(self):
+        columns = economy_digest(SpecColumns(alpha=SPEC_ALPHA, beta=SPEC_BETA))["columns"]
+        assert columns["alpha"] != hashlib.sha3_256(ALPHA_PREIMAGE).hexdigest()
+        assert columns["alpha"] != hashlib.blake2s(ALPHA_PREIMAGE).hexdigest()
+
+    def test_the_whole_digest_is_sha256_over_the_column_digests_in_name_order(self):
+        block = economy_digest(SpecColumns(alpha=SPEC_ALPHA, beta=SPEC_BETA))
+        assert block["digest"] == SPEC_WHOLE_DIGEST, PINNED_DIGEST_INSTRUCTION
+        assert block["digest"] == hashlib.sha256(
+            (ALPHA_DIGEST + BETA_DIGEST).encode("ascii")
+        ).hexdigest()
+
+    def test_the_column_header_is_encoded_as_utf_8(self):
+        """A column name outside ASCII, where UTF-8 and UTF-16 disagree on bytes and length."""
+        digest = economy_digest(OneBag(bag={"π": np.array([5], dtype="<i8")}))
+        assert digest["columns"]["bag.π"] == UTF_8_BAG_DIGEST, PINNED_DIGEST_INSTRUCTION
+
+    def test_the_shape_is_joined_by_commas(self):
+        """A column of two dimensions, which is the only kind whose join is visible."""
+        grid = np.arange(6, dtype="<i8").reshape(2, 3)
+        digest = economy_digest(OneBag(bag={"grid": grid}))
+        assert (
+            digest["columns"]["bag.grid"] == TWO_DIMENSIONAL_DIGEST
+        ), PINNED_DIGEST_INSTRUCTION
+
+    def test_a_big_endian_column_digests_as_the_hand_written_little_endian_preimage(self):
+        """Normalisation to little-endian, pinned against the written bytes rather than
+        against the module's own answer for the little-endian twin."""
+        big = SpecColumns(alpha=np.array([1, 2], dtype=">i8"), beta=SPEC_BETA)
+        assert (
+            economy_digest(big)["columns"]["alpha"] == ALPHA_DIGEST
+        ), PINNED_DIGEST_INSTRUCTION
+
+
+class TestScalarColumns:
+    """A scalar has no dtype until one is chosen for it, so the choice is pinned here.
+
+    ``np.ascontiguousarray`` gives a Python integer whatever width the platform defaults to,
+    and the width travels into the header as ``<i4`` or ``<i8``. Two people on two platforms
+    would get two digests for one economy, and a Rust implementation reading the specification
+    would have nothing to tell it which to write.
+    """
+
+    def test_the_period_is_recorded_as_a_64_bit_integer(self, economy):
+        block = economy_digest(dataclasses.replace(economy, period=0))
+        assert block["columns"]["period"] == PERIOD_ZERO_DIGEST, PINNED_DIGEST_INSTRUCTION
+
+    def test_the_python_type_of_the_period_does_not_reach_the_digest(self, economy):
+        for period in (0, np.int32(0), np.int64(0), np.int8(0)):
+            replaced = dataclasses.replace(economy, period=period)
+            assert (
+                economy_digest(replaced)["columns"]["period"] == PERIOD_ZERO_DIGEST
+            ), PINNED_DIGEST_INSTRUCTION
+
+    def test_two_economies_of_the_same_period_agree_whatever_type_carries_it(self, economy):
+        as_int = dataclasses.replace(economy, period=3)
+        as_numpy = dataclasses.replace(economy, period=np.int32(3))
+        assert economy_digest(as_int) == economy_digest(as_numpy)
+
+    def test_a_different_period_still_gives_a_different_digest(self, economy):
+        first = dataclasses.replace(economy, period=3)
+        second = dataclasses.replace(economy, period=4)
+        assert economy_digest(first)["digest"] != economy_digest(second)["digest"]
+
+    def test_an_integer_array_keeps_the_width_it_declares(self):
+        """Only a scalar's width is platform noise. An array declares its own dtype, and
+        widening it here would report two genuinely different columns as one."""
+        column = SpecColumns(alpha=np.array([1, 2], dtype="<i4"), beta=SPEC_BETA)
+        assert economy_digest(column)["columns"]["alpha"] != ALPHA_DIGEST
+
+    def test_a_boolean_column_keeps_the_boolean_dtype_string(self):
+        block = economy_digest(SpecColumns(alpha=True, beta=SPEC_BETA))
+        assert (
+            block["columns"]["alpha"] == BOOLEAN_COLUMN_DIGEST
+        ), PINNED_DIGEST_INSTRUCTION
+
+
+class TestColumnsThatCannotBeDigestedFaithfully:
+    """Dtypes whose bytes do not stand for the values, refused instead of digested.
+
+    ``tobytes()`` on an object array hands back the pointers, not the labels behind them, so
+    two economies holding equal labels digest differently and one whose label was edited in
+    place digests the same. ``dtype.str`` of a structured dtype is ``|V16`` whatever its
+    fields are called, so two columns whose fields have different names collide. A digest
+    that answered either question would be answering one it cannot answer, and the module
+    says a matching digest proves the arrays are identical.
+    """
+
+    def test_an_object_column_is_refused(self):
+        with pytest.raises(ConfigurationError) as raised:
+            economy_digest(SpecColumns(alpha=labelled(2), beta=SPEC_BETA))
+        message = str(raised.value)
+        assert "alpha" in message
+        assert "|O" in message
+
+    def test_two_economies_holding_equal_labels_are_refused_rather_than_reported_apart(self):
+        """The failure this replaces: the same labels in two arrays digested differently."""
+        first, second = labelled(2), labelled(2)
+        assert list(first) == list(second)
+        assert first.tobytes() != second.tobytes()
+        for subject in (first, second):
+            with pytest.raises(ConfigurationError):
+                economy_digest(SpecColumns(alpha=subject, beta=SPEC_BETA))
+
+    def test_an_object_column_in_a_bag_is_refused_under_its_prefixed_name(self):
+        with pytest.raises(ConfigurationError) as raised:
+            economy_digest(OneBag(bag={"label": labelled(2)}))
+        assert "bag.label" in str(raised.value)
+
+    def test_a_structured_column_is_refused(self):
+        pairs = np.zeros(2, dtype=np.dtype([("alpha", "<f8"), ("beta", "<f8")]))
+        with pytest.raises(ConfigurationError) as raised:
+            economy_digest(SpecColumns(alpha=pairs, beta=SPEC_BETA))
+        assert "alpha" in str(raised.value)
+
+    def test_two_structured_dtypes_that_collide_are_both_refused(self):
+        one = np.zeros(2, dtype=np.dtype([("alpha", "<f8"), ("beta", "<f8")]))
+        other = np.zeros(2, dtype=np.dtype([("gamma", "<f8"), ("delta", "<f8")]))
+        assert one.dtype.str == other.dtype.str
+        assert one.tobytes() == other.tobytes()
+        for subject in (one, other):
+            with pytest.raises(ConfigurationError):
+                economy_digest(SpecColumns(alpha=subject, beta=SPEC_BETA))
+
+    def test_the_two_refusals_name_their_own_cause(self):
+        """A structured column loses its field names; an object column never held values at
+        all. The two are fixed differently, so being told the wrong one costs the reader the
+        time it takes to try the wrong fix."""
+        pairs = np.zeros(2, dtype=np.dtype([("alpha", "<f8"), ("beta", "<f8")]))
+        with pytest.raises(ConfigurationError) as structured:
+            economy_digest(SpecColumns(alpha=pairs, beta=SPEC_BETA))
+        with pytest.raises(ConfigurationError) as objects:
+            economy_digest(SpecColumns(alpha=labelled(2), beta=SPEC_BETA))
+        assert "field names" in str(structured.value)
+        assert "field names" not in str(objects.value)
+        assert "bytes are not its values" in str(objects.value)
+        assert "bytes are not its values" not in str(structured.value)
+
+    def test_a_text_column_is_refused(self):
+        with pytest.raises(ConfigurationError):
+            economy_digest(SpecColumns(alpha=np.array(["a", "b"]), beta=SPEC_BETA))
+
+    @pytest.mark.parametrize(
+        "dtype", ["|b1", "<i2", "<u4", "<f4", "<f8", "<c16"]
+    )
+    def test_the_dtypes_a_digest_can_carry_are_still_carried(self, dtype):
+        block = economy_digest(SpecColumns(alpha=np.zeros(2, dtype=dtype), beta=SPEC_BETA))
+        assert len(block["columns"]["alpha"]) == 64
+
+
+class TestSourceDigestLineEndings:
+    """Line endings are not behaviour, and a checkout changes them without being asked.
+
+    This repository sets ``core.autocrlf``, so one contributor's working tree holds a prefab
+    with CRLF where another's holds the same commit with LF. A digest over the raw bytes calls
+    those two different implementations, which inverts what the digest is for: it answers
+    whether the library changed the code under an older scenario's feet.
+    """
+
+    def module_with_source(self, monkeypatch, tmp_path, name: str, body: bytes) -> str:
+        """Register a module under ``name`` whose source file holds exactly ``body``.
+
+        The module object is built rather than imported, so the digest is taken over a file
+        whose bytes the test chose and no module-level code runs.
+        """
+        path = tmp_path / f"{name}.py"
+        path.write_bytes(body)
+        module = types.ModuleType(name)
+        module.__file__ = str(path)
+        monkeypatch.setitem(sys.modules, name, module)
+        return name
+
+    def test_a_file_with_crlf_digests_as_the_same_file_with_lf(self, monkeypatch, tmp_path):
+        crlf = self.module_with_source(
+            monkeypatch, tmp_path, "line_endings_crlf", b"ALPHA = 1\r\nBETA = 2\r\n"
+        )
+        lf = self.module_with_source(
+            monkeypatch, tmp_path, "line_endings_lf", b"ALPHA = 1\nBETA = 2\n"
+        )
+        assert configuration._module_source_digest(crlf) == (
+            configuration._module_source_digest(lf)
+        )
+
+    def test_a_lone_carriage_return_is_normalised_too(self, monkeypatch, tmp_path):
+        old_mac = self.module_with_source(
+            monkeypatch, tmp_path, "line_endings_cr", b"ALPHA = 1\rBETA = 2\r"
+        )
+        lf = self.module_with_source(
+            monkeypatch, tmp_path, "line_endings_lf_twin", b"ALPHA = 1\nBETA = 2\n"
+        )
+        assert configuration._module_source_digest(old_mac) == (
+            configuration._module_source_digest(lf)
+        )
+
+    def test_the_digest_is_sha256_over_the_normalised_bytes(self, monkeypatch, tmp_path):
+        name = self.module_with_source(
+            monkeypatch, tmp_path, "line_endings_pinned", b"ALPHA = 1\r\nBETA = 2\r\n"
+        )
+        assert configuration._module_source_digest(name) == NORMALISED_SOURCE_DIGEST
+
+    def test_a_change_to_the_content_still_moves_the_digest(self, monkeypatch, tmp_path):
+        first = self.module_with_source(
+            monkeypatch, tmp_path, "line_endings_one", b"ALPHA = 1\nBETA = 2\n"
+        )
+        second = self.module_with_source(
+            monkeypatch, tmp_path, "line_endings_two", b"ALPHA = 1\nBETA = 3\n"
+        )
+        assert configuration._module_source_digest(first) != (
+            configuration._module_source_digest(second)
+        )
+
+    def test_the_whole_file_is_still_read_and_not_only_part_of_it(
+        self, monkeypatch, tmp_path
+    ):
+        short = self.module_with_source(
+            monkeypatch, tmp_path, "line_endings_short", b"ALPHA = 1\n"
+        )
+        long = self.module_with_source(
+            monkeypatch, tmp_path, "line_endings_long", b"ALPHA = 1\nBETA = 2\n"
+        )
+        assert configuration._module_source_digest(short) != (
+            configuration._module_source_digest(long)
+        )
+
+
+class TestContainerParameters:
+    """Lists, tuples and string-keyed dicts are recorded by value, element by element.
+
+    JSON has an array and an object, so nothing about these has to be dropped, and dropping
+    them lands on the same failure the numpy scalar rule was written against: the value
+    disappears into ``"parameters": null``, which is also what the document says when the
+    researcher passed a callable. He cannot tell the two apart, and he is not told either
+    happened.
+    """
+
+    def block(self, economy, procedure):
+        return run_configuration(procedure, economy, seed=0).procedure["parameters"]
+
+    def test_a_tuple_is_recorded_as_a_json_array(self, economy):
+        assert self.block(economy, ContainerProcedure())["weights"] == [0.1, 0.9]
+
+    def test_a_list_is_recorded_as_a_json_array(self, economy):
+        assert self.block(economy, ContainerProcedure())["rounds"] == [1, 2, 3]
+
+    def test_a_string_keyed_dict_is_recorded_as_a_json_object(self, economy):
+        assert self.block(economy, ContainerProcedure())["thresholds"] == {"price": 0.05}
+
+    def test_an_empty_container_is_kept_apart_from_a_parameter_not_declared(self, economy):
+        parameters = self.block(economy, ContainerProcedure(weights=(), thresholds={}))
+        assert parameters["weights"] == []
+        assert parameters["thresholds"] == {}
+
+    def test_containers_nest(self, economy):
+        nested = ContainerProcedure(weights=[{"inner": (1, 2)}, [3]])
+        assert self.block(economy, nested)["weights"] == [{"inner": [1, 2]}, [3]]
+
+    def test_a_numpy_scalar_inside_a_container_is_unwrapped(self, economy):
+        nested = ContainerProcedure(weights=(np.int64(250), np.float32(0.5)))
+        recorded = self.block(economy, nested)["weights"]
+        assert recorded[0] == 250
+        assert type(recorded[0]) is int
+        assert type(recorded[1]) is float
+
+    def test_an_array_inside_a_container_falls_to_the_undeclared_form(self, economy):
+        nested = ContainerProcedure(weights=[np.array([1.0, 2.0])])
+        assert self.block(economy, nested)["weights"][0]["kind"] == "researcher"
+
+    def test_an_array_is_still_undeclared_at_the_top_level(self, economy):
+        """Its size has no bound, which is the reason the container rule stops at arrays."""
+        nested = ContainerProcedure(weights=np.array([1.0, 2.0]))
+        assert self.block(economy, nested)["weights"]["kind"] == "researcher"
+
+    def test_a_dict_whose_keys_are_not_strings_falls_to_the_undeclared_form(self, economy):
+        """JSON objects are keyed by strings, and a document that wrote ``1`` as ``"1"``
+        would read back as a different dict without saying so."""
+        nested = ContainerProcedure(thresholds={1: 0.5})
+        assert self.block(economy, nested)["thresholds"]["kind"] == "researcher"
+
+    def test_a_non_finite_number_in_a_list_is_named_by_its_index(self, economy):
+        with pytest.raises(ConfigurationError) as raised:
+            run_configuration(
+                ContainerProcedure(weights=[0.1, float("nan")]), economy, seed=0
+            )
+        assert "parameters.weights[1]" in str(raised.value)
+
+    def test_a_non_finite_number_in_a_dict_is_named_by_its_key(self, economy):
+        with pytest.raises(ConfigurationError) as raised:
+            run_configuration(
+                ContainerProcedure(thresholds={"price": float("inf")}), economy, seed=0
+            )
+        assert "parameters.thresholds['price']" in str(raised.value)
+
+    def test_a_non_finite_number_nested_two_deep_is_named_by_the_whole_path(self, economy):
+        with pytest.raises(ConfigurationError) as raised:
+            run_configuration(
+                ContainerProcedure(weights=[{"inner": [float("nan")]}]), economy, seed=0
+            )
+        assert "parameters.weights[0]['inner'][0]" in str(raised.value)
+
+    def test_a_container_parameter_survives_a_round_trip_through_the_file(
+        self, economy, tmp_path
+    ):
+        path = tmp_path / "configuration.json"
+        run_configuration(ContainerProcedure(), economy, seed=0).to_json(path)
+        loaded = RunConfiguration.from_json(path)
+        assert loaded.procedure["parameters"]["weights"] == [0.1, 0.9]
+        assert loaded.procedure["parameters"]["thresholds"] == {"price": 0.05}
+
+
+class TestTheDocumentAsBytes:
+    """The docstring says a document can be compared as bytes; this reads the bytes."""
+
+    def test_the_file_holds_exactly_these_bytes(self, tmp_path):
+        path = tmp_path / "configuration.json"
+        RunConfiguration(seed=7, plan_fields_absent=("provision",)).to_json(path)
+        assert path.read_bytes() == DEFAULTS_DOCUMENT_BYTES
+
+    def test_no_carriage_return_reaches_the_file(self, tmp_path):
+        path = tmp_path / "configuration.json"
+        RunConfiguration(seed=7).to_json(path)
+        assert b"\r" not in path.read_bytes()
+
+    def test_the_file_ends_in_a_newline(self, tmp_path):
+        path = tmp_path / "configuration.json"
+        RunConfiguration(seed=7).to_json(path)
+        assert path.read_bytes().endswith(b"}\n")
+
+    def test_a_value_outside_ascii_is_written_as_utf_8_rather_than_escaped(self, tmp_path):
+        """UTF-8 is what the specification names, and escapes would change every byte after
+        the first non-ASCII character without changing what the document says."""
+        path = tmp_path / "configuration.json"
+        RunConfiguration(loader={"name": "价格"}).to_json(path)
+        assert "价格".encode("utf-8") in path.read_bytes()
+
+
+class TestExportedNames:
+    """``__all__`` membership, which resolving every listed name does not check.
+
+    The list is scanned by a reader looking for what the library offers, so a name dropped
+    from it is a function that stops existing as far as that reader is concerned while every
+    test of the function itself goes on passing.
+    """
+
+    @pytest.mark.parametrize("name", CONFIGURATION_EXPORTS)
+    def test_the_name_is_exported(self, name):
+        assert name in cyberstride.__all__
+
+    @pytest.mark.parametrize("name", CONFIGURATION_EXPORTS)
+    def test_the_name_is_reachable_on_the_package(self, name):
+        assert getattr(cyberstride, name) is getattr(configuration, name)
+
+
+class TestBooleanIsNotAnInteger:
+    """``bool`` subclasses ``int``, so every integer check has to say so out loud.
+
+    A document carrying ``true`` where a version belongs, or a run seeded with ``True``,
+    would otherwise be read as the number 1 and recorded as a deliberate choice.
+    """
+
+    def test_a_boolean_configuration_version_is_refused(self, tmp_path):
+        path = tmp_path / "configuration.json"
+        path.write_text(json.dumps({"configuration_version": True}), encoding="utf-8")
+        with pytest.raises(ConfigurationError) as raised:
+            RunConfiguration.from_json(path)
+        assert "configuration_version" in str(raised.value)
+
+    def test_a_boolean_seed_is_refused(self, economy):
+        with pytest.raises(ConfigurationError) as raised:
+            run_configuration(ResearcherProcedure(), economy, seed=True)
+        assert "seed" in str(raised.value)
+
+
+class TestAbsentFieldsThatAreNotFieldNames:
+    """What ``absent_fields`` is read as when it is not a sequence of field names."""
+
+    def test_a_bare_string_is_refused_rather_than_split_into_characters(self, economy):
+        """``tuple("provision")`` is eleven one-character field names, and each of them is a
+        string, so a per-element type check passes on every one of them."""
+        with pytest.raises(ConfigurationError) as raised:
+            run_configuration(
+                ResearcherProcedure(),
+                economy,
+                seed=0,
+                plan=PlanStub(absent_fields="provision"),
+            )
+        message = str(raised.value)
+        assert "absent_fields" in message
+        assert "provision" in message
+
+    def test_a_value_that_cannot_be_iterated_is_refused_as_a_configuration_error(
+        self, economy
+    ):
+        """Every other refusal in this module is a ``ConfigurationError``; a bare
+        ``TypeError`` from ``tuple`` would be the one that escapes a caller's except."""
+        with pytest.raises(ConfigurationError) as raised:
+            run_configuration(
+                ResearcherProcedure(), economy, seed=0, plan=PlanStub(absent_fields=7)
+            )
+        assert "absent_fields" in str(raised.value)
+
+    def test_a_sequence_of_field_names_is_still_taken(self, economy):
+        config = run_configuration(
+            ResearcherProcedure(),
+            economy,
+            seed=0,
+            plan=PlanStub(absent_fields=["provision", "consumption"]),
+        )
+        assert config.plan_fields_absent == ("provision", "consumption")
+
+
+class TestEveryUnknownKeyIsNamed:
+    """A document with three unknown keys costs three edits, so it has to name three.
+
+    Naming one leaves the reader to fix it, rerun, and be told about the next.
+    """
+
+    def write(self, tmp_path, document) -> Path:
+        path = tmp_path / "configuration.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    def test_all_of_them_appear_in_the_message(self, tmp_path):
+        path = self.write(tmp_path, {"alpha": 1, "beta": 2, "gamma": 3})
+        with pytest.raises(ConfigurationError) as raised:
+            RunConfiguration.from_json(path)
+        message = str(raised.value)
+        for key in ("alpha", "beta", "gamma"):
+            assert repr(key) in message
+
+    def test_a_retired_key_beside_an_unknown_one_keeps_both_explanations(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setitem(
+            RETIRED_KEYS, "alpha", RetiredKey(removed_in="0.4.0", reason="it moved")
+        )
+        path = self.write(tmp_path, {"alpha": 1, "beta": 2})
+        with pytest.raises(ConfigurationError) as raised:
+            RunConfiguration.from_json(path)
+        message = str(raised.value)
+        assert "no longer exists" in message
+        assert "0.4.0" in message
+        assert "newer" in message
+        assert "'alpha'" in message
+        assert "'beta'" in message
+
+
+class TestDigestComparisonInputs:
+    """A diagnostic tool answers "these are the same" only about two things it was given.
+
+    ``compare_economy_digests({}, {})`` reading as identical is the shape of answer that gets
+    written into a paper's methods section.
+    """
+
+    def test_two_empty_mappings_are_refused(self):
+        with pytest.raises(ConfigurationError):
+            compare_economy_digests({}, {})
+
+    @pytest.mark.parametrize("missing", ["algorithm", "digest", "columns"])
+    def test_a_block_missing_one_of_its_keys_is_refused(self, economy, missing):
+        incomplete = {
+            key: value for key, value in economy_digest(economy).items() if key != missing
+        }
+        with pytest.raises(ConfigurationError) as raised:
+            compare_economy_digests(incomplete, economy_digest(economy))
+        assert missing in str(raised.value)
+
+    def test_the_block_at_hand_is_checked_as_well_as_the_recorded_one(self, economy):
+        incomplete = {
+            key: value
+            for key, value in economy_digest(economy).items()
+            if key != "columns"
+        }
+        with pytest.raises(ConfigurationError):
+            compare_economy_digests(economy_digest(economy), incomplete)
+
+    def test_columns_that_are_not_a_mapping_are_refused(self, economy):
+        broken = dict(economy_digest(economy), columns=["period"])
+        with pytest.raises(ConfigurationError) as raised:
+            compare_economy_digests(broken, economy_digest(economy))
+        assert "columns" in str(raised.value)
+
+    def test_a_pair_of_real_blocks_is_still_compared(self, economy):
+        report = compare_economy_digests(economy_digest(economy), economy_digest(economy))
+        assert report.identical
+
+
+class TestAnEditedDocumentIsReportedBothWays:
+    """The whole digest and the columns contradicting each other, in either direction.
+
+    Columns that agree under two different whole digests and columns that differ under one
+    whole digest are the same fact: one of the two blocks was written by hand. Reporting only
+    the first left the second reading as an ordinary difference.
+    """
+
+    def test_agreeing_columns_under_differing_whole_digests_are_reported(self, economy):
+        current = dict(economy_digest(economy), digest="0" * 64)
+        report = compare_economy_digests(economy_digest(economy), current)
+        assert report.digest_contradicts_columns
+
+    def test_differing_columns_under_one_whole_digest_are_reported(self, economy):
+        recorded = economy_digest(economy)
+        current = economy_digest(economy)
+        current["columns"]["period"] = "0" * 64
+        report = compare_economy_digests(recorded, current)
+        assert report.differing_columns == ["period"]
+        assert report.digest_contradicts_columns
+
+    def test_two_blocks_that_agree_throughout_report_no_contradiction(self, economy):
+        report = compare_economy_digests(economy_digest(economy), economy_digest(economy))
+        assert not report.digest_contradicts_columns
+
+    def test_two_genuinely_different_economies_report_no_contradiction(self, economy):
+        moved = economy_digest(mutated(economy, "endowment"))
+        report = compare_economy_digests(economy_digest(economy), moved)
+        assert report.differing_columns == ["endowment"]
+        assert not report.digest_contradicts_columns
+
+
+class TestARealEconomy:
+    """The digest, once, on an economy nobody wrote for a test.
+
+    Every other test here builds its economy from a synthetic fixture or a two-column
+    stand-in. dep1ex01 is 53.3 MB of somebody else's data, and it is what turns "the columns
+    are the dataclass fields" from a statement about a fixture into a statement about the
+    library.
+    """
+
+    def test_a_real_economy_digests_and_matches_itself(self, dep1ex01_economy):
+        block = economy_digest(dep1ex01_economy)
+        assert set(block) == {"algorithm", "digest", "columns"}
+        assert block["algorithm"] == ECONOMY_DIGEST_ALGORITHM
+        report = compare_economy_digests(block, economy_digest(dep1ex01_economy))
+        assert report.identical
+
+    def test_every_field_of_a_real_economy_reaches_the_columns(self, dep1ex01_economy):
+        columns = economy_digest(dep1ex01_economy)["columns"]
+        for field in dataclasses.fields(dep1ex01_economy):
+            value = getattr(dep1ex01_economy, field.name)
+            if isinstance(value, Mapping):
+                for key in value:
+                    assert f"{field.name}.{key}" in columns
+            else:
+                assert field.name in columns
+
+    def test_every_column_of_a_real_economy_carries_a_sha256(self, dep1ex01_economy):
+        for digest in economy_digest(dep1ex01_economy)["columns"].values():
+            assert len(digest) == 64
+            assert set(digest) <= set("0123456789abcdef")
+
+    def test_moving_one_value_in_a_real_economy_moves_one_column(self, dep1ex01_economy):
+        before = economy_digest(dep1ex01_economy)
+        after = economy_digest(mutated(dep1ex01_economy, "endowment"))
+        report = compare_economy_digests(before, after)
+        assert report.differing_columns == ["endowment"]
+
+    def test_a_real_economy_goes_into_a_document_that_reads_back(
+        self, dep1ex01_economy, tmp_path
+    ):
+        path = tmp_path / "configuration.json"
+        config = run_configuration(ResearcherProcedure(), dep1ex01_economy, seed=5)
+        config.to_json(path)
+        assert RunConfiguration.from_json(path) == config

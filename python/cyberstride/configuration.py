@@ -35,16 +35,21 @@ what make that report diagnosable, because they say which column moved.
 
 ``algorithm`` names the normalisation, and any change to any step of it takes a new version
 string, so that a document written under an older one can still be read for what it meant.
-Under ``sha256-columns-v1`` each column is made contiguous, cast to little-endian, and fed to
-sha256 behind a header of its name, its dtype string and its shape; the whole-economy digest
-is sha256 over the column digests concatenated in name order. The columns are the fields of
-the economy: every field that is not a mapping is one column, and every key of a field that is
-a mapping is one column named ``<field>.<key>``. Nothing here holds a list of column names --
-a list would go on producing a digest that looked right while leaving a newly added column out
-of it.
+Under ``sha256-columns-v2`` each column is made contiguous, cast to little-endian, and fed to
+sha256 behind a header of its name, its dtype string and its shape, the three separated and
+followed by newlines and encoded as UTF-8; the whole-economy digest is sha256 over the column
+digests concatenated in name order. An integer that is not an array is widened to int64
+first, since a scalar carries no dtype of its own and the platform's default width would
+otherwise reach the header. The columns are the fields of the economy: every field that is
+not a mapping is one column, and every key of a field that is a mapping is one column named
+``<field>.<key>``. Nothing here holds a list of column names -- a list would go on producing a
+digest that looked right while leaving a newly added column out of it.
 
 What a matching digest proves is that the arrays are identical, and nothing else. It says
-nothing about the library version, numpy, the platform or the solver.
+nothing about the library version, numpy, the platform or the solver. Columns whose bytes are
+not their values are refused rather than digested, because for those the claim would be
+false: an object column's bytes are pointers, and a structured column's dtype string carries
+no field names.
 :func:`compare_economy_digests` is what turns a mismatch into a diagnosis: it names the
 columns that differ, which is the difference between "your data drifted in
 ``input_coefficient``" and "these are not the same economy".
@@ -70,7 +75,7 @@ from cyberstride._core import core_version
 CONFIGURATION_VERSION = 1
 """Version of the document layout. A new layout takes a new number."""
 
-ECONOMY_DIGEST_ALGORITHM = "sha256-columns-v1"
+ECONOMY_DIGEST_ALGORITHM = "sha256-columns-v2"
 """Name of the economy normalisation, stored in every document beside the digest."""
 
 LIBRARY_MODULE_PREFIX = "cyberstride."
@@ -81,6 +86,11 @@ UNKNOWN_VERSION = "unknown"
 
 _TWO_64 = 1 << 64
 _JSON_SCALARS = (bool, int, float, str)
+_SIMPLE_DTYPE_KINDS = "biufc"
+"""Dtype kinds whose bytes are their values: boolean, integer, unsigned, float, complex."""
+
+_DIGEST_BLOCK_KEYS = ("algorithm", "digest", "columns")
+"""What :func:`economy_digest` returns, and what :func:`compare_economy_digests` takes."""
 
 
 class ConfigurationError(ValueError):
@@ -145,14 +155,59 @@ def _column_digest(name: str, value) -> str:
     The header is part of the preimage because the bytes alone do not identify a column: the
     same bytes are a different column under a different name, a different dtype or a different
     shape, and a digest that read the bytes alone would report two of those as the same
-    economy. ``period`` is not an array; ``np.ascontiguousarray`` makes it one, and its dtype
-    string travels in the header like any other column's.
+    economy. ``period`` is not an array; :func:`_widened_scalar` fixes its width,
+    ``np.ascontiguousarray`` makes it an array of one element, and its dtype string travels in
+    the header like any other column's.
     """
-    array = np.ascontiguousarray(value)
+    array = np.ascontiguousarray(_widened_scalar(value))
+    _require_digestible_dtype(name, array.dtype)
     array = array.astype(array.dtype.newbyteorder("<"), copy=False)
     shape = ",".join(str(length) for length in array.shape)
     header = f"{name}\n{array.dtype.str}\n{shape}\n".encode("utf-8")
     return hashlib.sha256(header + array.tobytes()).hexdigest()
+
+
+def _widened_scalar(value):
+    """An integer that is not an array, as int64. Everything else as it stands.
+
+    A scalar carries no dtype of its own. ``np.ascontiguousarray`` gives a Python integer
+    whatever width the platform defaults to, and that width travels into the header as ``<i4``
+    or ``<i8``, so one economy digests two ways on two platforms and an implementation in
+    another language has nothing in the specification telling it which to write. An array
+    passes through untouched, being neither of these two types: the dtype it declares is a
+    fact about it rather than a default. Booleans declare a width of their own too, and
+    ``bool`` subclasses ``int``, so they are excluded by name.
+    """
+    if isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_)):
+        return np.int64(value)
+    return value
+
+
+def _require_digestible_dtype(name: str, dtype) -> None:
+    """Refuse a column whose bytes are not its values, saying which of the two failures it is.
+
+    The two want opposite things from the reader. A structured dtype loses its field names on
+    the way into the header, since ``dtype.str`` is ``|V16`` whether the fields are called
+    ``alpha`` and ``beta`` or ``gamma`` and ``delta``, so two different columns collide; the
+    answer is to give each field a column. An object column never held values at all, since
+    ``tobytes()`` hands back the pointers, so two arrays holding equal labels digest
+    differently and one whose label was edited in place digests the same; the answer is to
+    encode the labels as numbers.
+    """
+    if dtype.fields is not None:
+        raise ConfigurationError(
+            f"{name}: a structured dtype ({dtype}) has no digest here, because its field "
+            f"names never reach the column header: its dtype string is {dtype.str!r} whatever "
+            "the fields are called, so two columns with different fields would collide. Give "
+            "each field a column of its own."
+        )
+    if dtype.kind not in _SIMPLE_DTYPE_KINDS:
+        raise ConfigurationError(
+            f"{name}: a column of dtype {dtype.str!r} has no digest here, because its bytes "
+            "are not its values, so equal columns would digest differently and edited ones "
+            "would digest the same. Only boolean, integer, floating point and complex columns "
+            "have a byte form this digest can claim anything about."
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -175,7 +230,12 @@ class EconomyDigestReport:
     """Columns the block at hand carries and the recorded block does not."""
 
     digest_contradicts_columns: bool
-    """Every column agrees and the whole digests do not: one block has been edited."""
+    """The whole digests and the columns tell different stories: one block has been edited.
+
+    True in either direction. Every column agreeing under two whole digests and some column
+    differing under one whole digest are the same fact, and reporting only the first leaves
+    the second reading as an ordinary difference between two economies.
+    """
 
 
 def compare_economy_digests(
@@ -195,31 +255,57 @@ def compare_economy_digests(
     were built by different normalisations, so neither agreement nor disagreement between them
     would mean anything, and that raises :class:`ConfigurationError`.
     """
-    if recorded.get("algorithm") != current.get("algorithm"):
+    _require_digest_block("recorded", recorded)
+    _require_digest_block("current", current)
+    if recorded["algorithm"] != current["algorithm"]:
         raise ConfigurationError(
             f"these digests were taken under different algorithms, "
-            f"{recorded.get('algorithm')!r} and {current.get('algorithm')!r}, so they cannot "
+            f"{recorded['algorithm']!r} and {current['algorithm']!r}, so they cannot "
             "be compared"
         )
 
-    recorded_columns = dict(recorded.get("columns") or {})
-    current_columns = dict(current.get("columns") or {})
+    recorded_columns = dict(recorded["columns"])
+    current_columns = dict(current["columns"])
     shared = sorted(set(recorded_columns) & set(current_columns))
     differing = [name for name in shared if recorded_columns[name] != current_columns[name]]
     matching = [name for name in shared if recorded_columns[name] == current_columns[name]]
     only_recorded = sorted(set(recorded_columns) - set(current_columns))
     only_current = sorted(set(current_columns) - set(recorded_columns))
-    edited = not differing and not only_recorded and not only_current and (
-        recorded.get("digest") != current.get("digest")
-    )
+    columns_agree = not (differing or only_recorded or only_current)
+    digests_agree = recorded["digest"] == current["digest"]
+    edited = columns_agree != digests_agree
     return EconomyDigestReport(
-        identical=not (differing or only_recorded or only_current or edited),
+        identical=columns_agree and digests_agree,
         differing_columns=differing,
         matching_columns=matching,
         only_in_recorded=only_recorded,
         only_in_current=only_current,
         digest_contradicts_columns=edited,
     )
+
+
+def _require_digest_block(label: str, block) -> None:
+    """Refuse anything that is not an economy digest block, naming what is missing.
+
+    A comparison is worth no more than the two things it was handed, and two empty mappings
+    reading as identical is the kind of answer that ends up in a methods section.
+    """
+    if not isinstance(block, Mapping):
+        raise ConfigurationError(
+            f"{label}: expected an economy digest block, got a {type(block).__name__}"
+        )
+    missing = [key for key in _DIGEST_BLOCK_KEYS if key not in block]
+    if missing:
+        raise ConfigurationError(
+            f"{label}: this is not an economy digest block, it carries no "
+            f"{', '.join(missing)}. A block comes from economy_digest and holds "
+            f"{', '.join(_DIGEST_BLOCK_KEYS)}."
+        )
+    if not isinstance(block["columns"], Mapping):
+        raise ConfigurationError(
+            f"{label}: columns maps a column name to its digest, this one is a "
+            f"{type(block['columns']).__name__}"
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -256,8 +342,6 @@ class RunConfiguration:
         document = {
             field.name: getattr(self, field.name) for field in dataclasses.fields(self)
         }
-        if self.plan_fields_absent is not None:
-            document["plan_fields_absent"] = list(self.plan_fields_absent)
         try:
             text = json.dumps(
                 document, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False
@@ -294,7 +378,7 @@ class RunConfiguration:
         known = {field.name for field in dataclasses.fields(cls)}
         unknown = sorted(set(document) - known)
         if unknown:
-            raise ConfigurationError(_unknown_key_message(unknown[0]))
+            raise ConfigurationError(_unknown_keys_message(unknown))
 
         values = dict(document)
         absent = values.get("plan_fields_absent")
@@ -342,6 +426,15 @@ def _require_readable_version(version) -> None:
             f"{CONFIGURATION_VERSION}, so the document was written by a newer cyberstride "
             f"than {_library_version()}. Upgrade cyberstride to read it."
         )
+
+
+def _unknown_keys_message(keys: list[str]) -> str:
+    """Why each of ``keys`` is unknown, one explanation per key.
+
+    Every key is a separate edit to the document, so naming one leaves the reader to make it,
+    rerun, and be told about the next.
+    """
+    return " ".join(_unknown_key_message(key) for key in keys)
 
 
 def _unknown_key_message(key: str) -> str:
@@ -402,11 +495,17 @@ def _origin_block(value, label: str = "parameters") -> dict[str, Any]:
 
 
 def _module_source_digest(module_name: str) -> str:
-    """sha256 of the source file of ``module_name``, read as bytes.
+    """sha256 of the source file of ``module_name``, with its line endings normalised to LF.
 
     The whole file rather than the source of the class: a module-level constant decides
     behaviour as surely as the class body does, and a digest over the class alone would go on
     matching after one of them moved.
+
+    CRLF and lone CR are read as LF because a line ending is not behaviour and a checkout
+    changes it without being asked: git can be configured to hand one contributor a file with
+    CRLF where another gets the same commit with LF. This digest answers whether the library
+    changed the code under an older scenario's feet, and a digest over the raw bytes answers
+    that question wrongly for every pair of contributors configured differently.
     """
     module = sys.modules.get(module_name) or importlib.import_module(module_name)
     path = getattr(module, "__file__", None)
@@ -415,7 +514,9 @@ def _module_source_digest(module_name: str) -> str:
             f"{module_name}: has no source file, so its content digest cannot be taken"
         )
     with open(path, "rb") as source:
-        return hashlib.sha256(source.read()).hexdigest()
+        raw = source.read()
+    normalised = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(normalised).hexdigest()
 
 
 def _parameters(value, label: str) -> dict[str, Any] | None:
@@ -429,18 +530,33 @@ def _parameters(value, label: str) -> dict[str, Any] | None:
 
 
 def _parameter_value(value, label: str):
-    """A parameter as the document holds it: a JSON scalar as it stands, the rest by origin.
+    """A parameter as the document holds it: by value wherever JSON has a form for it.
 
-    A numpy scalar is unwrapped into the Python scalar it holds before either rule applies.
+    A numpy scalar is unwrapped into the Python scalar it holds before any other rule applies.
     ``np.float64`` subclasses ``float`` and ``np.int64`` subclasses nothing, so without this
     the same procedure would record one parameter as a number and drop the next into the
     undeclared form, taking its value with it.
+
+    Lists, tuples and mappings keyed by strings are JSON's array and object, so they are
+    recorded element by element under this same rule, and a numpy scalar inside one is
+    unwrapped like any other. A weight tuple is among the commonest parameter shapes there
+    is, and dropping it into the undeclared form would lose the values while reading exactly
+    like a parameter the researcher passed as a callable. A mapping with a key that is not a
+    string has no JSON object: writing ``1`` as ``"1"`` would read back as a different mapping
+    without saying so, so it takes the undeclared form.
+
+    An ``np.ndarray`` takes the undeclared form whatever it holds. Its size has no bound, and
+    a configuration document is meant to be read.
     """
     if isinstance(value, np.generic):
         value = value.item()
     if value is None or isinstance(value, _JSON_SCALARS):
         _require_finite_number(label, value)
         return value
+    if isinstance(value, (list, tuple)):
+        return [_parameter_value(item, f"{label}[{index}]") for index, item in enumerate(value)]
+    if isinstance(value, Mapping) and all(isinstance(key, str) for key in value):
+        return {key: _parameter_value(value[key], f"{label}[{key!r}]") for key in value}
     return _origin_block(value, f"{label}.parameters")
 
 
@@ -483,7 +599,19 @@ def _absent_fields(plan) -> tuple[str, ...] | None:
             "plan: expected an object carrying absent_fields, which is the one attribute of a "
             f"plan this document records, and a {type(plan).__name__} has none"
         )
-    names = tuple(fields)
+    if isinstance(fields, str):
+        raise ConfigurationError(
+            f"plan.absent_fields: expected a sequence of field names, got the string "
+            f"{fields!r}. A string is a sequence of one-character strings, so taking it as one "
+            "would record every character of it as a field name. Pass a tuple of names."
+        )
+    try:
+        names = tuple(fields)
+    except TypeError as error:
+        raise ConfigurationError(
+            f"plan.absent_fields: expected a sequence of field names, got a "
+            f"{type(fields).__name__}"
+        ) from error
     wrong = [name for name in names if not isinstance(name, str)]
     if wrong:
         raise ConfigurationError(

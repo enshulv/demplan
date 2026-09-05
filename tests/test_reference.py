@@ -976,9 +976,11 @@ class TestAgainstDep1ex:
 class TestThePlanIsAnAllocatedPlan:
     """``consumption`` here is the optimum's allocation, handed out by the objective.
 
-    The linear program balances every commodity, so this ``consumption`` is a feasible
-    allocation rather than a statement of what anyone asked for. A stated plan's consumption
-    is the other quantity, and the two are not subtractable.
+    The objective's ``allocate`` divides the optimum's final consumption among the consumer
+    units, which is what makes this ``consumption`` an allocation rather than a statement of
+    what anyone asked for. The program's own constraints are ``A_ub x <= endowment``, which
+    allows free disposal, so a commodity may end the period in surplus. A stated plan's
+    consumption is the other quantity, and the two are not subtractable.
     """
 
     def solved(self):

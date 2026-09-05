@@ -63,6 +63,9 @@ length is checked the way ``extra`` is instead.
 
 _PHYSICAL_ARRAYS = ("output", "input_use", "consumption", "provision")
 
+_REQUIRED_ARRAYS = ("output", "input_use")
+"""Fixed fields no mechanism may declare absent, in the order :class:`Plan` declares them."""
+
 _OPTIONAL_ARRAYS = ("consumption", "consumption_commodity", "provision")
 """Fixed fields a mechanism may declare absent, in the order :class:`Plan` declares them."""
 
@@ -99,7 +102,8 @@ class Plan:
     a single society-wide scalar. ``None`` is the whole declaration, and :attr:`absent_fields`
     reads it back. ``consumption`` and ``consumption_commodity`` describe one quantity between
     them, so they are absent together or present together. ``output`` and ``input_use`` are
-    required: every mechanism that plans production has both.
+    required: every mechanism that plans production has both, and ``None`` in either is
+    refused at construction.
 
     ``extra`` is a named-array bag for physical quantities the fixed fields have no column
     for, on the same pattern as the ``extra`` bags of :class:`Economy`. Each array is one row
@@ -143,6 +147,7 @@ class Plan:
             object.__setattr__(self, name, _freeze_array(getattr(self, name)))
         for bag in ("valuation", "extra"):
             object.__setattr__(self, bag, _freeze_bag(getattr(self, bag)))
+        self._require_the_required_arrays()
         self._require_consumption_pairing()
         self._require_valuation_dtype()
 
@@ -225,6 +230,25 @@ class Plan:
                     f"Plan.{name} is absent from this plan, and {accessor} needs it because "
                     f"{needs}. If your mechanism has no such quantity, {accessor} does not "
                     f"apply to it; if it has one, pass it instead of None."
+                )
+
+    def _require_the_required_arrays(self) -> None:
+        """Check that ``output`` and ``input_use`` carry arrays. Raises :class:`SchemaError`.
+
+        Absence is a declaration a mechanism makes about a quantity it does not compute, and
+        these two are not among the quantities it may make it about. The check is at
+        construction rather than in :meth:`validate` because nothing obliges a researcher to
+        call :meth:`validate` -- ``run`` does not -- and a plan carrying neither column leaves
+        every tool that reads the columns a plan carries with nothing to read: the divergence
+        watch of :func:`cyberstride.iterate` finds no array to test and reports the loop as
+        finite, and :func:`cyberstride.check_determinism` finds no column to compare.
+        """
+        for name in _REQUIRED_ARRAYS:
+            if getattr(self, name) is None:
+                raise SchemaError(
+                    f"Plan.{name} is None, but it is a required field: every mechanism that "
+                    f"plans production has both of {', '.join(_REQUIRED_ARRAYS)}. The fields a "
+                    f"mechanism may declare absent are {', '.join(_OPTIONAL_ARRAYS)}."
                 )
 
     def _require_consumption_pairing(self) -> None:
@@ -323,8 +347,9 @@ class Plan:
         and answers with a wrong one instead of an error.
 
         A field the plan declares absent is skipped, but only where absence is a declaration a
-        mechanism may make. ``output`` and ``input_use`` are required, so ``None`` there falls
-        through to the checks below and is reported as the missing array it is.
+        mechanism may make. ``output`` and ``input_use`` are not among those, and construction
+        has already refused ``None`` in either, so what reaches the checks below is an array
+        whose dtype and length are still open questions.
         """
         for name, count, subject in _PHYSICAL_VECTORS:
             column = getattr(self, name)

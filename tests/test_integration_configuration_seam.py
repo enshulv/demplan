@@ -154,7 +154,7 @@ class TestTheDocumentSurvivesARoundTrip:
         path = tmp_path / "configuration.json"
         run_configuration(HahnelSlides2020(), economy, seed=7).to_json(path)
         parsed = json.loads(path.read_text(encoding="utf-8"))
-        assert parsed["economy"]["algorithm"] == "sha256-columns-v1"
+        assert parsed["economy"]["algorithm"] == "sha256-columns-v2"
 
 
 class TestTheDocumentTracksTheEconomyItWasGiven:

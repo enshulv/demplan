@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cyberstride import IterateResult, Plan, iterate
+from cyberstride import IterateResult, Plan, SchemaError, iterate
 
 
 def counting_step(log: list[int]):
@@ -328,3 +328,26 @@ class TestDivergenceOnAPlanWithAbsentFields:
         assert [p.absent_fields for p in result.trajectory] == [
             ("consumption", "consumption_commodity", "provision")
         ] * 2
+
+
+class TestTheWatchAlwaysHasAColumnToRead:
+    """``diverged=False`` is never the answer for want of an array to test.
+
+    ``all()`` over an empty sequence is ``True``, so a plan carrying no physical column at all
+    would clear the watch on no evidence and the loop would report a finite run it never saw.
+    ``Plan`` refuses such a plan at construction, so every plan the watch reads carries at
+    least ``output`` and ``input_use``.
+    """
+
+    def test_a_plan_with_no_physical_column_cannot_reach_the_watch(self):
+        def plan_of(state: int) -> Plan:
+            return Plan(
+                output=None,
+                input_use=None,
+                consumption=None,
+                consumption_commodity=None,
+                provision=None,
+            )
+
+        with pytest.raises(SchemaError, match=r"Plan\.output"):
+            iterate(lambda: 0, lambda s: s + 1, lambda s: False, 3, plan_of=plan_of)

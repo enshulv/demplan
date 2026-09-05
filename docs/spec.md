@@ -284,6 +284,38 @@ solve(economy, seed) -> Plan
 不做运行时强制：Python 没有真沙箱，而且随机化的协调方法是合法研究。
 要保的是「给定种子后可复现」，不是「不许随机」。
 
+## 运行设定文档
+
+`run_configuration(procedure, economy, seed, loader=None, plan=None)` 产出一份**可加载**的
+设定文档：跑完吐出来，复现者喂回去就得到同一套设定。它与 run manifest 是**两份**——
+设定装设定，manifest 装溯源，设定文档的哈希进 manifest。分成两份是为了让加载时
+分得清哪半是输入，否则喂回去会把上次的结果当输入。
+
+**它不焊进 `run`。**`run` 的签名与 `RunResult` 不变；算经济体的内容哈希要钱
+（dep1ex01 是 53 MB、0.064 秒），参数扫描跑上千次不该每次都付。学者显式调用。
+
+格式是 JSON（UTF-8、键排序、缩进 2、`allow_nan=False`）。顶层八个键：
+`configuration_version`、`library_version`、`core_version`、`seed`、`economy`、
+`procedure`、`loader`、`plan_fields_absent`。
+
+**经济体算内容哈希**，逐字节不降精度，算法标识 `sha256-columns-v1`：
+每列先转 C 序、规范成小端，把 `列名
+ dtype
+ 形状
+` 接上字节喂 sha256；
+三个 `extra` 袋的键带前缀一并作为列；整体摘要是列名排序后各列摘要拼接再 sha256。
+**除整体摘要外另存逐列摘要**，`compare_economy_digests` 比对两份并返回
+`EconomyDigestReport`，点名哪几列不同——跨平台的浮点末位差异因此可诊断。
+两份摘要的 `algorithm` 不同时拒绝比对。**库不自动核对**，比对是学者显式调的工具。
+
+**库自带的实现算内容哈希，学者的不算**：库自带的记模块源文件的 sha256，
+学者的只记他声明的出处，取不到就是 `null`。**两边都记参数**——参数是数据不是代码，
+库对学者的数据类和对自己的一样能自省。numpy 标量按值记。
+
+版本规则：文档缺键用默认值（旧文档喂新库要能跑），未知键报错且分清两种成因
+（库比文档旧 / 该键已退役，后者查已退役键的登记表），`configuration_version`
+比库新直接报错。**新增的键，默认值必须保持旧行为**——做不到就不能悄悄加。
+
 ## 执行与存储
 
 整个经济体常驻内存，采用列式 f64 数组。一轮迭代不碰磁盘：只在 run 开始时读、结束时写。

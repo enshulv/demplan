@@ -9,6 +9,14 @@ Everything else in this package is optional. Use the pieces whose assumptions yo
 
 from cyberstride._core import core_version
 from cyberstride.checks import DeterminismReport, check_determinism
+from cyberstride.configuration import (
+    ConfigurationError,
+    EconomyDigestReport,
+    RunConfiguration,
+    compare_economy_digests,
+    economy_digest,
+    run_configuration,
+)
 from cyberstride.economy import CommodityKind, Economy, SchemaError, TechnologyKind
 from cyberstride.io import load_dep1ex
 from cyberstride.iterate import IterateResult, iterate
@@ -20,7 +28,11 @@ from cyberstride.plan import (
     INDICATIVE_PRICE,
     LABOR_VALUE,
     SHADOW_PRICE,
+    AllocatedPlan,
     Plan,
+    PlanFieldAbsent,
+    StatedPlan,
+    require_comparable,
 )
 from cyberstride.procedure import Procedure, RunResult, RunSummary, run
 from cyberstride.reference import (
@@ -33,11 +45,14 @@ from cyberstride.seeds import rng, split_seed
 from cyberstride import prefabs, tools
 
 __all__ = [
+    "AllocatedPlan",
     "CONSUMER_DEMAND",
     "CommodityKind",
+    "ConfigurationError",
     "DeterminismReport",
     "EFFORT",
     "Economy",
+    "EconomyDigestReport",
     "INCOME",
     "INDICATIVE_PRICE",
     "IterateResult",
@@ -46,23 +61,30 @@ __all__ = [
     "MinimizeLabor",
     "Objective",
     "Plan",
+    "PlanFieldAbsent",
     "Procedure",
     "ReferenceInfeasible",
     "ReferenceProcedure",
     "ReferenceResult",
+    "RunConfiguration",
     "RunResult",
     "RunSummary",
     "SHADOW_PRICE",
     "SchemaError",
+    "StatedPlan",
     "TechnologyKind",
     "check_determinism",
+    "compare_economy_digests",
     "core_version",
+    "economy_digest",
     "iterate",
     "load_dep1ex",
     "prefabs",
     "reference_solution",
+    "require_comparable",
     "rng",
     "run",
+    "run_configuration",
     "split_seed",
     "tools",
 ]

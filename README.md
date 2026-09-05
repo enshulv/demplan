@@ -278,6 +278,33 @@ Aggregates over commodities are accessors, not stored columns: `total_output`,
 `total_input_use`, `total_consumption` and `endowment_use`, each taking the economy the plan
 was made for.
 
+## Recording a run so someone else can repeat it
+
+`run_configuration(procedure, economy, seed, loader=None, plan=None)` returns a document you
+can write with `to_json` and someone else can load with `from_json`. It is settings, not
+provenance: what went in, in a form that goes back in.
+
+```python
+from cyberstride import run_configuration
+
+configuration = run_configuration(procedure, economy, seed=7, plan=plan)
+configuration.to_json("run.json")
+```
+
+It is a separate call rather than something `run` does for you, because hashing the economy
+costs real time on a large one and a parameter sweep should not pay it a thousand times.
+
+The economy goes in as a content hash, byte for byte, with a digest per column beside the
+whole. Two runs that disagree on a number nobody can see are the failure this exists for, and
+the per-column digests are what make the alarm diagnosable:
+`compare_economy_digests(recorded, current)` names the columns that differ rather than saying
+only that something does. It returns a report; deciding what a difference means is yours.
+
+The library hashes the source of its own procedures and not yours -- for your code, git is a
+better version control than any hash the library could compute. Parameters are recorded for
+both: a parameter is data, not code, and the library can read your dataclass as well as its
+own.
+
 ## What this library is answerable for
 
 The infrastructure half: the data model, the loaders, deterministic seed distribution, the

@@ -21,11 +21,13 @@ from cyberstride import (
     EFFORT,
     INDICATIVE_PRICE,
     CommodityKind,
+    SchemaError,
     TechnologyKind,
     check_determinism,
     iterate,
     run,
 )
+from cyberstride.plan import AllocatedPlan, StatedPlan
 from cyberstride.prefabs import HahnelSlides2020
 from cyberstride.prefabs.hahnel_2020_slides import (
     CouncilModel,
@@ -1479,3 +1481,43 @@ class TestStatedDemandSplit:
         paid = price[columns[private[0]]]
         expected = entitlement * exponent[:, private[0]] / (exponent.sum(axis=1) * paid)
         np.testing.assert_array_equal(private_block[:, 0], expected)
+
+
+class TestThePlanIsAStatedPlan:
+    """``consumption`` here is what the consumer councils asked for at the last price.
+
+    It is not an allocation: the councils' stated bundles are what the price rule iterates on,
+    and the run stops on a relative imbalance threshold rather than on a balance, so supply and
+    the stated demand still differ by up to that threshold. Filing it as a plain ``Plan`` let a
+    reader subtract it from a reference solution's allocated consumption and read the gap as
+    economics.
+    """
+
+    def test_the_prefab_files_its_plan_as_a_stated_plan(self, synthetic_economy):
+        result = run(HahnelSlides2020(max_rounds=2), synthetic_economy, seed=0)
+        assert isinstance(result.plan, StatedPlan)
+
+    def test_the_council_model_files_the_same_identity(self, synthetic_economy):
+        model = CouncilModel(synthetic_economy, 5.0)
+        stepped = model.step(model.initial_state(700.0))
+        assert isinstance(model.plan_of(stepped), StatedPlan)
+
+    def test_a_state_that_was_never_stepped_has_no_plan(self, synthetic_economy):
+        """``initial_state`` carries a price and no proposals, so there is nothing to file.
+
+        ``iterate`` runs at least one round, so it never hands that state to ``plan_of``.
+        Building one from it directly is refused rather than answered with a plan whose
+        fields are all empty.
+        """
+        model = CouncilModel(synthetic_economy, 5.0)
+        with pytest.raises(SchemaError, match="consumption"):
+            model.plan_of(model.initial_state(700.0))
+
+    def test_it_is_not_an_allocated_plan(self, synthetic_economy):
+        result = run(HahnelSlides2020(max_rounds=2), synthetic_economy, seed=0)
+        assert not isinstance(result.plan, AllocatedPlan)
+
+    def test_it_still_carries_every_fixed_field(self, synthetic_economy):
+        result = run(HahnelSlides2020(max_rounds=2), synthetic_economy, seed=0)
+        assert result.plan.absent_fields == ()
+        result.plan.validate(synthetic_economy)

@@ -4,6 +4,10 @@ The physical layer is what every coordination mechanism produces, whatever it be
 economics. The valuation layer is a named-array bag, because a mechanism that computes labour
 times has no prices and a mechanism that iterates on prices has no labour times.
 
+Not every mechanism has every physical quantity, so three of the fixed fields may be declared
+absent by passing ``None``. Absence is a declaration the researcher makes, never a default:
+the fields carry no default value, so leaving one out of the call is still a missing argument.
+
 Input use is stored, not derived. Where technology allows substitution the input mix is a
 decision the mechanism made, and recomputing it afterwards would silently replace that
 decision with the recomputing tool's own theory. Endowment use, by contrast, is a pure
@@ -44,7 +48,23 @@ EFFORT = "effort"
 CONSUMER_DEMAND = "consumer_demand"
 """Extra key: what the consumer units asked for per commodity, ``f64[n_commodities]``."""
 
+_VALUATION_ROWS = {
+    INDICATIVE_PRICE: ("n_commodities", "commodity", "commodities"),
+    LABOR_VALUE: ("n_commodities", "commodity", "commodities"),
+    SHADOW_PRICE: ("n_commodities", "commodity", "commodities"),
+    INCOME: ("n_consumers", "consumer unit", "consumer units"),
+}
+"""Row count each convention ``valuation`` key is registered with, and what that count counts.
+
+Prices are one entry per commodity and income is one per consumer unit, so the bag has no
+single length. A key outside this table means something the library cannot read, and its
+length is checked the way ``extra`` is instead.
+"""
+
 _PHYSICAL_ARRAYS = ("output", "input_use", "consumption", "provision")
+
+_OPTIONAL_ARRAYS = ("consumption", "consumption_commodity", "provision")
+"""Fixed fields a mechanism may declare absent, in the order :class:`Plan` declares them."""
 
 _PHYSICAL_VECTORS = (
     ("output", "n_units", "units"),
@@ -56,6 +76,15 @@ _PHYSICAL_VECTORS = (
 _ENDOWED_KINDS = (CommodityKind.NATURAL_RESOURCE, CommodityKind.LABOR)
 
 
+class PlanFieldAbsent(SchemaError):
+    """An accessor needs a fixed field that the plan declares absent.
+
+    The plan's mechanism said it has no such quantity, so the accessor has nothing to answer
+    with. It refuses rather than answering zero: a zero would enter one side of a balance as a
+    quantity the other side never carried, and the two sides would then not close.
+    """
+
+
 @dataclasses.dataclass(frozen=True, eq=False)
 class Plan:
     """One period's plan.
@@ -63,6 +92,14 @@ class Plan:
     ``consumption`` is who gets how much of each private good: row per consumer unit, column
     per entry of ``consumption_commodity``. ``provision`` is the shared quantity of each public
     good, zero for every other commodity.
+
+    ``consumption``, ``consumption_commodity`` and ``provision`` may be ``None``, which says
+    the mechanism has no such quantity: a mechanism that balances totals alone has no
+    consumption per consumer unit, and one whose public supply is regional cannot state it as
+    a single society-wide scalar. ``None`` is the whole declaration, and :attr:`absent_fields`
+    reads it back. ``consumption`` and ``consumption_commodity`` describe one quantity between
+    them, so they are absent together or present together. ``output`` and ``input_use`` are
+    required: every mechanism that plans production has both.
 
     ``extra`` is a named-array bag for physical quantities the fixed fields have no column
     for, on the same pattern as the ``extra`` bags of :class:`Economy`. Each array is one row
@@ -95,9 +132,9 @@ class Plan:
 
     output: np.ndarray
     input_use: np.ndarray
-    consumption: np.ndarray
-    consumption_commodity: np.ndarray
-    provision: np.ndarray
+    consumption: np.ndarray | None
+    consumption_commodity: np.ndarray | None
+    provision: np.ndarray | None
     valuation: Mapping[str, np.ndarray] = dataclasses.field(default_factory=dict)
     extra: Mapping[str, np.ndarray] = dataclasses.field(default_factory=dict)
 
@@ -106,12 +143,27 @@ class Plan:
             object.__setattr__(self, name, _freeze_array(getattr(self, name)))
         for bag in ("valuation", "extra"):
             object.__setattr__(self, bag, _freeze_bag(getattr(self, bag)))
+        self._require_consumption_pairing()
+        self._require_valuation_dtype()
+
+    @property
+    def absent_fields(self) -> tuple[str, ...]:
+        """The fixed fields this plan declares absent, in the order they are declared.
+
+        This is where a reader finds out which quantities the plan does not carry, so that a
+        report over several mechanisms says "this mechanism has no such quantity" instead of
+        printing a zero none of them computed.
+        """
+        return tuple(name for name in _OPTIONAL_ARRAYS if getattr(self, name) is None)
 
     def validate(self, economy: Economy) -> None:
         """Check the plan against the economy it plans. Raises :class:`SchemaError`."""
         self._require_conformable(economy)
         for name in _PHYSICAL_ARRAYS:
-            _require_finite(name, getattr(self, name))
+            column = getattr(self, name)
+            if column is not None:
+                _require_finite(name, column)
+        self._require_valuation_length(economy)
         self._require_extra_rows(economy)
 
     def total_output(self, economy: Economy) -> np.ndarray:
@@ -132,8 +184,15 @@ class Plan:
         """Private-good consumption per commodity, aggregated over consumer units.
 
         The result covers all ``n_commodities``; every commodity outside
-        ``consumption_commodity`` is zero.
+        ``consumption_commodity`` is zero. Raises :class:`PlanFieldAbsent` when the plan
+        declares the consumption block absent.
         """
+        self._require_present(
+            ("consumption", "consumption_commodity"),
+            "total_consumption",
+            "it sums the consumption block over consumer units and files each column under "
+            "the commodity that column stands for",
+        )
         self._require_conformable(economy)
         return np.bincount(
             self.consumption_commodity,
@@ -151,6 +210,90 @@ class Plan:
         drawn = self.total_input_use(economy)
         endowed = np.isin(economy.commodity_kind, [int(kind) for kind in _ENDOWED_KINDS])
         return np.where(endowed, drawn, 0.0)
+
+    def _require_present(self, names: tuple[str, ...], accessor: str, needs: str) -> None:
+        """Raise :class:`PlanFieldAbsent` for the first of ``names`` this plan declares absent.
+
+        The message names the field, says what the accessor wanted it for, and says that an
+        accessor over a quantity the mechanism does not have is an accessor that does not
+        apply to it. The reader is a researcher, who should not have to read a stack trace to
+        find out which of the two it is.
+        """
+        for name in names:
+            if getattr(self, name) is None:
+                raise PlanFieldAbsent(
+                    f"Plan.{name} is absent from this plan, and {accessor} needs it because "
+                    f"{needs}. If your mechanism has no such quantity, {accessor} does not "
+                    f"apply to it; if it has one, pass it instead of None."
+                )
+
+    def _require_consumption_pairing(self) -> None:
+        """Check that the consumption block and its column mapping agree. Raises ``SchemaError``.
+
+        The two describe one quantity between them, and either one alone says nothing: a
+        consumption block with no mapping is a matrix of unnamed columns, and a mapping with no
+        block names columns that do not exist.
+        """
+        if (self.consumption is None) == (self.consumption_commodity is None):
+            return
+        absent = "consumption" if self.consumption is None else "consumption_commodity"
+        present = "consumption_commodity" if self.consumption is None else "consumption"
+        raise SchemaError(
+            f"Plan.{absent} is None while Plan.{present} carries an array. The two describe "
+            "one quantity -- who gets how much of which commodity -- so a plan either "
+            "declares both absent or gives both."
+        )
+
+    def _require_valuation_dtype(self) -> None:
+        """Check that every ``valuation`` array is float64. Raises :class:`SchemaError`.
+
+        Dtype is checked at construction rather than from :meth:`validate` because nothing
+        obliges a researcher to call :meth:`validate` -- ``run`` does not -- and a mechanism
+        that computes its prices in an integer type would otherwise file truncated numbers
+        with nothing raised. The length half of the same check needs the economy's commodity
+        count, which construction does not have, so it runs from :meth:`validate`.
+        """
+        for key, value in self.valuation.items():
+            if isinstance(value, np.ndarray) and value.dtype == np.float64:
+                continue
+            got = value.dtype if isinstance(value, np.ndarray) else type(value).__name__
+            raise SchemaError(
+                f"Plan.valuation[{key!r}]: expected a float64 array, got {got}. A valuation "
+                "is refused rather than converted, because converting it would hide that the "
+                "mechanism computed the quantity in another type."
+            )
+
+    def _require_valuation_length(self, economy: Economy) -> None:
+        """Check the length of every ``valuation`` array. Raises :class:`SchemaError`.
+
+        A key in :data:`_VALUATION_ROWS` is checked against the row count it is registered
+        with, because the library knows what that key holds. Any other key is checked the way
+        the ``extra`` bag is, against the three row counts a plan's arrays can carry: the
+        library cannot read what an unregistered key counts across, so all it can ask is that
+        the leading dimension is one of the three.
+
+        This is the half of the valuation check that needs the economy;
+        :meth:`_require_valuation_dtype` runs the other half at construction.
+        """
+        counts = (economy.n_units, economy.n_consumers, economy.n_commodities)
+        for key, value in self.valuation.items():
+            label = f"Plan.valuation[{key!r}]"
+            registered = _VALUATION_ROWS.get(key)
+            if registered is None:
+                if value.ndim < 1 or value.shape[0] not in counts:
+                    raise SchemaError(
+                        f"{label} has shape {value.shape}, expected a leading dimension of "
+                        f"{economy.n_units} producing units, {economy.n_consumers} consumer "
+                        f"units or {economy.n_commodities} commodities"
+                    )
+                continue
+            count, singular, plural = registered
+            expected = getattr(economy, count)
+            if value.shape != (expected,):
+                raise SchemaError(
+                    f"{label} has shape {value.shape}, but this key is registered as one "
+                    f"entry per {singular} and the economy has {expected} {plural}"
+                )
 
     def _require_extra_rows(self, economy: Economy) -> None:
         """Check the ``extra`` bag. Raises :class:`SchemaError`.
@@ -178,9 +321,15 @@ class Plan:
         The derived accessors run this on entry as well as :meth:`validate`. Without it
         :meth:`total_consumption` scatters a plan of any size into a commodity-length vector
         and answers with a wrong one instead of an error.
+
+        A field the plan declares absent is skipped, but only where absence is a declaration a
+        mechanism may make. ``output`` and ``input_use`` are required, so ``None`` there falls
+        through to the checks below and is reported as the missing array it is.
         """
         for name, count, subject in _PHYSICAL_VECTORS:
             column = getattr(self, name)
+            if column is None and name in _OPTIONAL_ARRAYS:
+                continue
             expected = getattr(economy, count)
             if not isinstance(column, np.ndarray) or column.dtype != np.float64:
                 raise SchemaError(f"Plan.{name}: expected a float64 array")
@@ -191,6 +340,8 @@ class Plan:
                 )
 
         columns = self.consumption_commodity
+        if columns is None:
+            return
         if not isinstance(columns, np.ndarray) or columns.dtype != np.int64 or columns.ndim != 1:
             raise SchemaError(
                 "Plan.consumption_commodity: expected a one-dimensional int64 array"
@@ -212,3 +363,46 @@ class Plan:
                 f"{economy.n_consumers} consumer units and the plan has "
                 f"{columns.shape[0]} consumption columns"
             )
+
+
+class StatedPlan(Plan):
+    """A plan whose ``consumption`` is what the consumer units asked for.
+
+    It adds an identity and nothing else: no field, and no narrowing of anything
+    :class:`Plan` accepts or promises. A plan filed without an identity is the widest reading,
+    "the consumption-side quantity", which is what :class:`Plan` itself means.
+    """
+
+
+class AllocatedPlan(Plan):
+    """A plan whose ``consumption`` is what the mechanism allocated to the consumer units.
+
+    It adds an identity and nothing else, on the same terms as :class:`StatedPlan`.
+    """
+
+
+def require_comparable(first: Plan, other: Plan) -> None:
+    """Check that two plans' ``consumption`` fields mean the same thing. Raises ``ValueError``.
+
+    A stated quantity and an allocated one differ by whatever the mechanism could not satisfy,
+    so a reader who subtracts one from the other reads that difference as economics. Two plans
+    of the same kind pass, and so does a plain :class:`Plan` on either side, that being the
+    widest reading rather than a third one.
+    """
+    if {_consumption_reading(first), _consumption_reading(other)} == {"stated", "allocated"}:
+        raise ValueError(
+            f"{type(first).__name__} and {type(other).__name__} are not comparable: "
+            "consumption on a StatedPlan is what the consumer units asked for, and on an "
+            "AllocatedPlan it is what the mechanism allocated to them. Subtracting one from "
+            "the other reports a difference in meaning as if it were a difference in the "
+            "economy. Compare two plans of the same kind, or either against a plain Plan."
+        )
+
+
+def _consumption_reading(plan: Plan) -> str | None:
+    """Which reading of ``consumption`` a plan declares, or ``None`` for the widest one."""
+    if isinstance(plan, StatedPlan):
+        return "stated"
+    if isinstance(plan, AllocatedPlan):
+        return "allocated"
+    return None

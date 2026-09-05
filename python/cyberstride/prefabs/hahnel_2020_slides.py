@@ -34,7 +34,7 @@ import numpy as np
 
 from cyberstride.economy import CommodityKind, Economy, TechnologyKind
 from cyberstride.iterate import iterate
-from cyberstride.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, Plan
+from cyberstride.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, Plan, StatedPlan
 from cyberstride.tools import segment_sum, unit_of_input
 
 IMBALANCE_CAP = 0.25
@@ -225,8 +225,14 @@ class CouncilModel:
         """
         return bool(state.worst_imbalance * PERCENT < self.threshold_pct)
 
-    def plan_of(self, state: _State) -> Plan:
-        return Plan(
+    def plan_of(self, state: _State) -> StatedPlan:
+        """The state as a plan. ``consumption`` is what the consumer councils asked for.
+
+        The councils' stated bundles are what the price rule iterates on, and the loop stops
+        on a relative imbalance threshold rather than on a balance, so the plan is a statement
+        of demand and not an allocation of supply.
+        """
+        return StatedPlan(
             output=state.output,
             input_use=state.input_use,
             consumption=state.consumption,

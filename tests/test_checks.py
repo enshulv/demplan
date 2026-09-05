@@ -143,3 +143,84 @@ class TestRejectedArguments:
             check_determinism(
                 ScriptedProcedure([make_plan(synthetic_economy)]), synthetic_economy, 0, n=n
             )
+
+
+def make_bare_plan(economy, output=None) -> Plan:
+    """A plan that declares the consumption block and provision absent."""
+    return Plan(
+        output=np.ones(economy.n_units) if output is None else output,
+        input_use=np.ones(economy.n_inputs),
+        consumption=None,
+        consumption_commodity=None,
+        provision=None,
+    )
+
+
+class TestRunsThatDeclareFieldsAbsent:
+    """Two runs agree on a field neither of them has, and disagree when only one has it.
+
+    A run whose mechanism has no consumption block reports nothing on it, twice. That is not a
+    difference between the runs, and reporting it as one would make every such procedure look
+    non-deterministic. The other way round, one run carrying the field and one not is a
+    disagreement about whether the quantity exists at all, which is a different finding from
+    two runs that computed different numbers.
+    """
+
+    def test_two_runs_that_both_declare_a_field_absent_agree(self, synthetic_economy):
+        plans = [make_bare_plan(synthetic_economy) for _ in range(3)]
+        report = check_determinism(ScriptedProcedure(plans), synthetic_economy, seed=0, n=3)
+        assert report.identical is True
+        assert report.differing_fields == []
+
+    def test_a_field_present_in_one_run_and_absent_in_the_other_is_reported(
+        self, synthetic_economy
+    ):
+        report = check_determinism(
+            ScriptedProcedure(
+                [make_plan(synthetic_economy), make_bare_plan(synthetic_economy)]
+            ),
+            synthetic_economy,
+            seed=0,
+            n=2,
+        )
+        assert report.identical is False
+        assert report.differing_fields == [
+            "consumption (absent from one run)",
+            "consumption_commodity (absent from one run)",
+            "provision (absent from one run)",
+        ]
+
+    def test_the_report_reads_the_same_whichever_run_carries_the_field(
+        self, synthetic_economy
+    ):
+        report = check_determinism(
+            ScriptedProcedure(
+                [make_bare_plan(synthetic_economy), make_plan(synthetic_economy)]
+            ),
+            synthetic_economy,
+            seed=0,
+            n=2,
+        )
+        assert report.differing_fields == [
+            "consumption (absent from one run)",
+            "consumption_commodity (absent from one run)",
+            "provision (absent from one run)",
+        ]
+
+    def test_an_absent_field_does_not_hide_a_difference_in_a_field_that_is_present(
+        self, synthetic_economy
+    ):
+        nudged = np.ones(synthetic_economy.n_units)
+        nudged[0] = 1.5
+        report = check_determinism(
+            ScriptedProcedure(
+                [
+                    make_bare_plan(synthetic_economy),
+                    make_bare_plan(synthetic_economy, output=nudged),
+                ]
+            ),
+            synthetic_economy,
+            seed=0,
+            n=2,
+        )
+        assert report.differing_fields == ["output"]

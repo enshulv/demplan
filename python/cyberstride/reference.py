@@ -35,7 +35,7 @@ from cyberstride.objectives import (
     _require_finite_declaration,
     _require_non_negative,
 )
-from cyberstride.plan import SHADOW_PRICE, Plan
+from cyberstride.plan import SHADOW_PRICE, AllocatedPlan, Plan
 from cyberstride.tools import unit_of_input
 from cyberstride.tools.leontief import input_requirements_flat
 
@@ -243,12 +243,17 @@ class _Program:
         """The objective as the researcher declared it, undoing the sign the solver needed."""
         return float(minimised) if self.minimises else float(-minimised)
 
-    def plan_of(self, solution: np.ndarray, shadow_price: np.ndarray) -> Plan:
+    def plan_of(self, solution: np.ndarray, shadow_price: np.ndarray) -> AllocatedPlan:
+        """The solved program as a plan. ``consumption`` is what the optimum allocates.
+
+        The program balances every commodity, so the objective hands out a feasible
+        allocation rather than a statement of what anyone asked for.
+        """
         output = np.ascontiguousarray(solution[: self.economy.n_units], dtype=np.float64)
         aggregate = np.zeros(self.economy.n_commodities, dtype=np.float64)
         aggregate[self.consumable] = solution[self.economy.n_units :]
         consumption, columns, provision = self.objective.allocate(self.economy, aggregate)
-        return Plan(
+        return AllocatedPlan(
             output=output,
             input_use=input_requirements_flat(self.economy, output),
             consumption=np.ascontiguousarray(consumption, dtype=np.float64),

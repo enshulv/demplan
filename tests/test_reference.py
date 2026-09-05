@@ -48,6 +48,7 @@ from cyberstride import (
     run,
 )
 from cyberstride.objectives import MaximizeWeightedConsumption, MinimizeLabor
+from cyberstride.plan import AllocatedPlan, StatedPlan, require_comparable
 from cyberstride.prefabs import HahnelSlides2020
 from cyberstride.reference import (
     ReferenceInfeasible,
@@ -970,3 +971,39 @@ class TestAgainstDep1ex:
     def test_it_solves_inside_the_time_the_construction_sheet_allows(self, comparison):
         *_, seconds = comparison
         assert seconds < DEP1EX_SECONDS_ALLOWED
+
+
+class TestThePlanIsAnAllocatedPlan:
+    """``consumption`` here is the optimum's allocation, handed out by the objective.
+
+    The linear program balances every commodity, so this ``consumption`` is a feasible
+    allocation rather than a statement of what anyone asked for. A stated plan's consumption
+    is the other quantity, and the two are not subtractable.
+    """
+
+    def solved(self):
+        return reference_solution(
+            build_bread_economy(), MaximizeWeightedConsumption(bread_weights())
+        )
+
+    def test_the_reference_files_its_plan_as_an_allocated_plan(self):
+        assert isinstance(self.solved().plan, AllocatedPlan)
+
+    def test_it_is_not_a_stated_plan(self):
+        assert not isinstance(self.solved().plan, StatedPlan)
+
+    def test_it_survives_the_procedure_seam(self):
+        economy = build_bread_economy()
+        result = run(
+            ReferenceProcedure(MaximizeWeightedConsumption(bread_weights())), economy, seed=0
+        )
+        assert isinstance(result.plan, AllocatedPlan)
+
+    def test_it_still_carries_every_fixed_field(self):
+        assert self.solved().plan.absent_fields == ()
+
+    def test_a_reference_plan_and_a_prefab_plan_are_not_comparable(self, synthetic_economy):
+        stated = run(HahnelSlides2020(max_rounds=2), synthetic_economy, seed=0).plan
+        allocated = self.solved().plan
+        with pytest.raises(ValueError, match="AllocatedPlan"):
+            require_comparable(stated, allocated)

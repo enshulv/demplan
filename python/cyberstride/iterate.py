@@ -23,6 +23,13 @@ _recorder: contextvars.ContextVar[list["IterateResult"] | None] = contextvars.Co
 )
 """Where :func:`cyberstride.procedure.run` collects the results of the loops it wraps."""
 
+_WATCHED_FIELDS = ("output", "input_use", "consumption", "provision")
+"""The plan fields the divergence watch reads.
+
+``consumption_commodity`` is an index column rather than a quantity, so there is no
+non-finite value for it to hold.
+"""
+
 
 @dataclasses.dataclass(frozen=True)
 class IterateResult:
@@ -60,6 +67,11 @@ def iterate(
     ``diverged=True``. Without it the library cannot see the state, and ``diverged`` is
     ``None``: a loop nobody watched is not a loop that stayed finite.
 
+    The watch covers the physical fields the plan carries and no others. A mechanism whose
+    plans declare ``consumption`` and ``provision`` absent is watched on ``output`` and
+    ``input_use`` alone, so ``diverged=False`` from such a run says those two stayed finite
+    and says nothing about quantities the mechanism does not compute.
+
     ``keep_trajectory`` decides whether those plans are also kept. Set it to ``False`` to watch
     for divergence on a long run without holding one plan per round; ``trajectory`` is then
     ``None``, as it is whenever ``plan_of`` is absent.
@@ -89,10 +101,11 @@ def iterate(
 
 
 def _physical_arrays(plan: Plan) -> Iterator[np.ndarray]:
-    yield plan.output
-    yield plan.input_use
-    yield plan.consumption
-    yield plan.provision
+    """The physical columns the plan carries, skipping the ones it declares absent."""
+    for name in _WATCHED_FIELDS:
+        column = getattr(plan, name)
+        if column is not None:
+            yield column
 
 
 def _physically_finite(plan: Plan) -> bool:

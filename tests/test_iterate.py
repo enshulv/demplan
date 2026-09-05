@@ -264,3 +264,67 @@ class TestDivergenceHasThreeAnswers:
         )
         assert result.diverged is False
         assert result.trajectory is None
+
+
+def bare_plan_with(value: float) -> Plan:
+    """A plan that declares the consumption block and provision absent."""
+    return Plan(
+        output=np.full(3, value),
+        input_use=np.ones(4),
+        consumption=None,
+        consumption_commodity=None,
+        provision=None,
+    )
+
+
+class TestDivergenceOnAPlanWithAbsentFields:
+    """A field the mechanism does not have is not a field that went non-finite.
+
+    The watch reads the physical columns the plan carries. Reading an absent one as
+    non-finite would report divergence on every round of a mechanism that has no consumption
+    block, and reading it as a zero would say the loop stayed finite on evidence nobody
+    produced.
+    """
+
+    def test_a_plan_with_absent_fields_runs_the_loop(self):
+        result = iterate(
+            lambda: 0,
+            lambda s: s + 1,
+            lambda s: s == 3,
+            10,
+            plan_of=lambda s: bare_plan_with(float(s)),
+        )
+        assert result.rounds == 3
+        assert result.converged is True
+        assert result.diverged is False
+
+    def test_absence_is_not_divergence(self):
+        result = iterate(
+            lambda: 0,
+            lambda s: s + 1,
+            lambda s: False,
+            4,
+            plan_of=lambda s: bare_plan_with(1.0),
+        )
+        assert result.diverged is False
+        assert result.rounds == 4
+
+    def test_a_non_finite_value_in_a_field_that_is_present_still_stops_the_loop(self):
+        def plan_of(state: int) -> Plan:
+            return bare_plan_with(np.nan if state == 2 else 1.0)
+
+        result = iterate(lambda: 0, lambda s: s + 1, lambda s: False, 10, plan_of=plan_of)
+        assert result.diverged is True
+        assert result.rounds == 2
+
+    def test_the_trajectory_keeps_the_plans_as_they_were_filed(self):
+        result = iterate(
+            lambda: 0,
+            lambda s: s + 1,
+            lambda s: s == 2,
+            10,
+            plan_of=lambda s: bare_plan_with(float(s)),
+        )
+        assert [p.absent_fields for p in result.trajectory] == [
+            ("consumption", "consumption_commodity", "provision")
+        ] * 2

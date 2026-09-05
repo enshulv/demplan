@@ -162,6 +162,26 @@ dep1ex 的生产函数是 `Q = a · e^c · Π x_j^{b_j}`，`e` 是单元每轮�
 投入组合是机制选出来的决策，不是算出来的结果。
 禀赋使用（自然资源、劳动各用了多少）是投入用量按商品的聚合，由访问器派生，不另存。
 
+**实物层的三个字段可以缺席**：`consumption`、`consumption_commodity`、`provision`
+传 `None` 即声明「本机制没有这个量」。`output` 与 `input_use` 必填——规划生产的机制都有这两个。
+字段不给默认值，所以**漏填仍然是缺参数报错**，缺席只能是学者写出来的。
+`consumption` 与 `consumption_commodity` 描述同一个量，同进同出。
+`Plan.absent_fields` 读回声明。访问器遇到它需要的字段缺席时抛 `PlanFieldAbsent`，
+**不返回零**——零会以一个另一侧从未持有的量进入平衡式，两边就不闭合。
+
+发散监视只覆盖计划实际带的物理字段：只报 `output` 与 `input_use` 的机制拿到的
+`diverged=False` 只说这两项保持有限。确定性比对里两侧同为缺席算一致，
+一侧缺席一侧有值报成 `<字段> (absent from one run)`，不报成数值差。
+
+**`valuation` 的长度按键分两档**：约定键按登记的行数（`indicative_price`、`labor_value`、
+`shadow_price` 是每商品一个，`income` 是每消费单元一个），其余键的首维是
+`n_units`、`n_consumers`、`n_commodities` 三者之一。dtype 必须 `float64`，
+**拒收不转换**——转换会把「机制用另一种类型算了这个量」这个信号抹掉。
+
+**`Plan` 有两个子类**：`StatedPlan` 的 `consumption` 是申报量，`AllocatedPlan` 的是配置量。
+子类只多一个身份，不加字段、不收窄契约。`require_comparable(a, b)` 在两侧异类时拒绝相减。
+`hahnel_2020_slides` 产出 `StatedPlan`，参照解产出 `AllocatedPlan`。
+
 ## 多期
 
 静态与滚动由学者选：

@@ -13,6 +13,12 @@ import numpy as np
 import pytest
 
 import cyberstride.plan
+from cyberstride.plan import (
+    AllocatedPlan,
+    PlanFieldAbsent,
+    StatedPlan,
+    require_comparable,
+)
 from cyberstride import (
     CONSUMER_DEMAND,
     EFFORT,
@@ -333,3 +339,451 @@ class TestDerivedAccessors:
             result = accessor(synthetic_economy)
             assert result.shape == (synthetic_economy.n_commodities,)
             assert result.dtype == np.float64
+
+
+OPTIONAL_FIELDS = ("consumption", "consumption_commodity", "provision")
+"""The fixed fields a mechanism may declare absent, in the order :class:`Plan` declares them."""
+
+
+@pytest.fixture
+def bare_plan(plan):
+    """``plan`` with every optional fixed field declared absent."""
+    return dataclasses.replace(
+        plan, consumption=None, consumption_commodity=None, provision=None
+    )
+
+
+class TestAbsenceIsDeclaredNotDefaulted:
+    """``None`` says the mechanism has no such quantity; leaving the argument out is an error."""
+
+    @pytest.mark.parametrize("field", OPTIONAL_FIELDS)
+    def test_leaving_the_argument_out_is_still_a_missing_argument(self, plan, field):
+        arguments = {
+            name: getattr(plan, name)
+            for name in ("output", "input_use", *OPTIONAL_FIELDS)
+            if name != field
+        }
+        with pytest.raises(TypeError, match=field):
+            Plan(**arguments)
+
+    def test_a_plan_may_declare_the_consumption_pair_and_provision_absent(
+        self, bare_plan, synthetic_economy
+    ):
+        bare_plan.validate(synthetic_economy)
+        assert bare_plan.consumption is None
+        assert bare_plan.consumption_commodity is None
+        assert bare_plan.provision is None
+
+    def test_provision_alone_may_be_absent(self, plan, synthetic_economy):
+        dataclasses.replace(plan, provision=None).validate(synthetic_economy)
+
+    def test_the_consumption_pair_alone_may_be_absent(self, plan, synthetic_economy):
+        dataclasses.replace(
+            plan, consumption=None, consumption_commodity=None
+        ).validate(synthetic_economy)
+
+    def test_a_none_output_is_refused_rather_than_skipped(self, plan, synthetic_economy):
+        """``output`` stays required, so absence handling must not swallow it."""
+        broken = dataclasses.replace(plan, output=None)
+        with pytest.raises(SchemaError, match=r"Plan\.output"):
+            broken.validate(synthetic_economy)
+
+    def test_a_none_input_use_is_refused_rather_than_skipped(self, plan, synthetic_economy):
+        broken = dataclasses.replace(plan, input_use=None)
+        with pytest.raises(SchemaError, match=r"Plan\.input_use"):
+            broken.validate(synthetic_economy)
+
+    def test_a_none_output_does_not_reach_the_aggregation(self, plan, synthetic_economy):
+        """Skipping the shape check on ``None`` would let ``bincount`` weight every unit by one."""
+        broken = dataclasses.replace(plan, output=None)
+        with pytest.raises(SchemaError, match=r"Plan\.output"):
+            broken.total_output(synthetic_economy)
+
+
+class TestConsumptionPairing:
+    """``consumption`` and ``consumption_commodity`` describe one quantity, so they go together."""
+
+    def test_consumption_without_its_commodity_column_is_refused(self, plan):
+        with pytest.raises(SchemaError, match="consumption_commodity"):
+            dataclasses.replace(plan, consumption_commodity=None)
+
+    def test_a_commodity_column_without_consumption_is_refused(self, plan):
+        with pytest.raises(SchemaError, match="consumption"):
+            dataclasses.replace(plan, consumption=None)
+
+    def test_the_refusal_names_both_sides(self, plan):
+        with pytest.raises(SchemaError) as excinfo:
+            dataclasses.replace(plan, consumption=None)
+        message = str(excinfo.value)
+        assert "Plan.consumption" in message
+        assert "Plan.consumption_commodity" in message
+
+    def test_both_absent_together_is_accepted(self, plan):
+        paired = dataclasses.replace(plan, consumption=None, consumption_commodity=None)
+        assert paired.consumption is None
+        assert paired.consumption_commodity is None
+
+
+class TestAbsentFields:
+    """``absent_fields`` is how a reader finds out which quantities a plan does not carry."""
+
+    def test_a_full_plan_declares_nothing_absent(self, plan):
+        assert plan.absent_fields == ()
+
+    def test_every_absent_field_is_listed(self, bare_plan):
+        assert bare_plan.absent_fields == (
+            "consumption",
+            "consumption_commodity",
+            "provision",
+        )
+
+    def test_one_absent_field_is_listed_alone(self, plan):
+        assert dataclasses.replace(plan, provision=None).absent_fields == ("provision",)
+
+    def test_the_order_is_the_order_the_fields_are_declared_in(self, bare_plan):
+        declared = [field.name for field in dataclasses.fields(Plan)]
+        listed = list(bare_plan.absent_fields)
+        assert listed == sorted(listed, key=declared.index)
+
+    def test_it_is_a_tuple_of_strings(self, bare_plan):
+        assert isinstance(bare_plan.absent_fields, tuple)
+        assert all(isinstance(name, str) for name in bare_plan.absent_fields)
+
+    def test_it_reads_as_an_attribute(self, plan):
+        """The declared signature is ``Plan.absent_fields``, not a call."""
+        assert not callable(plan.absent_fields)
+
+
+class TestAccessorsOnAPlanWithAbsentFields:
+    """An accessor either answers unchanged or refuses; nothing reads an absent field as zero."""
+
+    UNAFFECTED = ("total_output", "total_input_use", "endowment_use")
+
+    @pytest.mark.parametrize("accessor", UNAFFECTED)
+    def test_an_accessor_that_needs_neither_answers_unchanged(
+        self, plan, bare_plan, synthetic_economy, accessor
+    ):
+        np.testing.assert_array_equal(
+            getattr(bare_plan, accessor)(synthetic_economy),
+            getattr(plan, accessor)(synthetic_economy),
+        )
+
+    @pytest.mark.parametrize("accessor", UNAFFECTED)
+    @pytest.mark.parametrize("absent", OPTIONAL_FIELDS)
+    def test_each_absent_field_alone_leaves_those_accessors_unchanged(
+        self, plan, synthetic_economy, accessor, absent
+    ):
+        fields = {absent: None}
+        if absent in ("consumption", "consumption_commodity"):
+            fields = {"consumption": None, "consumption_commodity": None}
+        partial = dataclasses.replace(plan, **fields)
+        np.testing.assert_array_equal(
+            getattr(partial, accessor)(synthetic_economy),
+            getattr(plan, accessor)(synthetic_economy),
+        )
+
+    def test_total_consumption_refuses_instead_of_answering_zero(
+        self, bare_plan, synthetic_economy
+    ):
+        with pytest.raises(PlanFieldAbsent):
+            bare_plan.total_consumption(synthetic_economy)
+
+    def test_the_refusal_names_the_field_the_accessor_and_the_way_out(
+        self, bare_plan, synthetic_economy
+    ):
+        with pytest.raises(PlanFieldAbsent) as excinfo:
+            bare_plan.total_consumption(synthetic_economy)
+        message = str(excinfo.value)
+        assert "Plan.consumption" in message
+        assert "total_consumption" in message
+        assert "does not apply" in message
+
+    def test_the_exception_is_a_schema_error(self):
+        assert issubclass(PlanFieldAbsent, SchemaError)
+
+    def test_a_plan_with_absent_fields_validates(self, bare_plan, synthetic_economy):
+        bare_plan.validate(synthetic_economy)
+
+    def test_validate_still_checks_the_fields_that_are_present(
+        self, bare_plan, synthetic_economy
+    ):
+        broken = dataclasses.replace(bare_plan, output=bare_plan.output[:-1])
+        with pytest.raises(SchemaError, match=r"Plan\.output"):
+            broken.validate(synthetic_economy)
+
+    def test_a_non_finite_entry_is_still_caught_beside_an_absent_field(
+        self, bare_plan, synthetic_economy
+    ):
+        values = np.asarray(bare_plan.input_use).copy()
+        values[0] = np.nan
+        broken = dataclasses.replace(bare_plan, input_use=values)
+        with pytest.raises(SchemaError, match="input_use"):
+            broken.validate(synthetic_economy)
+
+
+class TestValuationIsCheckedOnTheWayIn:
+    """Every ``valuation`` array is ``f64[n_commodities]``, refused rather than converted."""
+
+    def test_an_int64_array_is_refused_at_construction(self, plan, synthetic_economy):
+        prices = np.full(synthetic_economy.n_commodities, 700, dtype=np.int64)
+        with pytest.raises(SchemaError, match="float64"):
+            dataclasses.replace(plan, valuation={INDICATIVE_PRICE: prices})
+
+    def test_a_float32_array_is_refused_at_construction(self, plan, synthetic_economy):
+        prices = np.full(synthetic_economy.n_commodities, 700.0, dtype=np.float32)
+        with pytest.raises(SchemaError, match="float64"):
+            dataclasses.replace(plan, valuation={INDICATIVE_PRICE: prices})
+
+    def test_a_plain_list_is_refused_at_construction(self, plan, synthetic_economy):
+        with pytest.raises(SchemaError, match="float64"):
+            dataclasses.replace(
+                plan, valuation={INDICATIVE_PRICE: [700.0] * synthetic_economy.n_commodities}
+            )
+
+    def test_the_refusal_names_the_key(self, plan, synthetic_economy):
+        prices = np.full(synthetic_economy.n_commodities, 700, dtype=np.int64)
+        with pytest.raises(SchemaError, match="indicative_price"):
+            dataclasses.replace(plan, valuation={INDICATIVE_PRICE: prices})
+
+    def test_a_wrong_dtype_is_not_quietly_converted(self, plan, synthetic_economy):
+        """The library reports the type the mechanism computed, it does not paper over it."""
+        prices = np.full(synthetic_economy.n_commodities, 700, dtype=np.int64)
+        with pytest.raises(SchemaError):
+            dataclasses.replace(plan, valuation={INDICATIVE_PRICE: prices})
+        assert plan.valuation[INDICATIVE_PRICE].dtype == np.float64
+
+    @pytest.mark.parametrize("offset", [-1, 1])
+    def test_a_wrong_length_is_refused_by_validate(self, plan, synthetic_economy, offset):
+        prices = np.full(synthetic_economy.n_commodities + offset, 700.0)
+        broken = dataclasses.replace(plan, valuation={INDICATIVE_PRICE: prices})
+        with pytest.raises(SchemaError, match="indicative_price"):
+            broken.validate(synthetic_economy)
+
+    def test_the_length_refusal_states_both_counts(self, plan, synthetic_economy):
+        prices = np.full(synthetic_economy.n_commodities + 1, 700.0)
+        broken = dataclasses.replace(plan, valuation={INDICATIVE_PRICE: prices})
+        with pytest.raises(SchemaError) as excinfo:
+            broken.validate(synthetic_economy)
+        message = str(excinfo.value)
+        assert str(synthetic_economy.n_commodities + 1) in message
+        assert str(synthetic_economy.n_commodities) in message
+
+    def test_a_two_dimensional_array_is_refused(self, plan, synthetic_economy):
+        prices = np.full((synthetic_economy.n_commodities, 2), 700.0)
+        broken = dataclasses.replace(plan, valuation={INDICATIVE_PRICE: prices})
+        with pytest.raises(SchemaError, match="indicative_price"):
+            broken.validate(synthetic_economy)
+
+    def test_a_well_formed_valuation_passes(self, plan, synthetic_economy):
+        plan.validate(synthetic_economy)
+
+    def test_every_key_is_checked_not_only_the_first(self, plan, synthetic_economy):
+        broken = dataclasses.replace(
+            plan,
+            valuation={
+                INDICATIVE_PRICE: np.full(synthetic_economy.n_commodities, 700.0),
+                LABOR_VALUE: np.full(synthetic_economy.n_commodities + 1, 1.0),
+            },
+        )
+        with pytest.raises(SchemaError, match="labor_value"):
+            broken.validate(synthetic_economy)
+
+
+class TestPlanSubclasses:
+    """``StatedPlan`` and ``AllocatedPlan`` add an identity and nothing else."""
+
+    @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
+    def test_it_is_a_plan(self, subclass):
+        assert issubclass(subclass, Plan)
+
+    @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
+    def test_it_adds_no_field(self, subclass):
+        assert [field.name for field in dataclasses.fields(subclass)] == [
+            field.name for field in dataclasses.fields(Plan)
+        ]
+
+    @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
+    def test_it_takes_everything_a_plan_takes(self, plan, synthetic_economy, subclass):
+        typed = subclass(
+            output=plan.output,
+            input_use=plan.input_use,
+            consumption=plan.consumption,
+            consumption_commodity=plan.consumption_commodity,
+            provision=plan.provision,
+            valuation=dict(plan.valuation),
+        )
+        typed.validate(synthetic_economy)
+        for accessor in ("total_output", "total_input_use", "total_consumption", "endowment_use"):
+            np.testing.assert_array_equal(
+                getattr(typed, accessor)(synthetic_economy),
+                getattr(plan, accessor)(synthetic_economy),
+            )
+
+    @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
+    def test_it_accepts_an_absent_field_like_its_base(self, plan, synthetic_economy, subclass):
+        typed = subclass(
+            output=plan.output,
+            input_use=plan.input_use,
+            consumption=None,
+            consumption_commodity=None,
+            provision=None,
+        )
+        typed.validate(synthetic_economy)
+        assert typed.absent_fields == ("consumption", "consumption_commodity", "provision")
+
+    @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
+    def test_replacing_a_field_keeps_the_identity(self, plan, subclass):
+        typed = dataclasses.replace(
+            subclass(
+                output=plan.output,
+                input_use=plan.input_use,
+                consumption=plan.consumption,
+                consumption_commodity=plan.consumption_commodity,
+                provision=plan.provision,
+            ),
+            provision=None,
+        )
+        assert isinstance(typed, subclass)
+
+    def test_the_two_identities_are_distinct(self):
+        assert not issubclass(StatedPlan, AllocatedPlan)
+        assert not issubclass(AllocatedPlan, StatedPlan)
+
+
+class TestRequireComparable:
+    """Comparing a stated quantity against an allocated one is refused, not silently done."""
+
+    def typed(self, plan, subclass):
+        return subclass(
+            output=plan.output,
+            input_use=plan.input_use,
+            consumption=plan.consumption,
+            consumption_commodity=plan.consumption_commodity,
+            provision=plan.provision,
+        )
+
+    @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
+    def test_two_of_the_same_identity_are_comparable(self, plan, subclass):
+        require_comparable(self.typed(plan, subclass), self.typed(plan, subclass))
+
+    def test_two_plain_plans_are_comparable(self, plan):
+        require_comparable(plan, plan)
+
+    @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
+    def test_a_plain_plan_on_either_side_is_comparable(self, plan, subclass):
+        require_comparable(plan, self.typed(plan, subclass))
+        require_comparable(self.typed(plan, subclass), plan)
+
+    @pytest.mark.parametrize("order", [(StatedPlan, AllocatedPlan), (AllocatedPlan, StatedPlan)])
+    def test_a_stated_plan_and_an_allocated_plan_are_refused(self, plan, order):
+        left, right = (self.typed(plan, subclass) for subclass in order)
+        with pytest.raises(ValueError):
+            require_comparable(left, right)
+
+    @pytest.mark.parametrize("order", [(StatedPlan, AllocatedPlan), (AllocatedPlan, StatedPlan)])
+    def test_the_refusal_names_both_identities_and_what_differs(self, plan, order):
+        left, right = (self.typed(plan, subclass) for subclass in order)
+        with pytest.raises(ValueError) as excinfo:
+            require_comparable(left, right)
+        message = str(excinfo.value)
+        assert "StatedPlan" in message
+        assert "AllocatedPlan" in message
+        assert "consumption" in message
+
+
+class TestValuationLengthFollowsTheKey:
+    """A key the library registered is checked against the row count it registered.
+
+    ``indicative_price`` is one entry per commodity and ``income`` one per consumer unit, so a
+    single row count for the whole bag would refuse one of the two. A key the library does not
+    know carries a meaning it cannot read, so all it can ask is that the leading dimension is
+    one of the three the data model counts.
+    """
+
+    def valued(self, plan, key, array):
+        return dataclasses.replace(plan, valuation={key: array})
+
+    @pytest.mark.parametrize("key", [INDICATIVE_PRICE, LABOR_VALUE, SHADOW_PRICE])
+    def test_a_per_commodity_key_takes_one_entry_per_commodity(
+        self, plan, synthetic_economy, key
+    ):
+        carried = self.valued(plan, key, np.zeros(synthetic_economy.n_commodities))
+        carried.validate(synthetic_economy)
+
+    @pytest.mark.parametrize("key", [INDICATIVE_PRICE, LABOR_VALUE, SHADOW_PRICE])
+    def test_a_per_commodity_key_refuses_one_entry_per_consumer_unit(
+        self, plan, synthetic_economy, key
+    ):
+        carried = self.valued(plan, key, np.zeros(synthetic_economy.n_consumers))
+        with pytest.raises(SchemaError, match=key):
+            carried.validate(synthetic_economy)
+
+    def test_income_takes_one_entry_per_consumer_unit(self, plan, synthetic_economy):
+        carried = self.valued(plan, INCOME, np.zeros(synthetic_economy.n_consumers))
+        carried.validate(synthetic_economy)
+
+    def test_income_refuses_one_entry_per_commodity(self, plan, synthetic_economy):
+        """The two counts differ on this economy, so the wrong one cannot pass by accident."""
+        assert synthetic_economy.n_consumers != synthetic_economy.n_commodities
+        carried = self.valued(plan, INCOME, np.zeros(synthetic_economy.n_commodities))
+        with pytest.raises(SchemaError, match="income"):
+            carried.validate(synthetic_economy)
+
+    def test_the_refusal_for_a_registered_key_states_what_that_key_counts(
+        self, plan, synthetic_economy
+    ):
+        carried = self.valued(plan, INCOME, np.zeros(synthetic_economy.n_commodities))
+        with pytest.raises(SchemaError) as excinfo:
+            carried.validate(synthetic_economy)
+        message = str(excinfo.value)
+        assert "one entry per consumer unit" in message
+        assert str(synthetic_economy.n_consumers) in message
+
+    @pytest.mark.parametrize("rows", ["n_units", "n_consumers", "n_commodities"])
+    def test_an_unregistered_key_takes_any_of_the_three_row_counts(
+        self, plan, synthetic_economy, rows
+    ):
+        carried = self.valued(plan, "utility", np.zeros(getattr(synthetic_economy, rows)))
+        carried.validate(synthetic_economy)
+
+    def test_an_unregistered_key_refuses_a_leading_dimension_matching_none_of_them(
+        self, plan, synthetic_economy
+    ):
+        odd = 1 + max(
+            synthetic_economy.n_units,
+            synthetic_economy.n_consumers,
+            synthetic_economy.n_commodities,
+        )
+        carried = self.valued(plan, "utility", np.zeros(odd))
+        with pytest.raises(SchemaError, match="utility"):
+            carried.validate(synthetic_economy)
+
+    def test_the_refusal_for_an_unregistered_key_states_all_three_counts(
+        self, plan, synthetic_economy
+    ):
+        carried = self.valued(plan, "utility", np.zeros(1))
+        with pytest.raises(SchemaError) as excinfo:
+            carried.validate(synthetic_economy)
+        message = str(excinfo.value)
+        assert "one entry per" not in message
+        for rows in ("n_units", "n_consumers", "n_commodities"):
+            assert str(getattr(synthetic_economy, rows)) in message
+
+    def test_an_unregistered_key_may_carry_a_second_dimension(self, plan, synthetic_economy):
+        """The library cannot know what a key it does not recognise counts across."""
+        carried = self.valued(plan, "utility", np.zeros((synthetic_economy.n_consumers, 2)))
+        carried.validate(synthetic_economy)
+
+    def test_a_registered_key_may_not(self, plan, synthetic_economy):
+        carried = self.valued(
+            plan, INDICATIVE_PRICE, np.zeros((synthetic_economy.n_commodities, 2))
+        )
+        with pytest.raises(SchemaError, match="indicative_price"):
+            carried.validate(synthetic_economy)
+
+    def test_the_dtype_check_covers_a_registered_and_an_unregistered_key_alike(
+        self, plan, synthetic_economy
+    ):
+        for key in (INCOME, "utility"):
+            with pytest.raises(SchemaError, match="float64"):
+                self.valued(plan, key, np.zeros(synthetic_economy.n_consumers, dtype=np.int64))

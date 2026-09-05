@@ -240,11 +240,27 @@ is a decision the mechanism made, and recomputing it afterwards would replace th
 with the recomputing tool's own theory. Endowment use is different: it is a plain aggregation
 of input use, so `plan.endowment_use(economy)` derives it.
 
+**Absent fields.** Not every mechanism has every physical quantity. A mechanism that
+balances totals alone has no consumption per consumer unit, and one whose public supply is
+regional cannot state it as a single society-wide scalar, so `consumption`,
+`consumption_commodity` and `provision` may be declared absent by passing `None`. `output` and
+`input_use` are required: every mechanism that plans production has both. The fields carry no
+default, so leaving one out of the call is still a missing argument -- absence is something
+you say, never something that happens to you. `plan.absent_fields` reads the declaration back,
+and an accessor over an absent field raises `PlanFieldAbsent` rather than answering zero: a
+zero would enter one side of a balance as a quantity the other side never carried.
+
+`StatedPlan` and `AllocatedPlan` say which reading `consumption` carries -- what the consumer
+councils asked for, or what an allocation handed out. `require_comparable(a, b)` refuses to
+subtract one from the other.
+
 **Extension layer.** `valuation` is a named-array bag, because a mechanism that computes
 labour times has no prices and one that iterates on prices has no labour times. Predefined
 keys are `indicative_price`, `labor_value` and `shadow_price` (f64[n_commodities], with NaN
 for commodities the mechanism leaves undefined) and `income` (f64[n_consumers]). Any other key
-is yours.
+is yours, and its leading dimension has to be one of the three row counts. Every array is
+float64, refused rather than converted: converting would hide that the mechanism computed the
+quantity in another type.
 
 `extra` is a second named-array bag, for physical quantities the fixed fields have no column
 for. Each array is one row per producing unit, per consumer unit or per commodity. Two keys

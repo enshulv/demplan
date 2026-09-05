@@ -281,6 +281,69 @@ class RecordingRule:
         return slides_2020_rule(price, surplus, imbalance)
 
 
+class BufferReusingRule:
+    """``slides_2020_rule`` computed into one buffer the rule keeps and rewrites every round.
+
+    A rule is free to do this: the arithmetic it hands back is the arithmetic of the named
+    rule, and reusing the output buffer is how a rule avoids allocating one per round. It
+    leaves the price the board stepped with reachable from the rule for as long as the board
+    holds it, which is what the tests around this rule put to the board.
+    """
+
+    def __init__(self):
+        self.buffer = None
+        self.handed_price = []
+
+    def __call__(self, price, surplus, imbalance):
+        self.handed_price.append(np.asarray(price).copy())
+        stepped = slides_2020_rule(price, surplus, imbalance)
+        if self.buffer is None:
+            self.buffer = np.empty_like(stepped)
+        self.buffer[:] = stepped
+        return self.buffer
+
+
+def scribbling_through_the_base_of(argument: str):
+    """``slides_2020_rule`` that writes zeros through one argument's ``base``, if it has one.
+
+    ``base`` is whatever array a view was taken of. A rule that reaches it writes to memory the
+    board is still using, and the read-only flag on the view says nothing about it. The write
+    is skipped rather than forced when the argument owns its memory, so that the test around
+    this rule measures what the run produced and not which exception a write raised.
+    """
+
+    def rule(price, surplus, imbalance):
+        stepped = slides_2020_rule(price, surplus, imbalance)
+        target = {"price": price, "surplus": surplus, "imbalance": imbalance}[argument]
+        if target.base is not None:
+            target.base[:] = 0.0
+        return stepped
+
+    return rule
+
+
+def plan_arrays(plan) -> dict:
+    """Every array a plan carries, keyed by where it sits, for comparing two runs."""
+    arrays = {
+        name: np.asarray(getattr(plan, name))
+        for name in ("output", "input_use", "consumption", "consumption_commodity", "provision")
+    }
+    arrays.update({f"valuation.{key}": np.asarray(v) for key, v in plan.valuation.items()})
+    arrays.update({f"extra.{key}": np.asarray(v) for key, v in plan.extra.items()})
+    return arrays
+
+
+def assert_the_same_run(actual, expected) -> None:
+    """Assert two runs agree on the round count, the verdict and every array of the plan."""
+    assert actual.summary.rounds == expected.summary.rounds
+    assert actual.summary.converged == expected.summary.converged
+    assert actual.summary.diverged == expected.summary.diverged
+    left, right = plan_arrays(actual.plan), plan_arrays(expected.plan)
+    assert sorted(left) == sorted(right)
+    for name, array in left.items():
+        np.testing.assert_array_equal(array, right[name], err_msg=name)
+
+
 def with_a_negative_denominator(economy):
     """Pushes one unit's ``effort_c`` just below ``effort_k * (1 - sum of exponents)``.
 
@@ -730,6 +793,76 @@ class TestPriceRuleArgumentsAreReadOnly:
             result.plan.valuation[INDICATIVE_PRICE],
             np.full(synthetic_economy.n_commodities, HahnelSlides2020().initial_price),
         )
+
+
+class TestThePriceRuleCannotReachTheBoardsState:
+    """What a rule does to its arguments and to its own buffers decides nothing the run reports.
+
+    The read-only flag alone covers one way in. Two more run through ownership: an argument
+    that is a view keeps the board's live array reachable as ``base``, and a return value the
+    board keeps is a buffer the rule can go on writing to. Both decide reported numbers -- the
+    plan is filed under the price the board stepped with, and the round count is the
+    convergence test on the measured imbalance -- so each one is asserted against a run of the
+    same rule's arithmetic that reaches for neither.
+    """
+
+    ARGUMENTS = ("price", "surplus", "imbalance")
+
+    def honest_run(self, economy):
+        return run(HahnelSlides2020(), economy, seed=0)
+
+    def test_no_argument_is_a_view_of_anything(self, synthetic_economy):
+        """An array that owns its memory has no ``base``, and so nothing behind it."""
+        seen = []
+
+        def inspect(price, surplus, imbalance):
+            seen.append(tuple(a.base for a in (price, surplus, imbalance)))
+            return slides_2020_rule(price, surplus, imbalance)
+
+        run(HahnelSlides2020(price_rule=inspect, max_rounds=3), synthetic_economy, seed=0)
+        assert len(seen) == 3
+        assert all(base is None for round_of_bases in seen for base in round_of_bases)
+
+    @pytest.mark.parametrize("argument", ARGUMENTS)
+    def test_writing_through_an_arguments_base_changes_nothing(
+        self, synthetic_economy, argument
+    ):
+        scribbled = run(
+            HahnelSlides2020(price_rule=scribbling_through_the_base_of(argument)),
+            synthetic_economy,
+            seed=0,
+        )
+        assert_the_same_run(scribbled, self.honest_run(synthetic_economy))
+
+    def test_a_rule_that_reuses_its_output_buffer_files_the_price_it_proposed_at(
+        self, synthetic_economy
+    ):
+        """The plan's price is the price the last round's proposals were made at."""
+        rule = BufferReusingRule()
+        result = run(HahnelSlides2020(price_rule=rule), synthetic_economy, seed=0)
+
+        assert len(rule.handed_price) == result.summary.rounds
+        np.testing.assert_array_equal(
+            result.plan.valuation[INDICATIVE_PRICE], rule.handed_price[-1]
+        )
+
+    def test_reusing_the_output_buffer_changes_nothing_else_either(self, synthetic_economy):
+        reusing = run(
+            HahnelSlides2020(price_rule=BufferReusingRule()), synthetic_economy, seed=0
+        )
+        assert_the_same_run(reusing, self.honest_run(synthetic_economy))
+
+    def test_the_rule_writing_to_its_buffer_after_the_run_moves_no_number(
+        self, synthetic_economy
+    ):
+        """The board holds a price of its own, not the buffer the rule handed it."""
+        rule = BufferReusingRule()
+        result = run(HahnelSlides2020(price_rule=rule), synthetic_economy, seed=0)
+        filed = np.asarray(result.plan.valuation[INDICATIVE_PRICE]).copy()
+
+        rule.buffer[:] = 0.0
+        np.testing.assert_array_equal(result.plan.valuation[INDICATIVE_PRICE], filed)
+        assert filed.max() > 0.0
 
 
 @pytest.mark.skipif(not dep1ex_available(1), reason="dep1ex01 archive not available")

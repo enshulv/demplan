@@ -59,8 +59,9 @@ print(result.summary.rounds, result.summary.converged, gap.max())
 
 `result.summary` also carries `diverged`. A run that stops because a plan went non-finite is a
 different fact from one that spends its round cap while still converging: the first says
-something about the mechanism, the second about the budget it was given. Both are `None` when
-the procedure never called `iterate`, because then the library saw no loop to judge.
+something about the mechanism, the second about the budget it was given. `diverged` is `None` in two
+cases: the procedure never called `iterate`, so the library saw no loop, or it drove one
+without `plan_of`, so the library saw no plan to judge. `rounds` tells those apart.
 
 `plan.provision` is the supply side of a public good, the quantity produced and shared, and it
 is already inside `total_output`. The demand side is `plan.extra["consumer_demand"]`: what the

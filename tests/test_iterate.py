@@ -46,7 +46,7 @@ class TestRoundCounting:
         assert len(log) == 3
         assert result.state == 3
         assert result.converged is True
-        assert result.diverged is False
+        assert result.diverged is None
 
     def test_convergence_is_not_tested_after_init(self):
         log: list[int] = []
@@ -64,7 +64,7 @@ class TestRoundCounting:
         log: list[int] = []
         result = iterate(lambda: 0, counting_step(log), lambda s: False, max_rounds=4)
         assert result.converged is False
-        assert result.diverged is False
+        assert result.diverged is None
         assert result.rounds == 4
         assert len(log) == 4
         assert result.state == 4
@@ -82,7 +82,7 @@ class TestResultShape:
         assert result.state == 2
         assert result.rounds == 2
         assert result.converged is True
-        assert result.diverged is False
+        assert result.diverged is None
         assert result.trajectory is None
 
 
@@ -204,6 +204,63 @@ class TestDivergence:
         result = iterate(
             lambda: 0.0, lambda s: float("nan"), lambda s: s == 0.0, max_rounds=3
         )
-        assert result.diverged is False
+        assert result.diverged is None
         assert result.converged is False
         assert result.rounds == 3
+
+
+class TestDivergenceHasThreeAnswers:
+    """Diverged, did not diverge, and nobody looked -- the third is ``None``, not ``False``.
+
+    ``plan_of`` is the library's only window into the state, so a loop driven without one is
+    watched by nothing. Reporting that as ``False`` puts it in with the loops that ran under
+    the watch and stayed finite, which is the reading ``converged=False, diverged=False``
+    carries: the round cap ran out.
+    """
+
+    def watched(self, converge_at: int, max_rounds: int):
+        return iterate(
+            lambda: 0,
+            lambda s: s + 1,
+            lambda s: s >= converge_at,
+            max_rounds,
+            plan_of=lambda s: plan_with(1.0),
+        )
+
+    def unwatched(self, converge_at: int, max_rounds: int):
+        return iterate(lambda: 0, lambda s: s + 1, lambda s: s >= converge_at, max_rounds)
+
+    def test_an_unwatched_loop_that_converges_reports_divergence_as_unknown(self):
+        result = self.unwatched(converge_at=3, max_rounds=10)
+        assert result.converged is True
+        assert result.diverged is None
+        assert result.rounds == 3
+
+    def test_an_unwatched_loop_that_spends_its_round_cap_reports_divergence_as_unknown(self):
+        result = self.unwatched(converge_at=99, max_rounds=4)
+        assert result.converged is False
+        assert result.diverged is None
+        assert result.rounds == 4
+
+    def test_a_watched_loop_that_converges_reports_no_divergence(self):
+        result = self.watched(converge_at=3, max_rounds=10)
+        assert result.converged is True
+        assert result.diverged is False
+
+    def test_a_watched_loop_that_spends_its_round_cap_reports_no_divergence(self):
+        result = self.watched(converge_at=99, max_rounds=4)
+        assert result.converged is False
+        assert result.diverged is False
+
+    def test_watching_without_keeping_the_trajectory_still_answers_the_question(self):
+        """``keep_trajectory`` decides what is stored, not whether the library looked."""
+        result = iterate(
+            lambda: 0,
+            lambda s: s + 1,
+            lambda s: s >= 2,
+            10,
+            plan_of=lambda s: plan_with(1.0),
+            keep_trajectory=False,
+        )
+        assert result.diverged is False
+        assert result.trajectory is None

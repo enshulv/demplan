@@ -202,11 +202,18 @@ class TestDivergenceReachesTheSummary:
         assert result.summary.converged is False
         assert result.summary.rounds == 2
 
-    def test_a_loop_the_library_cannot_see_inside_reports_neither(self, synthetic_economy):
-        """Without ``plan_of`` the loop shows the library no plan, so divergence is unobserved."""
+    def test_a_loop_the_library_cannot_see_inside_reports_divergence_as_unknown(
+        self, synthetic_economy
+    ):
+        """Without ``plan_of`` the loop shows the library no plan, so divergence is unobserved.
+
+        ``rounds`` is what separates this from a procedure that drove no loop at all: the
+        library counted the rounds it was shown and judged the plans it was not shown.
+        """
         result = run(LoopingProcedure(rounds_to_converge=99, max_rounds=3), synthetic_economy, 0)
+        assert result.summary.rounds == 3
         assert result.summary.converged is False
-        assert result.summary.diverged is False
+        assert result.summary.diverged is None
 
     def test_the_last_loop_decides_the_verdict(self, synthetic_economy):
         result = run(DivergingAfterConvergingProcedure(), synthetic_economy, seed=0)

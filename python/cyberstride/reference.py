@@ -28,10 +28,11 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.sparse import coo_matrix
 
-from cyberstride.economy import Economy, TechnologyKind
+from cyberstride.economy import CommodityKind, Economy, TechnologyKind
 from cyberstride.objectives import (
     Objective,
     _require_consumable_support,
+    _require_finite_declaration,
     _require_non_negative,
 )
 from cyberstride.plan import SHADOW_PRICE, Plan
@@ -73,6 +74,9 @@ class ReferenceResult(NamedTuple):
 MINIMISATION_ATTRIBUTES = ("final_demand_lower_bound", "minimize_kind")
 """The pair of attributes an objective declares to be read as a minimisation."""
 
+WEIGHTS_ATTRIBUTE = "weights"
+"""What a maximisation declares: the coefficient it puts on each commodity."""
+
 
 def _require_the_whole_minimisation_pair(objective, lower_bound, minimize_kind) -> None:
     """Refuse an objective that declares one attribute of the minimisation pair and not both.
@@ -98,19 +102,61 @@ def _require_a_well_formed_floor(objective, economy: Economy, floor: np.ndarray)
 
     :class:`cyberstride.objectives.MinimizeLabor` checks its own targets, but a minimisation is
     recognised here by :data:`MINIMISATION_ATTRIBUTES` and not by type, so an objective a
-    researcher wrote reaches the program with those checks unrun. Either malformed floor then
-    comes back with status ``"optimal"``: a negative entry lets the plan cover part of its own
-    input use out of the floor and report a lower cost than any plan meeting the floor as
-    written, and an entry on a commodity no consumer unit can hold makes the program optimise a
-    quantity its own output never records.
+    researcher wrote reaches the program with those checks unrun. Each malformed floor comes
+    back with status ``"optimal"``: a non-finite entry is no bound at all to the solver, a
+    negative entry lets the plan cover part of its own input use out of the floor and report a
+    lower cost than any plan meeting the floor as written, and an entry on a commodity no
+    consumer unit can hold makes the program optimise a quantity its own output never records.
+
+    The unreadable entry is refused first, because the other two questions are about a number
+    the reader can compare: ``NaN < 0`` is false and ``NaN != 0`` is true, so a NaN floor is a
+    non-negative floor sitting on the commodity it was written on by both of those readings.
 
     This checks that the declaration is well formed rather than that the plan satisfies an
     invariant, so it applies whatever the researcher enabled from the invariant toolbox.
     """
     lower_bound_attribute, _ = MINIMISATION_ATTRIBUTES
     label = f"{objective.name}: {lower_bound_attribute}"
+    _require_finite_declaration(floor, label)
     _require_non_negative(floor, label)
     _require_consumable_support(floor, economy, label)
+
+
+def _require_a_well_formed_weighting(objective, economy: Economy, weights: np.ndarray) -> None:
+    """Check the weights of any objective read as a maximisation, whoever wrote it.
+
+    A maximisation is recognised by the absence of the minimisation pair, so the weights of an
+    objective a researcher wrote reach the program unchecked as well, and they decide the same
+    two things the floor decides: which commodities become final-consumption variables, and
+    what the reported objective value counts. A weight on a commodity no consumer unit can hold
+    makes the program optimise a quantity the plan never records; a non-finite weight is not a
+    declaration anyone can read.
+
+    The sign is left alone. A negative weight is a penalty term, which is a coherent thing for
+    a social welfare function to say, and refusing it would put a commitment about what such a
+    function may say into the layer that is meant to hold none.
+    """
+    label = f"{objective.name}: {WEIGHTS_ATTRIBUTE}"
+    _require_finite_declaration(weights, label)
+    _require_consumable_support(weights, economy, label)
+
+
+def _require_a_declared_commodity_kind(objective, minimize_kind) -> None:
+    """Refuse a ``minimize_kind`` that names no class of the commodity table.
+
+    The cost vector counts an input when its commodity carries this kind, so a value outside
+    :class:`cyberstride.CommodityKind` matches nothing: the program minimises an all-zero cost
+    and reports an objective value of zero for a plan that spends whatever it likes.
+    """
+    try:
+        CommodityKind(int(minimize_kind))
+    except (TypeError, ValueError):
+        _, minimize_kind_attribute = MINIMISATION_ATTRIBUTES
+        accepted = ", ".join(f"{kind.name.lower()} ({int(kind)})" for kind in CommodityKind)
+        raise ValueError(
+            f"{objective.name}: {minimize_kind_attribute} is {minimize_kind!r}, which is not a "
+            f"commodity kind; the kinds are {accepted}"
+        ) from None
 
 
 class _Program:
@@ -125,6 +171,8 @@ class _Program:
         self.minimize_kind = getattr(objective, "minimize_kind", None)
         _require_the_whole_minimisation_pair(objective, self.lower_bound, self.minimize_kind)
         self.minimises = self.lower_bound is not None and self.minimize_kind is not None
+        if self.minimises:
+            _require_a_declared_commodity_kind(objective, self.minimize_kind)
 
         declared = np.asarray(self.lower_bound) if self.minimises else self.weights
         if declared.shape != (economy.n_commodities,):
@@ -134,6 +182,8 @@ class _Program:
             )
         if self.minimises:
             _require_a_well_formed_floor(objective, economy, declared)
+        else:
+            _require_a_well_formed_weighting(objective, economy, declared)
         self.consumable = np.flatnonzero(declared != 0.0).astype(np.int64)
         self.n_variables = economy.n_units + self.consumable.shape[0]
 

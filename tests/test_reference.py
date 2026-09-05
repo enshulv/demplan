@@ -464,6 +464,187 @@ class TestTheDeclaredFloorIsCheckedWhereTheProgramReadsIt:
         assert result.objective_value == pytest.approx(6.0, abs=EXACT)
 
 
+class TestTheDeclaredFloorMustBeReadable:
+    """A non-finite floor is the one malformed floor the other two checks read as well formed.
+
+    ``NaN < 0`` is false, so the non-negative check finds nothing; ``NaN != 0`` is true, so the
+    consumable-support check reads the entry as a floor sitting on the commodity it was written
+    on, which may be a private good. HiGHS takes a NaN bound as no bound at all, so the program
+    would report an optimum that meets none of the declared floor and says so nowhere.
+    """
+
+    def floor(self, commodity: int, value: float) -> np.ndarray:
+        targets = np.zeros(N_BREAD_COMMODITIES)
+        targets[BREAD] = 6.0
+        targets[commodity] = value
+        return targets
+
+    def solve_with(self, targets: np.ndarray) -> ReferenceResult:
+        objective = PairDeclaredObjective(
+            lower_bound=targets, minimize_kind=CommodityKind.LABOR
+        )
+        return reference_solution(build_bread_economy(labor_endowment=20.0), objective)
+
+    @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+    def test_a_non_finite_floor_on_a_private_good_is_refused(self, value):
+        with pytest.raises(ValueError, match="finite"):
+            self.solve_with(self.floor(BREAD, value))
+
+    def test_the_message_names_the_objective_and_the_attribute(self):
+        with pytest.raises(ValueError, match=r"pair_declared: final_demand_lower_bound"):
+            self.solve_with(self.floor(BREAD, np.nan))
+
+    def test_an_unreadable_entry_is_reported_before_the_commodity_it_sits_on(self):
+        """A floor nobody can read is refused for being unreadable, whatever it sits on."""
+        with pytest.raises(ValueError, match="finite"):
+            self.solve_with(self.floor(FLOUR, np.nan))
+
+    def test_a_well_formed_floor_still_reaches_the_optimum(self):
+        result = self.solve_with(self.floor(BREAD, 6.0))
+        assert result.status == "optimal"
+        assert result.objective_value == pytest.approx(12.0, abs=EXACT)
+
+    def test_minimize_labor_refuses_a_non_finite_floor_at_construction(self):
+        """The earlier check stays: it fails nearer to where the researcher wrote the floor."""
+        with pytest.raises(ValueError, match="finite"):
+            MinimizeLabor(self.floor(BREAD, np.nan))
+
+
+class TestTheMinimisedKindMustBeACommodityKind:
+    """``minimize_kind`` names the commodity class the objective totals up.
+
+    The cost vector counts an input when its commodity carries that kind. A value outside
+    :class:`CommodityKind` matches no commodity, so every coefficient is zero and the program
+    reports an objective value of zero for a plan that spends whatever it likes.
+    """
+
+    def targets(self) -> np.ndarray:
+        targets = np.zeros(N_BREAD_COMMODITIES)
+        targets[BREAD] = 6.0
+        return targets
+
+    def solve_with(self, minimize_kind) -> ReferenceResult:
+        objective = PairDeclaredObjective(
+            lower_bound=self.targets(), minimize_kind=minimize_kind
+        )
+        return reference_solution(build_bread_economy(labor_endowment=20.0), objective)
+
+    @pytest.mark.parametrize("minimize_kind", [99, -1, 5])
+    def test_a_value_outside_the_commodity_kinds_is_refused(self, minimize_kind):
+        with pytest.raises(ValueError, match="minimize_kind"):
+            self.solve_with(minimize_kind)
+
+    def test_the_message_carries_the_value_it_was_given(self):
+        with pytest.raises(ValueError, match="99"):
+            self.solve_with(99)
+
+    def test_the_message_lists_the_kinds_that_are_accepted(self):
+        with pytest.raises(ValueError, match="labor"):
+            self.solve_with(99)
+
+    def test_a_value_that_is_not_a_number_is_refused(self):
+        with pytest.raises(ValueError, match="minimize_kind"):
+            self.solve_with("labor")
+
+    def test_the_kind_the_built_in_objective_declares_is_accepted(self):
+        result = self.solve_with(CommodityKind.LABOR)
+        assert result.objective_value == pytest.approx(12.0, abs=EXACT)
+
+    def test_the_same_kind_written_as_a_plain_integer_is_accepted(self):
+        result = self.solve_with(int(CommodityKind.LABOR))
+        assert result.objective_value == pytest.approx(12.0, abs=EXACT)
+
+    def test_any_declared_commodity_kind_is_accepted(self):
+        """The check is membership of :class:`CommodityKind`, not agreement with labour.
+
+        Totalling up the intermediate good is a different objective, not a malformed one: this
+        economy draws 3 of it to meet the floor of 6 on bread.
+        """
+        result = self.solve_with(CommodityKind.INTERMEDIATE)
+        assert result.objective_value == pytest.approx(3.0, abs=EXACT)
+
+
+class DeclaredWeightingObjective:
+    """A researcher's own maximisation: the weights it declared, handed over unchecked.
+
+    ``MaximizeWeightedConsumption`` checks its own weights on the way out, and a program is
+    read as a maximisation by the absence of the minimisation pair rather than by type, so an
+    objective written outside this package reaches the program with whatever it declared.
+    """
+
+    name = "declared_weighting"
+
+    def __init__(self, weights) -> None:
+        self.declared = np.asarray(weights, dtype=np.float64)
+
+    def weights(self, economy: Economy) -> np.ndarray:
+        return self.declared
+
+    def allocate(self, economy: Economy, aggregate: np.ndarray):
+        zero_weights = np.zeros(economy.n_commodities, dtype=np.float64)
+        return MaximizeWeightedConsumption(zero_weights).allocate(economy, aggregate)
+
+
+class TestTheDeclaredWeightsAreCheckedWhereTheProgramReadsThem:
+    """The weights of a maximisation are a declaration the program reads, so it checks them.
+
+    They decide the same two things the floor of a minimisation decides: which commodities
+    become final-consumption variables, and what the reported objective value counts. A weight
+    on a commodity no consumer unit can hold makes the program optimise a quantity its own plan
+    never records -- on this economy, a weight of 1 on labour would report an objective value of
+    12 on output ``[0, 0]``, an optimum in name only.
+    """
+
+    def weights(self, commodity: int, value: float) -> np.ndarray:
+        weights = np.zeros(N_BREAD_COMMODITIES)
+        weights[commodity] = value
+        return weights
+
+    def solve_with(self, weights: np.ndarray) -> ReferenceResult:
+        return reference_solution(build_bread_economy(), DeclaredWeightingObjective(weights))
+
+    def test_a_weight_on_labour_is_refused(self):
+        with pytest.raises(ValueError, match="neither a private good nor a public good"):
+            self.solve_with(self.weights(WORK, 1.0))
+
+    def test_a_weight_on_an_intermediate_good_is_refused(self):
+        with pytest.raises(ValueError, match="neither a private good nor a public good"):
+            self.solve_with(self.weights(FLOUR, 1.0))
+
+    def test_the_message_names_the_objective_and_the_attribute(self):
+        with pytest.raises(ValueError, match=r"declared_weighting: weights"):
+            self.solve_with(self.weights(WORK, 1.0))
+
+    @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+    def test_a_non_finite_weight_is_refused(self, value):
+        with pytest.raises(ValueError, match="finite"):
+            self.solve_with(self.weights(BREAD, value))
+
+    def test_a_negative_weight_on_a_consumable_commodity_still_reaches_the_solver(self):
+        """A negative weight is a penalty term, which is a coherent thing to declare.
+
+        Refusing it would put a commitment about what a social welfare function may say into
+        the layer that is meant to hold none, so the sign of a maximisation weight is the
+        researcher's business. The program reads it as one: consumption of a penalised
+        commodity goes to its lower bound of zero.
+        """
+        result = self.solve_with(self.weights(BREAD, -1.0))
+        assert result.status == "optimal"
+        assert result.objective_value == pytest.approx(0.0, abs=EXACT)
+
+    def test_well_formed_weights_still_reach_the_optimum(self):
+        result = self.solve_with(self.weights(BREAD, 1.0))
+        assert result.status == "optimal"
+        assert result.objective_value == pytest.approx(6.0, abs=EXACT)
+        np.testing.assert_allclose(result.plan.output, [6.0, 3.0], atol=EXACT)
+
+    def test_the_built_in_maximisation_still_reaches_the_optimum(self):
+        result = reference_solution(
+            build_bread_economy(), MaximizeWeightedConsumption(bread_weights())
+        )
+        assert result.objective_value == pytest.approx(6.0, abs=EXACT)
+
+
 class TestRefusedInputs:
     def test_a_cobb_douglas_economy_is_refused_and_points_at_the_linearising_tool(self):
         cobb_douglas = dataclasses.replace(

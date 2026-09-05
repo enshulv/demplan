@@ -32,7 +32,7 @@ from typing import Protocol
 
 import numpy as np
 
-from cyberstride.economy import CommodityKind, Economy, TechnologyKind, _freeze_array
+from cyberstride.economy import CommodityKind, Economy, TechnologyKind
 from cyberstride.iterate import iterate
 from cyberstride.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, Plan
 from cyberstride.tools import segment_sum, unit_of_input
@@ -56,23 +56,15 @@ class PriceRule(Protocol):
     ``|2(supply - demand) / (supply + demand)|``. The return value is the next price, also
     ``f64[n_commodities]``.
 
-    Compute the next price into an array of your own rather than writing over an argument.
-    The board files the plan under the price it stepped with, as
-    ``valuation["indicative_price"]``, so a rule writing to ``price`` puts a plan on record
-    under a price its proposals were never made at; the board tests convergence on the
-    imbalance it measured, so a rule writing to ``imbalance`` decides the round count, which
-    is the figure this prefab reproduces.
+    The three arguments are read-only copies the board owns. Writing to one raises, and
+    reaching around the flag reaches nothing: a copy owns its memory, so it has no ``base``
+    to write through. The board also keeps a copy of the return value, so a rule may hold one
+    output buffer and rewrite it every round.
 
-    The three arguments arrive as read-only views, which stops a direct write and nothing
-    else. Two ways around it are open and neither raises: writing through ``arg.base``, and
-    returning a buffer the rule keeps and writes again next round, because the board holds
-    that buffer as the price it steps with. Measured on the synthetic economy, a rule that
-    reuses its output buffer files prices of ``[902.05, 945.72, 711.81]`` where the run
-    proposed at ``[899.51, 943.76, 711.26]``, and a rule writing through ``imbalance.base``
-    turns a 25-round run into a 1-round run that still reports ``converged``. Closing those
-    needs the board to take ownership of the arrays rather than to hand out views of arrays
-    it does not own; until it does, the read-only views are a guard against the direct write
-    and not a guarantee about the rule.
+    Ownership is what those two say, and it is worth saying because two of the three arrays
+    carry figures the run reports. The board files the plan under the price it stepped with,
+    as ``valuation["indicative_price"]``, and it tests convergence on the imbalance it
+    measured, which is the round count this prefab reproduces.
     """
 
     def __call__(
@@ -211,10 +203,10 @@ class CouncilModel:
         )
         imbalance = _relative_imbalance(supply, demand)
         next_price = self.price_rule(
-            _freeze_array(price), _freeze_array(supply - demand), _freeze_array(imbalance)
+            _frozen_copy(price), _frozen_copy(supply - demand), _frozen_copy(imbalance)
         )
         return _State(
-            next_price=next_price,
+            next_price=_owned_copy(next_price),
             price=price,
             output=output,
             effort=effort,
@@ -346,6 +338,29 @@ def _require_keys(bag, keys, name: str) -> None:
     missing = [key for key in keys if key not in bag]
     if missing:
         raise ValueError(f"HahnelSlides2020 needs {name} keys {', '.join(missing)}")
+
+
+def _owned_copy(array: np.ndarray) -> np.ndarray:
+    """A plain array of the board's own, holding the same numbers as ``array``.
+
+    The board keeps the price a rule returned for the whole of the next round and files it on
+    the plan, while the rule is free to keep writing to whatever it handed back. Copying is
+    what makes those two independent.
+    """
+    return np.array(array, copy=True)
+
+
+def _frozen_copy(array: np.ndarray) -> np.ndarray:
+    """A read-only array of the board's own, holding the same numbers as ``array``.
+
+    :func:`cyberstride.economy._freeze_array` hands out a read-only view instead, so that
+    building an ``Economy`` or a ``Plan`` around a caller's buffer leaves that buffer with the
+    caller. The board's position is the other one: it owns the three arrays it shows the price
+    rule, and a copy of an array it owns has no ``base`` for the rule to write through.
+    """
+    frozen = _owned_copy(array)
+    frozen.flags.writeable = False
+    return frozen
 
 
 def _relative_imbalance(supply: np.ndarray, demand: np.ndarray) -> np.ndarray:

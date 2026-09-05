@@ -26,12 +26,17 @@ _recorder: contextvars.ContextVar[list["IterateResult"] | None] = contextvars.Co
 
 @dataclasses.dataclass(frozen=True)
 class IterateResult:
-    """What one loop reports back."""
+    """What one loop reports back.
+
+    ``diverged`` is ``None`` when the loop ran without ``plan_of``: the library saw no plan, so
+    it has no answer rather than a negative one. ``converged=False`` with ``diverged=False``
+    says the round cap ran out on a loop that was watched throughout.
+    """
 
     state: Any
     rounds: int
     converged: bool
-    diverged: bool
+    diverged: bool | None
     trajectory: list[Plan] | None
 
 
@@ -52,8 +57,8 @@ def iterate(
 
     ``plan_of`` turns a state into a :class:`Plan`. Given one, the loop calls it once a round
     and stops as soon as a plan's physical layer holds a non-finite value, returning
-    ``diverged=True``. Without it the library cannot see the state, so it detects no
-    divergence.
+    ``diverged=True``. Without it the library cannot see the state, and ``diverged`` is
+    ``None``: a loop nobody watched is not a loop that stayed finite.
 
     ``keep_trajectory`` decides whether those plans are also kept. Set it to ``False`` to watch
     for divergence on a long run without holding one plan per round; ``trajectory`` is then
@@ -65,6 +70,9 @@ def iterate(
         raise ValueError(f"max_rounds must be at least 1, got {max_rounds}")
 
     trajectory: list[Plan] | None = [] if plan_of is not None and keep_trajectory else None
+    # The verdict a loop that ends without a non-finite plan carries: False under the watch of
+    # a ``plan_of``, and unknown without one.
+    divergence_verdict: bool | None = None if plan_of is None else False
     state = init()
     round_number = 0
     for round_number in range(1, max_rounds + 1):
@@ -76,8 +84,8 @@ def iterate(
             if not _physically_finite(plan):
                 return _record(IterateResult(state, round_number, False, True, trajectory))
         if converged(state):
-            return _record(IterateResult(state, round_number, True, False, trajectory))
-    return _record(IterateResult(state, round_number, False, False, trajectory))
+            return _record(IterateResult(state, round_number, True, divergence_verdict, trajectory))
+    return _record(IterateResult(state, round_number, False, divergence_verdict, trajectory))
 
 
 def _physical_arrays(plan: Plan) -> Iterator[np.ndarray]:

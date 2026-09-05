@@ -31,9 +31,13 @@ class RunSummary:
     :func:`cyberstride.iterate`: the library has no way to count rounds it never saw. That is
     a different statement from "ran zero rounds", "did not converge" or "did not diverge".
 
-    ``converged`` and ``diverged`` are both false when the loop spent its round cap, and a
-    researcher reads the two cases differently: a run that blew up says something about the
-    mechanism, a run that ran out of rounds says the cap was set too low.
+    ``diverged`` is ``None`` in one more case: a loop driven without ``plan_of`` showed the
+    library no plan to judge, so divergence went unwatched. ``rounds`` tells the two apart,
+    since it counts the rounds of any loop the library saw.
+
+    ``converged`` and ``diverged`` are both false when a watched loop spent its round cap, and
+    a researcher reads that differently from divergence: a run that blew up says something
+    about the mechanism, a run that ran out of rounds says the cap was set too low.
     """
 
     rounds: int | None

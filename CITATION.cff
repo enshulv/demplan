@@ -6,6 +6,7 @@ authors:
   - family-names: Mark
     given-names: Enrique
     alias: enshulv
+    orcid: "https://orcid.org/0009-0004-2013-3270"
 repository-code: "https://github.com/enshulv/demplan"
 license: MIT
 version: 0.1.0

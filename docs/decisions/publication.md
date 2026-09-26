@@ -80,7 +80,7 @@ examples by hand.
 ### Authorship: Enrique Mark; license: MIT
 
 **Decision**: The author is credited as Enrique Mark (given name Enrique, family name Mark), with
-the GitHub handle `enshulv` as an alias. `CITATION.cff` uses this name, and the copyright holder
+the GitHub handle `enshulv` as an alias. The author's ORCID iD is 0009-0004-2013-3270. `CITATION.cff` uses this name and ORCID iD, and the copyright holder
 in `LICENSE` is `Enrique Mark`. Once outside contributions are merged, it becomes
 `Enrique Mark and demplan contributors`.
 

@@ -1,0 +1,56 @@
+# Naming
+
+## 2026-08-28
+
+### The project is named cyberstride (⚠️ Superseded, see 2026-09-26)
+
+**Decision**: The project is named `cyberstride`. The crate name, Python package name, and repository name all use it. The English subtitle is fixed as "shared research infrastructure for democratic economic planning."
+
+**This name is provisional** and can change before the first public release. The cost of renaming is close to zero while there are no downstream users, so there's no need to lock it in now — but only one name is in use at any given time, with no variant spellings running in parallel.
+
+**Why**: The name comes from Project Cybersyn (Chile, 1971–73), specifically its statistical forecasting and early-warning component, Cyberstride. This lineage is worth claiming because the two projects share a field: Cybersyn is the only attempt at democratic economic planning that ever actually ran in production.
+
+The project isn't named after Cybersyn itself because that space is already occupied nearby: a GitHub search turns up Factorio's train-logistics mod at the top, plus a `cybersyn-data` organization — the economic-data company acquired by Snowflake. The latter collides directly with the economic-data niche.
+
+`cyberstride` is unregistered on both crates.io and PyPI. GitHub has 16 repositories with the same name, the highest at 2 stars, two of which are small projects rebuilding the Beer Game system — a name that reads correctly within the community without having formed any brand ownership.
+
+The name was chosen against a shortlist of six libraries in the "social science" category. That set splits into two families: `mesa` and `Concordia` are single words that don't explain themselves; `AgentSociety` and `AgentTorch` are descriptive compounds that are self-evident. This project picked the first family, matching Concordia, its benchmark peer named in [technology-choices.md](technology-choices.md).
+
+**Known mismatch**: Cyberstride, in the original project, did monitoring and early warning; the economic-simulation component was a separate piece, CHECO. By functional analogy, `checo` would be the more accurate name. Choosing `cyberstride` trades analogy accuracy for name quality — see [rejected/naming.md](rejected/naming.md) for detail.
+
+**How to apply**: The name doesn't explain itself, so every first appearance carries the subtitle. The repository description, crate description, and PyPI summary all use the same English sentence — not three separate ones.
+
+---
+
+## 2026-09-26
+
+### The project is renamed demplan
+
+**Decision**: The project is renamed `demplan`, from "democratic planning". The GitHub repository,
+the Python package and the Python import name are all `demplan`; the Rust crates are
+`demplan-core` and `demplan-py`, and the extension module is `demplan._core`; environment
+variables use the prefix `DEMPLAN_`. The English subtitle is unchanged. The rename happens before
+publication and the name does not change again.
+
+**Why**: Before the first public release, the maintainer reconsidered the name against three
+criteria: distinctive, academic in tone, and not overused. The problem with `cyberstride` is the
+`cyber-` prefix: today it reads first as cybersecurity, it sounds less academic, and it carries a
+science-fiction tone that does not suit research infrastructure.
+
+The maintainer chose a plain descriptive name, in the same family as `AgentSociety` and
+`AgentTorch`: the name states the field and does not require the reader to know a piece of
+history first. `demplan` keeps the qualifier that matters most in the field, democratic, and has
+only one spelling, so the Python import name, the PyPI package name and the GitHub repository
+name agree. `demplan` and `demplan-core` were unregistered on PyPI and crates.io; GitHub had only
+three unrelated repositories with demplan in the name.
+
+**Known cost**: In geographic information systems `DEM` means digital elevation model, so a search
+for "DEM plan" may bring up surveying results. The name always appears with the subtitle on first
+use, which makes this acceptable. The "economic" part of the meaning is carried by the subtitle.
+
+**Alternatives rejected**: The candidates and the reasons each was turned down are in
+[rejected/naming.md](rejected/naming.md), 2026-09-26.
+
+**Supersedes**: 2026-08-28, "The project is named cyberstride". That entry's reasoning (the
+Cybersyn lineage) and its known mismatch no longer apply. Its two rules, one name at a time and
+the subtitle on first appearance, still hold and carry over to this entry.

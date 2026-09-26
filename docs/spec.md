@@ -1,373 +1,257 @@
-# 当前规则
+# Current rules
 
-本文只写现在成立的规则。理由在 `决策/`，进度在 `progress-decisions.md`。
+This document covers only the rules that hold today. Rationale lives in `decisions/`; progress lives in `progress.md`.
 
-代码从 2026-09-05 起开工。以下是实现必须满足的约束。
+Code development started 2026-09-05. The following are constraints the implementation must satisfy.
 
-## 范围
+## Scope
 
-本库覆盖民主计划经济与参与式计划经济。库名 `cyberstride`，许可证 MIT。
+This library covers democratic economic planning and participatory economic planning. The library is called `demplan`, under the MIT license.
 
-机制层只收这个领域内的协调程序。**不实现市场机制**，`Economy` 不含市场出清残差
-这类市场出清专用字段。机制之间的对照基准是集中式最优参照解，不是市场基线。
-参照解以学者声明的目标函数为参数：`reference_solution(economy, objective) -> Plan`，
-目标函数进 run manifest，库自带若干目标函数作为选项，不设默认。
-目标函数的契约：`weights(economy)` 给最终消费的权重，`allocate(economy, aggregate)` 给总量到消费单元的分配；
-要按最小化解释的目标必须同时带 `final_demand_lower_bound` 与 `minimize_kind` 两个属性，只带一个报错；
-最终消费下限不能为负。声明的良构性检查不是不变量，不受「非负性是可选约束」那条约束。
+The mechanism layer accepts only coordination procedures within this field. **It does not implement market mechanisms**: `Economy` carries no market-clearing-specific fields such as a market-clearing residual. The comparison benchmark across mechanisms is a centralized optimal reference solution, not a market baseline.
+The reference solution takes the researcher's declared objective as a parameter: `reference_solution(economy, objective) -> Plan`. The objective goes into the run manifest. The library ships several objectives as options and sets no default.
+The objective's contract: `weights(economy)` gives weights on final consumption, and `allocate(economy, aggregate)` gives the allocation of the aggregate to consumer units. An objective interpreted as a minimization must carry both `final_demand_lower_bound` and `minimize_kind`; carrying only one is an error. The final-demand lower bound cannot be negative. This well-formedness check on the declaration is not an invariant, so the rule that "non-negativity is an optional constraint" does not apply to it.
 
-**基础层理论无关。** 凡蕴含经济理论预设的东西——不变量、指标、行为方程——
-一律是可选工具，不设为不可绕开的前提。往固定层加东西之前，
-问「哪一派会不同意这条」，答得上来就不能固定。
+**The foundation layer is theory-neutral.** Anything that carries an economic-theory assumption — invariants, metrics, behavioral equations — is always an optional tool, never a mandatory prerequisite. Before adding anything to the fixed layer, ask "which school of thought would disagree with this." If you can answer that question, it cannot be fixed.
 
-v1 不含货币或债务存量字段，也不含主体间的交互拓扑。两者推迟到 v1 之后，
-但主体从阶段 0 起就有稳定标识符，以便后续挂接。
+v1 has no money or debt stock fields, and no interaction topology between agents. Both are deferred past v1, but agents have had stable identifiers since Stage 0 so this can be hooked in later.
 
-**`Economy` 是闭合经济：没有进出口位置。** 这是一条假设，不是一条中立的省略——
-同类实现里的开放经济模型带 `use_import`、`prices_import`、`prices_export` 与出口差额。
-世界价格是外生的贸易条件而不是内部出清价，所以补上它不违反「不实现市场机制」。
-在补上之前，参照解声明的假设清单里必须列出这一条。
+**`Economy` is a closed economy: there is no place for imports or exports.** This is an assumption, not a neutral omission — related implementations' open-economy models carry `use_import`, `prices_import`, `prices_export`, and an export residual. World prices are exogenous terms of trade, not an internally cleared price, so adding them would not violate "no market mechanisms." Until it is added, the reference solution's declared assumption list must list this one.
 
-v1 覆盖 10³ 到 10⁴ 量级的生产单元，技术实现 Leontief 与柯布-道格拉斯两个变体。
+v1 covers producing units on the order of 10³ to 10⁴, with Leontief and Cobb-Douglas technology variants.
 
-## 责任边界
+## Division of responsibility
 
-库保证基础设施那一半：数据模型、不变量检查、指标口径、确定性种子分发、溯源记录。
-协调方法由学者提供，他的实现是否正确、结论是否成立，由他自己负责。
+The library guarantees the infrastructure half: the data model, invariant checks, metric definitions, deterministic seed distribution, and provenance records. The researcher supplies the coordination procedure; whether the implementation is correct and whether the conclusions hold is the researcher's own responsibility.
 
-**协调方法的扩展机制是接口，不是库维护的清单。** 任何满足接口的实现都拿到上述全部能力，
-不需要并入本库代码。库不承诺读懂学者的实现，也不承诺判断两个实现是否等价。
+**The extension mechanism for coordination procedures is an interface, not a list the library maintains.** Any implementation that satisfies the interface gets all of the above capabilities, without merging into this library's code. The library makes no promise to understand the researcher's implementation, and no promise to judge whether two implementations are equivalent.
 
-**比较是学者做的，不是库做的。** 库不规定比较用哪个量作基准；
-学者在比较时声明，声明进 run manifest。可比性由四件事支撑：
-**同一个初始经济体加同一条演化规律**、同一套记录纪律、声明的比较基准、
-以及输出原始到足以让任何人事后用任何尺重算。
+**Comparison is the researcher's job, not the library's.** The library does not prescribe which quantity a comparison uses as its benchmark; the researcher declares it when comparing, and the declaration goes into the run manifest. Comparability rests on four things: **the same initial economy plus the same evolution rule**, the same recording discipline, a declared comparison benchmark, and output raw enough that anyone can recompute any metric after the fact.
 
-多期滚动时只有初始经济体是共享的，之后的轨迹会分叉——那个分叉本身正是比较的对象之一。
-但两者的演化规律不同时，比较的是「协调机制加演化规律」的组合，不是纯机制，
-manifest 必须让这一点看得见。
+In multi-period rollout, only the initial economy is shared — the trajectories afterward diverge, and that divergence is itself one of the things being compared. But when the two runs use different evolution rules, the comparison is between "coordination mechanism plus evolution rule" combinations, not pure mechanisms, and the manifest must make that visible.
 
-**越俎代庖的是写死，不是提供。** 含理论的计算步骤（提案行为、约束、指标）
-库都提供工具，但不焊进内核、不设为默认路径。
+**Overreach means hardcoding, not providing.** For computational steps that carry theory — proposal behavior, constraints, metrics — the library provides tools, but does not weld them into the core or set them as the default path.
 
-## 核心抽象
+## Core abstractions
 
-v1 的对外表面是两个数据类型、两个函数、一箱工具：
+v1's public surface is two data types, two functions, and a toolbox:
 
-| 名字 | 职责 |
+| Name | Responsibility |
 |---|---|
-| `Economy` | 数据模型：某一期的状态。商品、生产单元、消费单元、技术、禀赋、时间 |
-| `Plan` | 一期的计划：实物层加扩展层 |
-| `solve(economy, seed) -> Plan` | 协调方法的接口。实现它的对象叫 `Procedure` |
-| `advance(economy, plan) -> Economy` | 演化规律，多期时才出现 |
-| 工具 | `iterate`、提案行为、不变量差额、指标、参照解、种子派生、自测工具 |
+| `Economy` | Data model: the state of a given period. Commodities, producing units, consumer units, technology, endowments, time |
+| `Plan` | One period's plan: physical layer plus extension layer |
+| `solve(economy, seed) -> Plan` | The coordination procedure interface. An object implementing it is called a `Procedure` |
+| `advance(economy, plan) -> Economy` | The evolution rule; appears only in multi-period runs |
+| Tools | `iterate`, proposal behavior, invariant residuals, metrics, reference solution, seed derivation, self-test tools |
 
-`Participant`（给定信号产出提案）在 v1 没有接口位置，v2 议会粒度才有。
-指标是函数的集合，不是对象。
+`Participant` (produces a proposal given a signal) has no interface position in v1; it appears only at v2's council granularity. Metrics are a collection of functions, not an object.
 
-**抽象是否成立，判据只有一条**：下列机制能跑在同一个 `Economy` 上，
-产出能在同一套词汇里陈述差异——某一侧无定义的量留空，空与零要能区分。
-**库不打分，也不排名**，见 [决策/比较与呈现.md](决策/比较与呈现.md)。
+**The abstraction has exactly one test**: the mechanisms below run on the same `Economy`, and their outputs can state differences in the same vocabulary — a quantity undefined on one side stays absent, and absent must be distinguishable from zero. **The library does not score or rank**, see [decisions/comparison-and-presentation.md](decisions/comparison-and-presentation.md).
 
-| 用例 | 粒度 | 现状 |
+| Use case | Granularity | Status |
 |---|---|---|
-| parecon 的迭代调价 | 部门 | 已跑通，`prefabs/hahnel_2020_slides` |
-| Cockshott 的劳动时间直接计算 | 部门 | 设想 |
-| Kantorovich 式线性规划 | 部门 | 已跑通，`reference_solution`，但**要求 Leontief** |
-| OLIN-EP 的非线性投入产出 `(I − F(x))x = d` | 部门 | 装不下：`technology_kind` 的枚举没有这一项 |
-| I-EPOS 的离散候选计划选择 | 议会 | v2。提案不是连续向量，`Participant` 接口要装得下「从有限候选集里选」 |
+| Parecon's iterative price adjustment | Sector | Working, `prefabs/hahnel_2020_slides` |
+| Cockshott's direct labor-time calculation | Sector | Envisioned |
+| Kantorovich-style linear programming | Sector | Working, `reference_solution`, but **requires Leontief** |
+| OLIN-EP's nonlinear input-output `(I − F(x))x = d` | Sector | Doesn't fit: `technology_kind`'s enum has no entry for it |
+| I-EPOS's discrete candidate-plan selection | Council | v2. A proposal isn't a continuous vector; the `Participant` interface needs to accommodate "choose from a finite candidate set" |
 
-后两条有公开代码与已发表结果，见 [研究/同类实现对照.md](研究/同类实现对照.md)。
-前三条里有两条已跑通，但**两者之间今天还比不了**：dep1ex 的 30,000 个单元全是柯布-道格拉斯，
-参照解要求 Leontief，中间必须过 `linearize`，而线性化把规模报酬递减静默换成不变。
+The last two rows have public code and published results, see [research/related-implementations.md](research/related-implementations.md). Two of the first three rows are already working, but **the two cannot be compared today**: dep1ex's 30,000 units are all Cobb-Douglas, the reference solution requires Leontief, so it must pass through `linearize`, and linearization silently swaps decreasing returns to scale for constant returns.
 
-## 数据模型
+## Data model
 
-`Economy` 由三张列式表组成，每张表有固定列，加一个 `extra` 命名数组袋。
-固定列只放各流派都承认存在的东西；行为参数进 `extra`，键名由库约定，由 prefab 解释。
-**`Economy` 不含价格。** 估值量只在 `Plan` 的扩展层与协调方法自己的 `State` 里。
+`Economy` consists of three columnar tables, each with fixed columns plus an `extra` named-array bag. The fixed columns hold only what every school of thought agrees exists; behavioral parameters go into `extra`, whose keys the library conventionalizes and prefabs interpret. **`Economy` carries no prices.** Valuation quantities live only in `Plan`'s extension layer and in the coordination procedure's own `State`.
 
-**商品**：一张统一的表，每条带类别标记。dep1ex 现有五类——私人消费品、公共品、
-中间品、自然资源、劳动。**当前这个集合是封闭的**，`validate` 拒绝其他取值。
-放开它要和「类别属性可声明」一起做，且**排放不是被类别集合挡住的**——
-排放是联产品，被「一单元一产出」挡住；货币存量按已推迟清单是加字段而不是加类别。
-两条都已决定要做，见 [决策/数据模型.md](决策/数据模型.md) 2026-09-05。
+**Commodities**: a single table, each row tagged with a kind. dep1ex currently has five kinds — private consumption goods, public goods, intermediate goods, natural resources, and labor. **This set is currently closed**; `validate` rejects any other value. Opening it up has to happen together with making the kind attribute declarable, and **emissions are not blocked by the kind set** — emissions are joint products, blocked by "one output per unit"; money stock, per the deferred list, is an added field, not an added kind. Both are decided to happen, see [decisions/data-model.md](decisions/data-model.md) 2026-09-05.
 
-| 列 | 类型 | 含义 |
+| Column | Type | Meaning |
 |---|---|---|
-| `commodity_id` | int64 | 稳定标识符，等于行号 |
-| `commodity_kind` | int8 | 类别：0 私人消费品、1 公共品、2 中间品、3 自然资源、4 劳动。可扩展 |
-| `endowment` | f64 | 本期不经生产就可用的数量。产出品为 0 |
+| `commodity_id` | int64 | Stable identifier, equal to the row index |
+| `commodity_kind` | int8 | Kind: 0 private consumption good, 1 public good, 2 intermediate good, 3 natural resource, 4 labor. Extensible |
+| `endowment` | f64 | Quantity available this period without production. Zero for produced goods |
 
-**生产单元**：列式数组，加单元到部门的分组映射。变长投入用扁平数组加偏移量存储，
-不补齐成矩形。v1 每个单元恰好一种产出商品。
+**Producing units**: columnar arrays, plus a unit-to-sector grouping map. Variable-length inputs are stored as a flat array plus offsets, not padded into a rectangle. In v1, each unit has exactly one output commodity.
 
-| 列 | 类型 | 含义 |
+| Column | Type | Meaning |
 |---|---|---|
-| `unit_id` | int64 | 稳定标识符，等于行号 |
-| `unit_group` | int64 | 单元到部门的分组映射，取值是任意分组标签，库不校验范围。dep1ex 里等于产出商品 |
-| `output_commodity` | int64 | 产出的商品 |
-| `technology_kind` | int8 | 0 Leontief、1 柯布-道格拉斯。可扩展 |
-| `technology_scale` | f64 | 规模系数。dep1ex 的 `a` |
-| `input_offsets` | int64[n_units + 1] | 第 i 个单元的投入是扁平数组的 `[offsets[i], offsets[i+1])` |
-| `input_commodity` | int64[n_inputs] | 投入商品 |
-| `input_coefficient` | f64[n_inputs] | Leontief 下是投入系数，柯布-道格拉斯下是指数 |
+| `unit_id` | int64 | Stable identifier, equal to the row index |
+| `unit_group` | int64 | Unit-to-sector grouping map; values are arbitrary group labels the library does not range-check. In dep1ex it equals the output commodity |
+| `output_commodity` | int64 | The output commodity |
+| `technology_kind` | int8 | 0 Leontief, 1 Cobb-Douglas. Extensible |
+| `technology_scale` | f64 | Scale coefficient. dep1ex's `a` |
+| `input_offsets` | int64[n_units + 1] | Unit i's inputs are the flat array's `[offsets[i], offsets[i+1])` |
+| `input_commodity` | int64[n_inputs] | Input commodities |
+| `input_coefficient` | f64[n_inputs] | Under Leontief, the input coefficient; under Cobb-Douglas, the exponent |
 
-**消费单元**：`consumer_id`（int64，稳定标识符）、`consumer_group`（int64）。
+**Consumer units**: `consumer_id` (int64, stable identifier), `consumer_group` (int64).
 
-**`extra` 约定键**（存在与否由加载器与 prefab 决定，库不要求）：
+**`extra` conventional keys** (whether they're present is decided by the loader and the prefab; the library doesn't require them):
 
-| 表 | 键 | 形状 | 含义 |
+| Table | Key | Shape | Meaning |
 |---|---|---|---|
-| 消费单元 | `entitlement` | f64[n_consumers] | 消费额度，外生流量。dep1ex 的 `income` |
-| 消费单元 | `utility_exponent` | f64[n_consumers, k] | 柯布-道格拉斯效用指数。第 j 列对应的商品由 `utility_exponent_commodity` 给出 |
-| 消费单元 | `utility_exponent_commodity` | int64[k] | 上一项的列到商品的映射 |
-| 生产单元 | `effort_c`、`effort_s`、`effort_k` | f64[n_units] | dep1ex 工人议会闭式解的参数 `c`、`s`、`du`。`c` 同时是生产函数里 effort 的指数 |
+| Consumer unit | `entitlement` | f64[n_consumers] | Consumption entitlement, an exogenous flow. dep1ex's `income` |
+| Consumer unit | `utility_exponent` | f64[n_consumers, k] | Cobb-Douglas utility exponents. Column j's commodity is given by `utility_exponent_commodity` |
+| Consumer unit | `utility_exponent_commodity` | int64[k] | The column-to-commodity map for the row above |
+| Producing unit | `effort_c`, `effort_s`, `effort_k` | f64[n_units] | dep1ex's worker-council closed-form parameters `c`, `s`, `du`. `c` is also the effort exponent in the production function |
 
-`extra` 里每个数组的第一维等于该表的行数。**列映射键例外**：它们的形状是 `[k]`，
-k 是另一个二维 `extra` 数组的列数。目前登记的列映射键只有 `utility_exponent_commodity`。
-效用指数的列可以指向任何类别的商品，不限于私人消费品与公共品。
+Each array in `extra` has a first dimension equal to that table's row count. **Column-map keys are the exception**: their shape is `[k]`, where k is the column count of another 2-D `extra` array. The only column-map key currently registered is `utility_exponent_commodity`. A utility-exponent column can point to a commodity of any kind, not just private consumption goods and public goods.
 
-`period`（int64）记录这是第几期。
+`period` (int64) records which period this is.
 
-**`Economy` 是某一期的状态，不是不变的题目。** 多期时由演化规律更新。
-让它恒定不变等于把「技术固定、投入比例固定」这条理论假设焊进数据模型。
+**`Economy` is the state of a given period, not a fixed problem statement.** In multi-period runs, the evolution rule updates it. Holding it constant would weld the theoretical assumption "fixed technology, fixed input ratios" into the data model.
 
-**`Plan` 分两层：**
+**`Plan` has two layers:**
 
 ```
-实物层（理论无关，所有机制都有）
-├── 生产侧：output f64[n_units]，input_use f64[n_inputs]（与 Economy 的扁平投入数组对齐）
-└── 消费侧：consumption f64[n_consumers, k] 加 consumption_commodity int64[k]
-            （私人品「谁分到多少」，列到商品的映射与 Economy 的 utility_exponent 同一模式），
-            provision f64[n_commodities]（公共品「总共产多少、共享」；其他商品为 0）
+Physical layer (theory-neutral, every mechanism has it)
+├── Production side: output f64[n_units], input_use f64[n_inputs] (aligned with Economy's flat input array)
+└── Consumption side: consumption f64[n_consumers, k] plus consumption_commodity int64[k]
+            (private goods: "who gets how much"; the column-to-commodity map follows the same
+            pattern as Economy's utility_exponent),
+            provision f64[n_commodities] (public goods: "how much is produced and shared in total";
+            zero for other commodities)
 
-扩展层（机制特有）
-├── valuation：命名数组袋。预定义键 indicative_price / labor_value / shadow_price
-│   （f64[n_commodities]，机制未定义的商品为 NaN）与 income（f64[n_consumers]）。
-│   其余键自由
-└── extra：命名数组袋，放机制特有的实物量。第一维等于 n_units、n_consumers 或 n_commodities 之一。
-    hahnel_2020_slides 写 effort（f64[n_units]，生产函数里的 effort 因子）
-    与 consumer_demand（f64[n_commodities]，消费议会的申报量对每种商品需求的贡献：
-    私人品记各议会之和，公共品记全社会只算一次的共享量，其余商品记不除的合计；无人申报的商品为 0）
+Extension layer (mechanism-specific)
+├── valuation: a named-array bag. Predefined keys indicative_price / labor_value / shadow_price
+│   (f64[n_commodities], NaN for commodities the mechanism leaves undefined) and income (f64[n_consumers]).
+│   Other keys are free
+└── extra: a named-array bag for mechanism-specific physical quantities. The first dimension is one
+    of n_units, n_consumers, or n_commodities.
+    hahnel_2020_slides writes effort (f64[n_units], the effort factor in the production function)
+    and consumer_demand (f64[n_commodities], the contribution of consumer councils' stated plans to
+    demand for each commodity: for private goods, the sum across councils; for public goods, the
+    shared quantity counted once for society as a whole; for other commodities, the undivided total;
+    zero for a commodity nobody stated demand for)
 ```
 
-这两个键各有一个导出常量（`EFFORT`、`CONSUMER_DEMAND`），判准是「读一份计划所必需的共同词汇」。
-`Economy` 三张表的 `extra` 键是机制的输入参数，不是读计划的词汇，保持裸字符串。
+Each of these two keys has an exported constant (`EFFORT`, `CONSUMER_DEMAND`); the test is "vocabulary needed to read any plan." The `extra` keys on `Economy`'s three tables are mechanism input parameters, not vocabulary for reading a plan, so they stay bare strings.
 
-dep1ex 的生产函数是 `Q = a · e^c · Π x_j^{b_j}`，`e` 是单元每轮选出的 effort，`c` 是 `effort_c`。
-`technology_kind = 1` 描述的是投入侧；完整关系要用 `Plan.extra["effort"]` 才重建得出。
+dep1ex's production function is `Q = a · e^c · Π x_j^{b_j}`, where `e` is the effort a unit chooses each round and `c` is `effort_c`. `technology_kind = 1` describes only the input side; reconstructing the full relationship requires `Plan.extra["effort"]`.
 
-投入用量必须存进实物层，不能当派生量省掉——技术允许替代时，
-投入组合是机制选出来的决策，不是算出来的结果。
-禀赋使用（自然资源、劳动各用了多少）是投入用量按商品的聚合，由访问器派生，不另存。
+Input use must be stored in the physical layer; it cannot be dropped as a derived quantity — when the technology allows substitution, the input mix is a decision the mechanism made, not a computed result. Endowment use (how much of each natural resource or labor was used) is an aggregation of input use by commodity, derived by an accessor, and not stored separately.
 
-**实物层的三个字段可以缺席**：`consumption`、`consumption_commodity`、`provision`
-传 `None` 即声明「本机制没有这个量」。`output` 与 `input_use` 必填——规划生产的机制都有这两个，
-**传 `None` 在构造期就报错**，不等到 `validate`。
-字段不给默认值，所以**漏填仍然是缺参数报错**，缺席只能是学者写出来的。
-`consumption` 与 `consumption_commodity` 描述同一个量，同进同出。
-`Plan.absent_fields` 读回声明。访问器遇到它需要的字段缺席时抛 `PlanFieldAbsent`，
-**不返回零**——零会以一个另一侧从未持有的量进入平衡式，两边就不闭合。
+**Three physical-layer fields can be absent**: passing `None` for `consumption`, `consumption_commodity`, or `provision` declares "this mechanism has no such quantity." `output` and `input_use` are required — every mechanism that plans production has both, and **passing `None` for them is an error at construction time**, not deferred to `validate`. Fields have no default value, so an omission is still a missing-argument error; absence can only be something the researcher wrote explicitly. `consumption` and `consumption_commodity` describe the same quantity and go in and out together. `Plan.absent_fields` reads back the declaration. An accessor that needs a field the plan lacks raises `PlanFieldAbsent` — **it does not return zero**, because a zero would enter a balance equation as a quantity the other side never held, and the two sides would no longer close.
 
-发散监视只覆盖计划实际带的物理字段：只报 `output` 与 `input_use` 的机制拿到的
-`diverged=False` 只说这两项保持有限。确定性比对里两侧同为缺席算一致，
-一侧缺席一侧有值报成 `<字段> (absent from one run)`，不报成数值差。
+Divergence monitoring covers only the physical fields a plan actually carries: a mechanism that reports only `output` and `input_use` gets a `diverged=False` that says only those two stayed finite. In determinism comparisons, both sides absent counts as consistent; one side absent and the other present is reported as `<field> (absent from one run)`, not as a numeric difference.
 
-**`valuation` 的长度按键分两档**：约定键按登记的行数（`indicative_price`、`labor_value`、
-`shadow_price` 是每商品一个，`income` 是每消费单元一个），其余键的首维是
-`n_units`、`n_consumers`、`n_commodities` 三者之一。dtype 必须 `float64`，
-**拒收不转换**——转换会把「机制用另一种类型算了这个量」这个信号抹掉。
+**`valuation`'s length has two tiers by key**: conventional keys follow their registered row count (`indicative_price`, `labor_value`, and `shadow_price` are one per commodity; `income` is one per consumer unit); other keys' first dimension is one of `n_units`, `n_consumers`, or `n_commodities`. The dtype must be `float64`, and it's **rejected rather than converted** — converting would erase the signal that "the mechanism computed this quantity in a different type."
 
-**`Plan` 有两个子类**：`StatedPlan` 的 `consumption` 是申报量，`AllocatedPlan` 的是配置量。
-子类只多一个身份，不加字段、不收窄契约。`require_comparable(a, b)` 在两侧异类时拒绝相减。
-`hahnel_2020_slides` 产出 `StatedPlan`，参照解产出 `AllocatedPlan`。
+**`Plan` has two subclasses**: `StatedPlan`'s `consumption` is the stated plan, `AllocatedPlan`'s is the allocated plan. A subclass only adds an identity — no added fields, no narrowed contract. `require_comparable(a, b)` refuses to subtract when the two sides are different subclasses. `hahnel_2020_slides` produces `StatedPlan`; the reference solution produces `AllocatedPlan`.
 
-## 多期
+## Multiple periods
 
-静态与滚动由学者选：
+The researcher chooses between static and rolling:
 
 ```
 run_periods(economy, procedure, advance=..., T=5)
 ```
 
-不传演化规律就是静态（把同一道题算 T 遍或做一次性跨期优化），
-传了就是滚动（`Economy` 每期被更新）。不做多期的人看不到这个概念。
+Not passing an evolution rule means static (solving the same problem T times, or doing a one-shot cross-period optimization); passing one means rolling (`Economy` is updated each period). Anyone not doing multi-period work never sees this concept.
 
-**演化规律 `advance(economy, plan) -> Economy` 归学者**，装的是资本积累、技术进步、
-资源耗竭、人口变化——每一种都是理论主张。库提供几个常见实现当工具。
+**The evolution rule `advance(economy, plan) -> Economy` belongs to the researcher.** It holds capital accumulation, technological progress, resource depletion, population change — each one a theoretical claim. The library provides a few common implementations as tools.
 
-它与 `iterate` 同构：价值不在于替学者跑循环，而在于让库看得见这是一条轨迹，
-于是跨期溯源、多期输出结构、跨期不变量才成立。
+It's structurally the same as `iterate`: the value isn't running the loop for the researcher, but letting the library see that this is a trajectory — which is what makes cross-period provenance, multi-period output structure, and cross-period invariants possible.
 
-## 可替换与不可替换
+## Replaceable and fixed
 
-`Economy` 可扩展，不可替换。它一旦可插拔，跨研究的结果就不可比。
+`Economy` is extensible, not replaceable. Once it becomes pluggable, results across studies stop being comparable.
 
-以下两项固定，不作为插件暴露：
+The following two are fixed, not exposed as plugins:
 
-- `Economy` 数据模型
-- 确定性与种子化
+- `Economy`'s data model
+- Determinism and seeding
 
-其余全部可选或可插拔：`Procedure`、`Participant` 行为核、经济体生成器与数据加载器、
-不变量与约束族、全部指标、输出后端、可视化。
+Everything else is optional or pluggable: `Procedure`, `Participant` behavior cores, economy generators and data loaders, invariant and constraint families, all metrics, output backends, visualization.
 
-## 协调方法的接口
+## The coordination procedure interface
 
-接口只有一层：
+The interface has exactly one layer:
 
 ```
 solve(economy, seed) -> Plan
 ```
 
-迭代调价、劳动时间直接计算、线性规划参照解都实现它。
+Iterative price adjustment, direct labor-time calculation, and the linear-programming reference solution all implement it.
 
-库另外提供**自愿使用**的循环工具 `iterate(init, step, converged, max_rounds)`。
-用了它，库拿到轮数、上限保护与发散检测；不用，只有最终结果。
-可选参数 `plan_of` 给出「本轮状态怎么看成一个计划」，
-库据此产出跨机制同定义的逐轮轨迹，供诊断用；`keep_trajectory=False` 时只用它检测发散，不保存轨迹。
-轮数定义：`rounds` 是到收敛为止 `step` 被调用的次数，判据在每次 `step` 之后检查，不在 `init` 之后检查。
-含非有限值的状态不算收敛。
+The library also provides an **opt-in** loop tool, `iterate(init, step, converged, max_rounds)`. Using it gives the library round counts, an upper-bound guard, and divergence detection; not using it leaves only the final result. The optional `plan_of` parameter says "how to view this round's state as a plan"; the library uses it to produce a round-by-round trajectory with a definition shared across mechanisms, for diagnostics. With `keep_trajectory=False`, `plan_of` is used only to detect divergence, and the trajectory isn't kept. Round-count definition: `rounds` is the number of times `step` is called up to convergence; the convergence test runs after each `step` call, not after `init`. A state containing a non-finite value does not count as converged.
 
-`State` 不受约束，是学者的任意对象，库不看里面。
+`State` is unconstrained — an arbitrary object of the researcher's choosing. The library never looks inside it.
 
-## 不变量：可选工具箱
+## Invariants: an optional toolbox
 
-四条不变量是**可选约束**，不是硬闸。学者按需启用，逐条加上去实验就逐步变严格。
+The four invariants are **optional constraints**, not hard gates. The researcher enables them as needed; adding them one at a time makes the experiment progressively stricter.
 
-- **物料平衡**：任一商品的消耗量不超过产出量与禀赋之和
-- **预算恒等**：各参与者的支出与收入相符
-- **非负性**：数量与价格不为负
-- **价格零次齐次**：所有价格同比例缩放时，实物解不变
+- **Material balance**: no commodity's use exceeds its output plus its endowment
+- **Budget identity**: each participant's spending matches their income
+- **Non-negativity**: quantities and prices are not negative
+- **Price homogeneity of degree zero**: scaling all prices by the same factor leaves the physical solution unchanged
 
-四条各自蕴含理论预设（依次是：期内封闭无库存、硬预算约束、
-一切产出都是好品、货币中性），所以都不能设为前提。理由逐条见
-[决策/不变量与指标.md](决策/不变量与指标.md)。
+Each of the four carries a theoretical assumption of its own (in order: closed within the period with no inventory, a hard budget constraint, every output is a good rather than a bad, and monetary neutrality), so none can be set as a prerequisite. The reasoning for each is in [decisions/invariants-and-metrics.md](decisions/invariants-and-metrics.md).
 
-**理论承诺归 prefab。** 复现某篇文献时启用哪几条，由那篇文献的 prefab 声明，
-库不设全局默认。
+**Theoretical commitments belong to the prefab.** Which invariants to enable when reproducing a given paper is declared by that paper's prefab; the library sets no global default.
 
-**差额恒算，命名中性。** 物料平衡、预算、非负性三条能从一次运行的输出算出，
-无论有没有被设为约束，库都计算它们的差额并写进输出——
-机制上无定义的除外（劳动时间直接计算没有价格，预算差额对它是 N/A 不是 0，
-输出要能区分）。预算差额要价格与收入：价格取 `valuation` 的价格类键，
-收入取 `valuation["income"]`，缺席时回退到消费单元 `extra["entitlement"]`。
-命名一律叫「预算差额」而非「预算恒等违反」：
-同一个数字对一个人是缺陷，对做信用创造实验的人是研究对象本身。库给数字，不给判词。
+**Residuals are always computed, and their names stay neutral.** Material balance, budget, and non-negativity can all be computed from a single run's output, and the library computes their residuals and writes them into the output whether or not they were set as constraints — except where the mechanism leaves them undefined (direct labor-time calculation has no prices, so the budget residual is N/A for it, not 0, and the output must be able to show that difference). The budget residual needs prices and income: prices come from `valuation`'s price-type keys, income comes from `valuation["income"]`, falling back to consumer units' `extra["entitlement"]` when it's absent. The naming is always "budget residual," never "budget-identity violation": the same number is a defect to one researcher and the object of study itself to someone running a credit-creation experiment. The library gives the number, not the verdict.
 
-**价格零次齐次是性质测试，不是差额。** 它是关于协调方法的性质，一次运行的输出里没有它。
-工具 `check_homogeneity` 把初始估值量按比例缩放后重跑，比较实物层，
-只对暴露了初始估值量参数的协调方法可用。
+**Price homogeneity of degree zero is a property test, not a residual.** It's a property of the coordination procedure, and a single run's output doesn't contain it. The `check_homogeneity` tool rescales the initial valuation, reruns, and compares the physical layer; it's usable only for coordination procedures that expose their initial valuation as a parameter.
 
-**跨期不变量**同样在工具箱里，同样默认关闭：累计资源用量不超过初始存量、
-资本存量非负、人口守恒、存量等于上期存量加本期净流量。
+**Cross-period invariants** are also in the toolbox, also off by default: cumulative resource use not exceeding the initial stock, non-negative capital stock, population conservation, and a stock equal to the prior period's stock plus this period's net flow.
 
-它们的性质与单期那批不同，文档要单独提醒：**单期不变量违反了学者当场看得见
-（这期计划不可行），跨期违反了他看不见**——演化规律算错时，
-后续每期的协调方法都会对着错题算出完全自洽的答案，所有检查通过、图很好看，
-误差随期数放大且全程静默。
+Their character differs from the single-period batch, and the document calls this out separately: **a single-period invariant violation is visible to the researcher on the spot** (this period's plan is infeasible), **but a cross-period violation is not** — when the evolution rule computes something wrong, every subsequent period's coordination procedure computes a fully self-consistent answer to a wrong problem, every check passes, the charts look fine, and the error grows with the number of periods, silently the whole way.
 
-工具箱后续扩充。SFC 的会计守恒律（存量为流量累积、交易流量矩阵行列归零）
-是已规划的下一条，其行为方程部分不进基础层。
+The toolbox will keep growing. SFC accounting identities (stocks as accumulated flows, transaction-flow matrix rows and columns summing to zero) are the next planned addition; their behavioral-equation part does not enter the foundation layer.
 
-## 确定性
+## Determinism
 
-库那一半保证逐位可复现：数据加载、`Evaluator`、扫描调度、种子分发，
-同一份场景文件加同一个种子产出逐位相同的结果。并行归约用确定性分块，
-不依赖线程数与调度顺序。
+The library's half guarantees bit-for-bit reproducibility: data loading, `Evaluator`, scan scheduling, and seed distribution all produce bit-for-bit identical results for the same scenario file and the same seed. Parallel reductions use deterministic chunking and don't depend on thread count or scheduling order.
 
-`seed` 是 0 到 2⁶⁴−1 的整数。`split_seed(seed, n)` 用 SplitMix64 派生 n 个子种子，
-`rng(seed)` 返回 numpy 的 `default_rng(seed)`。
+`seed` is an integer from 0 to 2⁶⁴−1. `split_seed(seed, n)` derives n child seeds using SplitMix64; `rng(seed)` returns numpy's `default_rng(seed)`.
 
-学者提供的协调方法是任意 Python，库保证不了它的确定性。库把种子递给他
-（`solve(economy, seed)`），并提供 `check_determinism(procedure, economy, seed, n)`
-供自测——跑若干次比对输出，不一致就报告差在哪。这是工具，不是闸门。
-**比的是三类：实物列、`valuation` 与 `extra`**，后两者的条目带 `valuation.<key>`
-与 `extra.<key>` 前缀；顺序是实物列、`valuation`、`extra`，袋内按键名排序。
-一侧缺席另一侧有值的实物列报成 `<列> (absent from one run)`，不报成数值差。
-不做运行时强制：Python 没有真沙箱，而且随机化的协调方法是合法研究。
-要保的是「给定种子后可复现」，不是「不许随机」。
+A researcher-supplied coordination procedure is arbitrary Python, and the library cannot guarantee its determinism. The library hands it the seed (`solve(economy, seed)`) and provides `check_determinism(procedure, economy, seed, n)` for self-testing — it runs several times, compares the output, and reports where they differ if they don't match. This is a tool, not a gate. **It compares three categories: physical columns, `valuation`, and `extra`**; entries from the latter two carry a `valuation.<key>` or `extra.<key>` prefix. The order is physical columns, then `valuation`, then `extra`, with keys within each bag sorted by name. A physical column absent on one side and present on the other is reported as `<column> (absent from one run)`, not as a numeric difference. There's no runtime enforcement: Python has no real sandbox, and a randomized coordination procedure is legitimate research. What's guaranteed is "reproducible given a seed," not "no randomness allowed."
 
-## 运行设定文档
+## Run configuration document
 
-`run_configuration(procedure, economy, seed, loader=None, plan=None)` 产出一份**可加载**的
-设定文档：跑完吐出来，复现者喂回去就得到同一套设定。它与 run manifest 是**两份**——
-设定装设定，manifest 装溯源，设定文档的哈希进 manifest。分成两份是为了让加载时
-分得清哪半是输入，否则喂回去会把上次的结果当输入。
+`run_configuration(procedure, economy, seed, loader=None, plan=None)` produces a **loadable** configuration document: it comes out at the end of a run, and feeding it back in gives the same configuration. This is **a separate document** from the run manifest — the configuration document holds configuration, the manifest holds provenance, and the configuration document's hash goes into the manifest. Keeping them separate lets a load tell clearly which half is input; otherwise, feeding it back in would treat the previous run's result as input.
 
-**它不焊进 `run`。**`run` 的签名与 `RunResult` 不变；算经济体的内容哈希要钱
-（dep1ex01 是 53 MB、0.064 秒），参数扫描跑上千次不该每次都付。学者显式调用。
+**It is not welded into `run`.** `run`'s signature and `RunResult` stay unchanged; computing an economy's content hash costs something (0.064 seconds for dep1ex01's 53 MB), and a parameter sweep of thousands of runs shouldn't pay that cost every time. The researcher calls it explicitly.
 
-格式是 JSON（UTF-8、键排序、缩进 2、`allow_nan=False`）。顶层八个键：
-`configuration_version`、`library_version`、`core_version`、`seed`、`economy`、
-`procedure`、`loader`、`plan_fields_absent`。
+The format is JSON (UTF-8, sorted keys, indent 2, `allow_nan=False`). There are eight top-level keys: `configuration_version`, `library_version`, `core_version`, `seed`, `economy`, `procedure`, `loader`, `plan_fields_absent`.
 
-**经济体算内容哈希**，逐字节不降精度，算法标识 `sha256-columns-v2`：
-每列先转 C 序、规范成小端，把 `列名
- dtype
- 形状
-` 接上字节喂 sha256；
-三个 `extra` 袋的键带前缀一并作为列；整体摘要是列名排序后各列摘要拼接再 sha256。
-**标量列的形状那一行写 `1`**（0 维数组升成一维），整数标量先规范成 int64。
-**只哈得了数值 dtype**：object、结构化与文本 dtype 一律拒收并说清是哪一列——
-它们的字节要么是内存地址、要么是第二个语言复现不出的宽度。
-**换任何一步都要升算法标识。**
-**除整体摘要外另存逐列摘要**，`compare_economy_digests` 比对两份并返回
-`EconomyDigestReport`，点名哪几列不同——跨平台的浮点末位差异因此可诊断。
-两份摘要的 `algorithm` 不同时拒绝比对。**库不自动核对**，比对是学者显式调的工具。
+**The economy is content-hashed** byte-for-byte with no precision loss, under the algorithm identifier `sha256-columns-v2`: each column is converted to C order and normalized to little-endian, then `column-name\ndtype\nshape\n` is prepended to the bytes fed into sha256; the three `extra` bags' keys, with their prefix, count as columns too; the overall digest is the sha256 of the per-column digests concatenated after sorting by column name. **A scalar column's shape line reads `1`** (a 0-D array is promoted to 1-D), and integer scalars are normalized to int64 first. **Only numeric dtypes can be hashed**: object, structured, and text dtypes are all rejected, with the offending column named — their bytes are either memory addresses or a width the second language can't reproduce. **Any change to any step requires bumping the algorithm identifier.** **Per-column digests are stored alongside the overall digest**; `compare_economy_digests` compares two of them and returns an `EconomyDigestReport` naming which columns differ — this is what makes cross-platform floating-point last-bit differences diagnosable. Comparison is refused when the two digests' `algorithm` differ. **The library doesn't verify this automatically**; comparison is a tool the researcher calls explicitly.
 
-**库自带的实现算内容哈希，学者的不算**：库自带的记模块源文件的 sha256，
-学者的只记他声明的出处，取不到就是 `null`。**两边都记参数**——参数是数据不是代码，
-库对学者的数据类和对自己的一样能自省。numpy 标量按值记。
+**Implementations shipped with the library are content-hashed; the researcher's own are not**: for library-shipped ones, the module's source file gets a sha256; for the researcher's, only their declared provenance is recorded, and it's `null` if none is given. **Both sides record parameters** — a parameter is data, not code, and the library can introspect the researcher's data classes the same way it introspects its own. numpy scalars are recorded by value.
 
-版本规则：文档缺键用默认值（旧文档喂新库要能跑），未知键报错且分清两种成因
-（库比文档旧 / 该键已退役，后者查已退役键的登记表），`configuration_version`
-比库新直接报错。**新增的键，默认值必须保持旧行为**——做不到就不能悄悄加。
+Versioning rules: a missing key in a document falls back to its default (an old document must still work with a new library); an unknown key is an error that distinguishes its two causes (the library is older than the document, or the key has been retired — the latter is checked against a registry of retired keys); a `configuration_version` newer than the library is an outright error. **A newly added key's default must preserve the old behavior** — if that's not possible, the key can't be added silently.
 
-**这份文档不承诺的三件事，学者要知道：**
+**Three things this document does not promise, which the researcher should know:**
 
-- `plan_fields_absent` 记的是学者声明的字段名，**库不校验它们是不是 `Plan` 真有的字段**。
-  这是「只做鸭子类型、不导入 `Plan`」的直接后果：字段名写错一个字会原样进档，
-  没有任何东西转红。
-- `source_digest` 哈的是**整个模块源文件**，所以它对**注释级改动同样敏感**。
-  两份文档的 `source_digest` 不同时，那可能是行为变了，也可能只是有人改了个文档字符串。
-- 参数里的 `Enum`、`datetime`、`complex`、`set` **落到「未声明」形式，值不进档**。
-  JSON 原生的标量与容器（含 numpy 标量）按值记，`np.ndarray` 因为大小无界不记。
+- `plan_fields_absent` records the field names the researcher declared, and **the library does not check whether they're actual fields on `Plan`**. This is a direct consequence of duck typing without importing `Plan`: misspell a field name by one character and it goes into the document unchanged — nothing turns red.
+- `source_digest` hashes the **entire module source file**, so it's **just as sensitive to comment-level changes**. When two documents' `source_digest` differ, that could mean the behavior changed, or it could mean someone edited a docstring.
+- Parameters of type `Enum`, `datetime`, `complex`, or `set` **fall back to an "undeclared" form; their values do not enter the document**. JSON-native scalars and containers (including numpy scalars) are recorded by value; `np.ndarray` is not recorded, because its size is unbounded.
 
-## 执行与存储
+## Execution and storage
 
-整个经济体常驻内存，采用列式 f64 数组。一轮迭代不碰磁盘：只在 run 开始时读、结束时写。
+The entire economy stays resident in memory as columnar f64 arrays. A single iteration round never touches disk: reads happen only at the start of a run, writes only at the end.
 
-v1 的 Rust 只放四样：`Economy` 与 `Plan` 的存储与 schema 校验、数据加载器、差额计算、
-Parquet 输出。提案行为、`iterate`、prefab、参照解在 Python。
-Python 侧的 `Economy` 与 `Plan` 是不可变数据类，字段是 numpy 数组。
-Rust 返回的错误在绑定层转成继承 `ValueError` 的 Python 异常。
+v1's Rust layer holds only four things: storage and schema validation for `Economy` and `Plan`, the data loader, residual computation, and Parquet output. Proposal behavior, `iterate`, prefabs, and the reference solution live in Python. On the Python side, `Economy` and `Plan` are immutable data classes with numpy-array fields. Errors returned from Rust are converted at the binding layer into Python exceptions that inherit from `ValueError`.
 
-## 输出契约
+## Output contract
 
-Rust 侧只产出长格式（tidy）Arrow/Parquet，schema 带版本。绘图在 Python 层。
+The Rust side produces only long-format (tidy) Arrow/Parquet, with a versioned schema. Plotting happens in the Python layer.
 
-输出分三层：
+Output has three tiers:
 
-| 层 | 默认 | 用途 |
+| Tier | Default | Purpose |
 |---|---|---|
-| 完整配置，逐期各一份（产出、投入用量、消费、禀赋使用、估值量） | 恒出 | 可比性 |
-| 过程摘要（轮数、是否收敛、墙钟时间） | 恒出 | 机制效率这条比较轴 |
-| 逐轮轨迹 | 给了 `plan_of` 才有 | 复现与诊断 |
+| Full configuration, one per period (output, input use, consumption, endowment use, valuation) | Always produced | Comparability |
+| Process summary (round count, whether it converged, wall-clock time) | Always produced | The mechanism-efficiency comparison axis |
+| Round-by-round trajectory | Only when `plan_of` is given | Reproduction and diagnostics |
 
-**验收判据：能不能从输出重建出任何一个指标。** 只存汇总不算通过。
+**Acceptance test: can any metric be reconstructed from the output.** Storing only a summary doesn't pass.
 
-每次运行产出一份 run manifest，记录种子、场景文件哈希、启用的约束集、声明的比较基准，
-以及协调方法**与演化规律**的出处——两者同等对待，因为演化规律的差异同样会让轨迹完全不同，
-而且不会被任何检查发现。
+Every run produces a run manifest recording the seed, the scenario file hash, the enabled constraint set, the declared comparison benchmark, and the provenance of the coordination procedure **and the evolution rule** — the two are treated equally, because a difference in the evolution rule can send the trajectory just as far off course, and no check will catch it.
 
-出处未声明时，**输出里带一个客观事实标记**（「本次运行的协调方法与演化规律未声明出处」），
-不拦人不判词，读者自己判断能不能复现。透明化的最高档是被纳入为 prefab，
-届时复现者 `pip install` 就有，不必去找作者的仓库。**库自带**的协调方法与 prefab 记内容哈希，名字解析到具体哈希，
-以防库自己升级实现时旧场景静默改变行为；**学者提供**的只记他声明的出处
-（名字、版本、git 提交号、DOI，均可选），库不 introspect 他的代码，未声明就留空并明示。
+When provenance is undeclared, **the output carries an objective statement of fact** ("this run's coordination procedure and evolution rule declared no provenance") — it doesn't block anyone or pass judgment; the reader decides for themselves whether it's reproducible. The highest tier of transparency is being folded into a prefab, at which point a reproducer gets it with `pip install` and never has to go find the author's repository. **Library-shipped** coordination procedures and prefabs are content-hashed, with the name resolving to a specific hash, so that the library's own implementation upgrades never silently change old scenarios' behavior; **researcher-supplied** ones record only their declared provenance (name, version, git commit, DOI — all optional); the library doesn't introspect their code, and an undeclared one is left blank and marked as such.
 
-## 装配期校验
+## Assembly-time validation
 
-每个插件声明它需要什么字段与能力、提供什么。整张装配图在开跑前校验。
-跨语言边界（Rust 与 Python）会丢失类型系统的保护，所以这层 schema 校验是必需项。
+Every plugin declares what fields and capabilities it needs and what it provides. The whole assembly graph is validated before a run starts. Crossing the language boundary between Rust and Python loses the type system's protection, so this schema validation layer is required.

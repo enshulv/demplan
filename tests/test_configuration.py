@@ -1053,7 +1053,7 @@ ALPHA_PREIMAGE = (
     b"\x01\x00\x00\x00\x00\x00\x00\x00"
     b"\x02\x00\x00\x00\x00\x00\x00\x00"
 )
-"""The bytes ``docs/决策/可复现性.md`` says a column of ``SPEC_ALPHA`` is hashed over.
+"""The bytes ``docs/decisions/reproducibility.md`` says a column of ``SPEC_ALPHA`` is hashed over.
 
 Spelled out here rather than assembled the way the module assembles it. A test that built the
 header from ``dtype.str`` and the shape the same way the module does would agree with the
@@ -1117,7 +1117,7 @@ no carriage return anywhere, on Windows as on anything else.
 
 PINNED_DIGEST_INSTRUCTION = (
     "This digest was spelled out by hand from the specification text in "
-    "docs/决策/可复现性.md, not read off the module. It moves for one of two reasons. "
+    "docs/decisions/reproducibility.md, not read off the module. It moves for one of two reasons. "
     "Either a step of the normalisation broke, and the fix belongs in the module; or a step "
     "was changed on purpose, and then ECONOMY_DIGEST_ALGORITHM takes a new version in this "
     "same commit and the decision record says which step moved. There is no third reason. A "

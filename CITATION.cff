@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "demplan: shared research infrastructure for democratic economic planning"
+type: software
+authors:
+  - family-names: Mark
+    given-names: Enrique
+    alias: enshulv
+repository-code: "https://github.com/enshulv/demplan"
+license: MIT
+version: 0.1.0
+keywords:
+  - democratic economic planning
+  - participatory planning
+  - participatory economics
+  - economic simulation
+  - input-output
+  - reproducibility

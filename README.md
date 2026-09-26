@@ -2,27 +2,174 @@
 
 Shared research infrastructure for democratic economic planning.
 
+## Purpose
+
+Democratic economic planning has no shared research infrastructure, and it needs one.
+
+Neighbouring fields show what that infrastructure buys. Agent-based and generative social
+simulation has Mesa [13], Concordia [10] and AgentSociety [11]: libraries where a researcher
+starts from a working model in an afternoon, and where two studies built on the same library
+can be compared because they share a data model, a loop and an output format. Research on
+democratic planning has nothing comparable. It is scattered across one-off implementations,
+each with its own data model:
+
+- **The same model keeps being rewritten.** The participatory planning model of Hahnel and
+  Szczepanczyk has been implemented at least five times in seven years (`pequod-clj`,
+  `pequod2` in NetLogo, `pequod-cljs`, `pequod-plus`, `pe_ifb_compute`), in four languages,
+  and none of them became a library someone else could build on. Other groups, such as
+  OLIN-EP [7], I-EPOS [8] and Economic-Planning [9], each define their own data model, so no
+  group's economy runs in another group's solver.
+- **Published results are hard to reproduce.** Re-running the published participatory planning
+  experiments (see [below](#reproducing-the-published-experiments)) showed that the pseudocode
+  published in 2023 does not converge to the results published in 2020, because the
+  price-update rule changed between the two and the prose descriptions could not tell the
+  versions apart. Running one experiment on the current upstream code takes two to four hours.
+
+None of this is a failing of the researchers involved. It is what happens when economists also
+have to be software engineers. Research and infrastructure are different kinds of work, and
+they are best divided: researchers ask the questions, and engineers build the tools that let
+them answer those questions quickly and soundly. Economists should not have to spend their time
+writing loaders, seeding schemes and convergence checks. AI assistance does not remove that
+cost. Researchers have limited time to direct it, and code produced that way does not by itself
+have the structure that makes results comparable and reproducible across studies.
+
+demplan is an attempt to provide that infrastructure: one data model that several mechanisms
+can run on, deterministic seeding, outputs raw enough to recompute any metric, and a benchmark
+that every mechanism can be compared with. Success means less duplicated work in the field. If
+someone forks it and does better, that also counts as success.
+
+It is developed by an independent developer, with no funding from any organisation and no
+commercial purpose, out of a long-standing interest in the field, and it will be maintained for
+the long term. If you have the skills and the interest, contributions are very welcome; see
+[Contributing](#contributing). A DOI will be registered with the first release; citing and
+sharing the project helps more people find it.
+
+## What it does
+
 Write a coordination procedure, run it on a published economy, and get the full plan back as
 plain arrays, raw enough that any metric can be recomputed from it afterwards. The library
 covers democratic and participatory planning; the benchmark it offers against a mechanism is a
 centrally computed optimum under an objective function you declare, not a market.
 
 MIT licensed. Status: early. What exists today is the data model, the dep1ex loader, one
-published procedure, the loop and seed tools, and the determinism self-test. Also present: the linear-programming reference
-optimum for Leontief economies, with a `linearize` tool for economies whose technology is
-Cobb-Douglas. Not yet built: the on-disk output format and run manifest, and the invariant
-residual toolbox. Those are the next two pieces, in that order.
+published procedure, the loop and seed tools, the determinism self-test, the run configuration
+document, and the linear-programming reference optimum for Leontief economies with a
+`linearize` tool for Cobb-Douglas ones. What is missing is listed under
+[Limitations](#limitations-and-open-work). How the library is tested and reviewed is described
+in the [quality assurance](https://github.com/enshulv/demplan/wiki/Quality-Assurance) page of
+the wiki. Issues and comments are welcome.
+
+## Reproducing the published experiments
+
+The reference point is the participatory annual planning experiments of Hahnel, Szczepanczyk
+and Weisdorf [2], with the model described in [1, 3] and the pseudocode in [4]. Their input
+data, the `dep1ex01` to `dep1ex40` archives, is public [5]; the round counts are not in the
+archives and can only be obtained by running them again.
+
+**Round counts to convergence, as reported and as re-run.** A cold start begins from a uniform
+price vector; a warm start begins from the previous period's converged prices.
+
+| Source | Cold start, 5% threshold | Warm start, 5% threshold |
+|---|---|---|
+| 2020 seminar slides [2], 40 experiments | **11.85** (19.2 at 3%) | **6.5** |
+| 2023 journal paper [4] | not reported | 6.5 |
+| Current upstream code [6], its own run log | 41 to 96 | mean 6.0 |
+| Independent re-implementation from the 2023 pseudocode, dep1ex01 | 54 to 155 | 7, 8 |
+| **demplan, prefab `hahnel_2020_slides`, dep1ex01 to 05** | **13.40** (22.80 at 3%) | 4.00 |
+
+The warm-start figures agree across sources. The cold-start figures did not, and the difference
+traces to the price-update rule:
+
+| Price-update rule, dep1ex01, endowment 1000 | Cold start, 5% |
+|---|---|
+| 2023 pseudocode (increment multiplied by the previous round's increment) | does not converge; worst imbalance 30.2% after 250 rounds |
+| 2020 slides, `w = v(1.05 − 0.5^v)` with `v` capped at 0.25 | **14 rounds** |
+
+With the 2020 rule, demplan's prefab reproduces 14, 13, 13, 14 and 13 rounds on dep1ex01 to
+05. Those are within 13% (5% threshold) and 19% (3% threshold) of the reported 40-experiment
+means, and the ratio between the two thresholds matches (1.70 here, 1.62 reported). The
+endowment of 1000 stated in the paper is confirmed: a sweep puts the minimum round count
+between 700 and 1000.
+
+Two further findings, stated as properties of the published model rather than of any
+implementation:
+
+- The public-good pricing rule has no effect on any number in the plan. Under Cobb-Douglas
+  utility with councils spending their whole entitlement, dividing the price by the number of
+  councils multiplies the stated quantity by the same number, and aggregation divides it back.
+  Removing the rule leaves the round count and every plan array unchanged (largest relative
+  difference 2.3e-14). The round counts above therefore do not test that rule.
+- The upstream run log covers the `ppex` experiments (300 to 3000 councils), not the published
+  `dep1ex` series, so the current upstream code has not been run on the published data.
+
+What is not reproduced yet: only 5 of the 40 experiments were run; the warm-start perturbation
+is not calibrated (three seeds give identical results, which suggests it is smaller than
+upstream's); and the reported 2.446% GDP increase under warm start has not been checked.
+Details, scripts and every intermediate number are in
+[docs/research/reproduction.md](docs/research/reproduction.md) and
+[docs/research/upstream-code-issues.md](docs/research/upstream-code-issues.md).
+
+**Speed at the same scale** (30,000 worker councils, 30,000 consumer councils, 100 goods), one
+machine:
+
+| | Per round | One experiment |
+|---|---|---|
+| Upstream `pequod-plus` (Clojure, economy in SQLite) | about 144 s | 160 to 253 min |
+| demplan, prefab `hahnel_2020_slides`, dep1ex01 | about 0.08 s (14 rounds in 1.18 s) | about 2 s, including 0.78 s to load the archive |
+
+## A first comparison between two mechanisms, and why it is not citable yet
+
+On dep1ex01, the iterative procedure converges in 14 rounds and uses 96,415.5 units of labour.
+The linear-programming reference solution, asked to deliver the same final consumption at
+minimum labour, needs 53,347.6. The ratio is 1.81.
+
+That number is an upper bound on the gap, not an estimate of it. The reference solution needs
+Leontief technology, dep1ex is entirely Cobb-Douglas, and `linearize` turns decreasing returns
+to scale (median total elasticity 0.875 in dep1ex01, none at 1) into constant returns, so the
+optimum it finds is too good. Linearization is also anchored on the iterative procedure's own
+plan. The reference result does not yet report these assumptions; until it does, the ratio
+should not be quoted. See
+[docs/research/related-implementations.md](docs/research/related-implementations.md).
+
+## Limitations and open work
+
+Honest status, roughly in the order these will be addressed:
+
+- **One data source.** Only the dep1ex archives load. Real input-output tables (WIOD, EXIOBASE)
+  with labour and emission accounts are the next data milestone.
+- **No on-disk output format yet.** Plans come back as arrays in memory; the long-format
+  Parquet output and the run manifest are not built.
+- **The invariant residual toolbox is not built.** Material balance and the other residuals are
+  computed by hand for now (the README example below shows how).
+- **The reference solution states less than it assumes.** Leontief only, constant returns after
+  `linearize`, closed economy, non-negativity and free disposal are all built in and none of
+  them is reported with the result.
+- **Parts of the data model are still open.** Commodity kinds are a closed list, each producing
+  unit has exactly one output (no joint products, so emissions do not fit), and identifiers are
+  equal to row numbers, so removing a row renumbers the rest. These are breaking changes and
+  will happen before 1.0.
+- **One published procedure.** Only the Hahnel-Szczepanczyk-Weisdorf 2020 procedure ships as a
+  prefab. Labour-time planning in the tradition of Cockshott and Cottrell [12] and the
+  published algorithms of [7, 8, 9] are candidates.
+- **Installation needs a Rust toolchain.** There are no prebuilt wheels on PyPI yet.
+- **The design documents are translated.** The records under `docs/` were first written in
+  Chinese and translated; wording errors are likely, and reports of them are welcome.
+
+If you work on democratic planning and any of this blocks you, open an issue. Requests from
+people with a concrete research question move things up the list.
 
 ## Install
 
 There is no release on PyPI yet. Building from source needs a Rust toolchain
 (<https://rustup.rs>), because the data model and the loaders are Rust behind a Python
-extension module. Python 3.10 or newer; the only runtime dependency is numpy.
+extension module. Python 3.10 or newer; the runtime dependencies are numpy and scipy.
 
 ```sh
+git clone https://github.com/enshulv/demplan
+cd demplan
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install maturin numpy
+pip install maturin numpy scipy
 maturin develop --release        # first build takes about a minute
 ```
 
@@ -323,3 +470,66 @@ The coordination method is yours. Whether your implementation is correct and whe
 conclusions follow are yours too. The library does not read your code, does not judge whether
 two procedures are equivalent, and does not pick the quantity a comparison rests on; you
 declare that, and once the run manifest exists the declaration goes there.
+
+## Contributing
+
+Bug reports, questions about a result, and requests for a data source or a procedure are all
+welcome as issues. For code and documentation changes, read [CONTRIBUTING.md](CONTRIBUTING.md)
+first; the [wiki](https://github.com/enshulv/demplan/wiki) has longer guides for researchers
+and for developers.
+
+**On AI assistance.** The project does not reject AI-assisted work; the maintainer uses it too.
+What it asks for is that a person stays accountable for every change. A pull request that
+changes behaviour, a data model field, or a documented rule has to include a decision record
+that shows the human decisions: what options were considered, which one was chosen and why,
+what was rejected, and what the contributor checked with their own eyes. The format and the
+reasons for it are in [CONTRIBUTING.md](CONTRIBUTING.md#ai-assisted-contributions).
+
+## How to cite
+
+A DOI will be registered with the first release. Until then, cite the repository. Metadata is
+in [CITATION.cff](CITATION.cff); GitHub shows a "Cite this repository" button for it.
+Citations and mentions help other researchers in the field find the library.
+
+If your work depends on the reproduction results above, please also cite the original
+experiments [2] and the pseudocode paper [4].
+
+## References
+
+1. Albert, M., and Hahnel, R. (1991). *The Political Economy of Participatory Economics.*
+   Princeton University Press.
+2. Hahnel, R., Szczepanczyk, M., and Weisdorf, M. (2020). *Computer Simulation Experiments of
+   Participatory Annual Planning.* Systems Science Noon Seminar, Portland State University,
+   4 December 2020. Slides:
+   <https://thenextrecession.wordpress.com/wp-content/uploads/2021/01/computersimulationexperimentsofparti_powerpoint.pdf>
+3. Hahnel, R. (2021). *Democratic Economic Planning.* Routledge.
+4. Szczepanczyk, M. (2023). Pseudocode and algorithms for computer simulations of
+   democratically planned economies. *Journal of Information Economics* 1(3), 15.
+   <https://doi.org/10.58567/jie01030004>
+5. Szczepanczyk, M. Participatory planning experiment data (`dep1ex01` to `dep1ex40`).
+   <https://www.szcz.org/depexperiments/>
+6. Szczepanczyk, M. `pequod-plus`: participatory planning procedure prototype (Clojure,
+   GPL-3.0). <https://github.com/msszczep/pequod-plus>
+7. Samothrakis, S. (2020). Open loop in natura economic planning. arXiv:2005.01539. Code
+   (GPL-3.0): <https://github.com/ssamot/socialist_planning>
+8. Nardelli, P. H. J., Gória Silva, P. E., Siljak, H., and Narayanan, A. (2025). Cyber-physical
+   decentralized planning for communizing. *Competition & Change* 29(1).
+   <https://doi.org/10.1177/10245294231213141>. I-EPOS code (GPL-2.0-or-later):
+   <https://github.com/epournaras/EPOS>
+9. `Economic-Planning`: a Python package for multi-period linear-programming planning
+   (GPL-3.0). <https://github.com/pablovegan/Economic-Planning>
+10. Vezhnevets, A. S., et al. (2023). Generative agent-based modeling with actions grounded in
+    physical, social, or digital space using Concordia. arXiv:2312.03664.
+11. Piao, J., et al. (2025). AgentSociety: Large-scale simulation of LLM-driven generative
+    agents advances understanding of human behaviors and society. arXiv:2502.08691.
+12. Cockshott, W. P., and Cottrell, A. (1993). *Towards a New Socialism.* Spokesman.
+13. Kazil, J., Masad, D., and Crooks, A. (2020). Utilizing Python for agent-based modeling: the
+    Mesa framework. In *Social, Cultural, and Behavioral Modeling (SBP-BRiMS 2020)*, Lecture
+    Notes in Computer Science 12268, Springer.
+
+demplan reads the published papers and data; it contains no code from the GPL-licensed
+implementations above. Its reference solution calls the HiGHS solver through SciPy.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

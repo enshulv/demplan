@@ -6,7 +6,7 @@ members = ["crates/demplan-core", "crates/demplan-py"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/enshulv/cyberstride"
+repository = "https://github.com/enshulv/demplan"
 
 [workspace.dependencies]
 thiserror = "2"

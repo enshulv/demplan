@@ -1,23 +1,23 @@
-# 文档索引
+# Documentation index
 
-## 当前状态
+## Current state
 
-| 文件 | 回答 |
+| File | Answers |
 |---|---|
-| [spec.md](spec.md) | 现在的规则是什么——核心抽象、契约、系统级不变量 |
-| [术语表.md](术语表.md) | 这个词是什么意思 |
-| [progress-decisions.md](progress-decisions.md) | 做到哪了 |
+| [spec.md](spec.md) | What the current rules are — core abstractions, contracts, system-level invariants |
+| [glossary.md](glossary.md) | What a term means |
+| [progress.md](progress.md) | Where things stand |
 
-## 历史
+## History
 
-| 目录 | 回答 |
+| Directory | Answers |
 |---|---|
-| [决策/](决策/index.md) | 我们当时为什么这么定 |
-| [决策/被否决/](决策/被否决/) | 我们想过但没做什么 |
+| [decisions/](decisions/index.md) | Why we decided what we decided |
+| [decisions/rejected/](decisions/rejected/) | What we considered but didn't do |
 
-## 主题
+## Topics
 
-| 目录 | 内容 |
+| Directory | Content |
 |---|---|
-| [研究/](研究/README.md) | 对上游实现（pequod 系列）的复现与代码审查结果。**这条线已收尾** |
-| [检核/](检核/README.md) | 周期性体检：上下文准不准、架构有没有漂 |
+| [research/](research/README.md) | Reproduction and code review results for the upstream implementation (the pequod line). **This line is closed** |
+| [reviews/](reviews/README.md) | Periodic health checks: whether the context is accurate, whether the architecture has drifted |

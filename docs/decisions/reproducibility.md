@@ -324,3 +324,15 @@ Non-finite values (`NaN`, `Infinity`) error at any level, with the message givin
 **Why**: numpy's `<U8` is stored in memory as UCS-4 — eight code points take 32 bytes. A second-language implementation working from the spec text has no way to guess this width, and would compute a different digest — **exactly the kind of divergence this algorithm identifier exists to prevent**. Faithfully hashing bytes that a second language can't reproduce is worse than rejecting them: it produces a digest that looks usable but isn't.
 
 **How to apply**: If text columns are supported in the future, pin their encoding and width in the spec first, then lift this restriction.
+
+## 2026-09-26
+
+### The run configuration document for a multi-period run extends the single-period one; without multi-period parameters it is byte-for-byte the same as now
+
+**Decision**: `run_configuration` gets three parameters, `periods=1`, `advance=None` and `next_procedure=None`, and `RunConfiguration` gets the three matching keys. When `periods > 1`, the three keys are written into the document: the number of periods, the provenance block of the evolution rule, and the provenance block of the function slot (the provenance blocks follow the rules for coordination procedures: a bundled implementation records its module, name and source hash; a researcher's records its parameters and `declared_origin: null`; one that was not passed is `null`). When `periods == 1`, none of the three keys is written, and the document is byte-for-byte the same as now. Passing an evolution rule or a function slot with `periods == 1` raises an error, because a single-period run never calls them, and writing them into the document would mislead whoever reproduces the run.
+
+**Why**: The maintainer decided that the parameters only need to be extended, and that without them the default is a single run. The unit of reproduction for a multi-period run is the whole trajectory (initial economy, master seed, evolution rule, function slot). The price vector each period starts from is an array, which the current rules do not record by value, but it can be recomputed from these four. A single-period document carries no new keys, so an older version of the library can still read a single-period document written by a newer version. This follows "the default value for any newly added key must preserve the old behavior."
+
+**Alternatives rejected**:
+- A separate `periods_configuration` function and a new kind of document — two nearly identical formats would each need maintenance, and whoever reproduces a run would first have to tell which kind they have
+- Write the three keys into single-period documents as well (with default values) — an older version of the library would reject them as unknown keys

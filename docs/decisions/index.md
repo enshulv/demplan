@@ -137,3 +137,12 @@
 | 2026-09-26 | Quality assurance | Publish the quality assurance practices, and commit to formal proof where it is needed | [quality-assurance.md](quality-assurance.md) |
 | 2026-09-26 | Publication | Releases go through GitHub Actions: prebuilt wheels and trusted publishing | [publication.md](publication.md) |
 | 2026-09-26 | Contributing and AI | Two manuals for agents, project hooks, repository checks and CI; AI-generated code without decision context is not accepted | [contributing-and-ai.md](contributing-and-ai.md) |
+| 2026-09-26 | Evolution rule | Multi-period interface: the evolution rule receives a seed, a function slot builds the next period's coordination procedure, every period's economy is kept | [evolution-rule.md](evolution-rule.md) |
+| 2026-09-26 | Evolution rule | Multi-period seed layout: one prefix-stable sequence, even and odd positions for the coordination procedure and the evolution rule | [evolution-rule.md](evolution-rule.md) |
+| 2026-09-26 | Evolution rule | Soft check on the period number: warn, do not raise | [evolution-rule.md](evolution-rule.md) |
+| 2026-09-26 | Evolution rule | Cross-period residuals computed by default, constraints declared by the evolution rule, done in Stage 2 | [evolution-rule.md](evolution-rule.md) |
+| 2026-09-26 | Coordination procedures | The Hahnel prefab follows the program that produced the book's tables, not the book's text | [coordination-procedures.md](coordination-procedures.md) |
+| 2026-09-26 | Coordination procedures | The price-update rule slot supports stateful rules, with state passed in and out explicitly | [coordination-procedures.md](coordination-procedures.md) |
+| 2026-09-26 | Rejected | Build in the book's literal rule and the `pequod-plus` rule as comparable variants | [rejected/coordination-procedures.md](rejected/coordination-procedures.md) |
+| 2026-09-26 | Research scope | Full reproduction against Hahnel (2021), chapter 9; the criterion is trends and mechanism insights | [research-scope.md](research-scope.md) |
+| 2026-09-26 | Reproducibility | The multi-period run configuration document extends the single-period one; without multi-period parameters it is byte-for-byte the same as now | [reproducibility.md](reproducibility.md) |

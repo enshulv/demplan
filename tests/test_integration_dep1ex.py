@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from demplan import load_dep1ex, run
-from demplan.prefabs import HahnelSlides2020
+from demplan.prefabs.hahnel import HahnelBook2021
 from reference import dep1ex_numpy
 from reference.paths import dep1ex_available, dep1ex_path
 
@@ -54,7 +54,7 @@ def test_rust_loader_matches_the_numpy_adapter_bit_for_bit(rust_economy, adapter
 
 @needs_data
 def test_prefab_reproduces_the_published_round_count_on_the_rust_loaded_economy(rust_economy):
-    result = run(HahnelSlides2020(), rust_economy, seed=0)
+    result = run(HahnelBook2021(), rust_economy, seed=0)
     assert result.summary.converged is True
-    assert result.summary.rounds == 14
+    assert result.summary.rounds == 12
     result.plan.validate(rust_economy)

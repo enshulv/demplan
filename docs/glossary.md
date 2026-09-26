@@ -22,7 +22,7 @@ This glossary defines terms specific to this project. Where a term conflicts wit
 | producing unit (`unit`) | The agent in `Economy` that produces a commodity. dep1ex's worker councils, an input-output table's sectors |
 | consumer unit (`consumer`) | The agent in `Economy` that receives private goods. dep1ex's consumer councils |
 | extra bag (`extra`) | The named-array bag each of `Economy`'s three tables carries, holding theory-laden data such as behavioral parameters. Key names are conventionalized by the library and interpreted by prefabs. Same pattern as `Plan`'s `valuation` |
-| prefab | A configuration (coordination procedure, parameters, enabled constraint set) preassembled to match a paper. Named with its source and year, e.g. `hahnel_2020_slides`. **Theoretical commitments belong to the prefab, not the library** |
+| prefab | A configuration (coordination procedure, parameters, enabled constraint set) preassembled to match a paper. Organized as one package per author, with a submodule per source, e.g. `hahnel.book_2021`. **Theoretical commitments belong to the prefab, not the library** |
 | invariant toolbox | A collection of optional constraints. The researcher enables them as needed; adding them one at a time makes the experiment progressively stricter. Not a hard gate |
 | residual | The degree to which a constraint is violated; the library always computes it and writes it into the output. **Call it a "residual," not a "violation"** — the same number is the object of study for someone running a credit-creation experiment, not a defect |
 | comparison benchmark | The quantity the researcher declares when making a comparison. The library doesn't prescribe it; the declaration goes into the run manifest |

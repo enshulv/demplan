@@ -203,10 +203,10 @@ it reads are at <https://www.szcz.org/depexperiments/>.
 ```python
 import numpy as np
 from demplan import load_dep1ex, run
-from demplan.prefabs import HahnelSlides2020
+from demplan.prefabs import HahnelBook2021
 
 economy = load_dep1ex("dep1ex01.clj.gz")
-result = run(HahnelSlides2020(), economy, seed=0)
+result = run(HahnelBook2021(), economy, seed=0)
 plan = result.plan
 
 supply = plan.total_output(economy) + economy.endowment
@@ -251,7 +251,8 @@ aggregation, stays as the 2020 slides describe it:
 ```python
 import numpy as np
 from demplan import run
-from demplan.prefabs import HahnelSlides2020
+from demplan.prefabs import HahnelBook2021
+from demplan.prefabs.hahnel import stateless
 
 
 def proportional_rule(price, surplus, imbalance):
@@ -259,7 +260,7 @@ def proportional_rule(price, surplus, imbalance):
     return price * (1 - 0.2 * np.sign(surplus) * imbalance)
 
 
-result = run(HahnelSlides2020(price_rule=proportional_rule), economy, seed=0)
+result = run(HahnelBook2021(price_rule=stateless(proportional_rule)), economy, seed=0)
 print(result.summary.rounds, result.summary.converged)
 ```
 

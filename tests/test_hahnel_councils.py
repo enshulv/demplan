@@ -1,21 +1,22 @@
-"""The 2020 slides prefab, measured against the numpy reference in ``research/bench``.
+"""The source-independent half of the Hahnel prefab: the councils, the board and the rule seam.
 
-Every expected number here is produced by running ``endowment.py``, which is an independent
-implementation of the same price rule over a different data layout. The two published
-constants that appear literally are the 2020 slides' own figures for the five dep1ex
-experiments; they enter through the reference run, not through the prefab.
+``CouncilModel`` is driven here through :class:`HahnelBook2021` or directly through
+:func:`demplan.iterate`. What is checked is the councils' closed forms, the aggregation, the
+plan the board files, and the contract between the board and a price rule that carries state
+from one round to the next. The numbers of the program's own rule are checked in
+``test_hahnel_book_2021.py``.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import gc
-import statistics
-import time
+import importlib
+import pickle
 
 import numpy as np
 import pytest
 
+import demplan.prefabs
 from demplan import (
     CONSUMER_DEMAND,
     EFFORT,
@@ -26,179 +27,35 @@ from demplan import (
     check_determinism,
     iterate,
     run,
+    run_configuration,
 )
 from demplan.plan import AllocatedPlan, StatedPlan
-from demplan.prefabs import HahnelSlides2020
-from demplan.prefabs.hahnel_2020_slides import (
+from demplan.prefabs import hahnel
+from demplan.prefabs.hahnel import (
+    NEXT_INDICATIVE_PRICE,
+    PRICE_RULE_STATE,
     CouncilModel,
-    _relative_imbalance,
-    slides_2020_rule,
+    HahnelBook2021,
+    StatelessPriceRule,
+    book_2021_rule,
+    stateless,
 )
+from demplan.prefabs.hahnel.councils import _relative_imbalance
 from demplan.tools import segment_sum, unit_of_input
 from reference import synthetic
-from reference.dep1ex_numpy import (
-    Dep1exLayout,
-    economy_from_repro,
-    parse_dep1ex,
-    reference_first_round,
-    reference_run,
-    unified_price,
-)
-from reference.paths import dep1ex_available, dep1ex_path
+from reference.paths import dep1ex_available
 
-DEP1EX_COUNT = 5
-COLD_5_PERCENT_ROUNDS = [13, 13, 13, 14, 14]
-COLD_3_PERCENT_MEAN = 22.8
-TIMING_ALLOWANCE = 1.3
-
-SYNTHETIC_LAYOUT = Dep1exLayout(
-    n_priv=synthetic.N_PER_CLASS, n_pub=synthetic.N_PER_CLASS, n_goods=synthetic.N_PER_CLASS
-)
+COUNCILS_MODULE = "demplan.prefabs.hahnel.councils"
+BOOK_MODULE = "demplan.prefabs.hahnel.book_2021"
 
 
-@pytest.fixture
-def synthetic_reference_rounds(synthetic_reference_inputs):
-    """``endowment.run`` on the synthetic economy: ``(rounds, prices, worst_percent)``."""
-    wc, cc, _, endowment = synthetic_reference_inputs
-    return reference_run(wc, cc, SYNTHETIC_LAYOUT, threshold=5.0, endowment_per_commodity=endowment)
+def proportional(price, surplus, imbalance):
+    """A stateless rule in the three-argument shape: a fifth of the imbalance per round."""
+    return price * (1 - 0.2 * np.sign(surplus) * imbalance)
 
 
-class TestSyntheticEconomy:
-    def test_it_converges(self, synthetic_economy):
-        result = run(HahnelSlides2020(), synthetic_economy, seed=0)
-        assert result.summary.converged is True
-        assert result.summary.rounds is not None
-        assert result.summary.rounds < HahnelSlides2020().max_rounds
-
-    def test_the_fixture_exercises_the_effort_scale_term(self, synthetic_economy):
-        """``c * log(effort_s)`` vanishes from the closed form when every ``effort_s`` is 1,
-        which would leave the differential tests below blind to that term."""
-        effort_s = np.asarray(synthetic_economy.unit_extra["effort_s"])
-        assert np.count_nonzero(np.log(effort_s)) > 0
-
-    def test_round_count_matches_the_reference(self, synthetic_economy, synthetic_reference_rounds):
-        expected_rounds, _, _ = synthetic_reference_rounds
-        result = run(HahnelSlides2020(), synthetic_economy, seed=0)
-        assert result.summary.rounds == expected_rounds
-
-    def test_final_prices_match_the_reference(self, synthetic_economy, synthetic_reference_rounds):
-        _, expected_prices, _ = synthetic_reference_rounds
-        result = run(HahnelSlides2020(), synthetic_economy, seed=0)
-        np.testing.assert_allclose(
-            result.plan.valuation[INDICATIVE_PRICE],
-            unified_price(expected_prices, SYNTHETIC_LAYOUT),
-            rtol=1e-9,
-            atol=0,
-        )
-
-    def test_the_plan_satisfies_the_schema(self, synthetic_economy):
-        result = run(HahnelSlides2020(), synthetic_economy, seed=0)
-        result.plan.validate(synthetic_economy)
-
-    def test_material_balance_at_the_reported_threshold(self, synthetic_economy):
-        """Public goods sit at zero here by construction; the reference run covers them."""
-        procedure = HahnelSlides2020()
-        plan = run(procedure, synthetic_economy, seed=0).plan
-        supply = plan.total_output(synthetic_economy) + np.asarray(synthetic_economy.endowment)
-        demand = (
-            plan.total_input_use(synthetic_economy)
-            + plan.total_consumption(synthetic_economy)
-            + np.asarray(plan.provision)
-        )
-        total = supply + demand
-        imbalance = np.where(total > 0, np.abs(2 * (supply - demand)) / np.where(total > 0, total, 1.0), 0.0)
-        assert imbalance.max() * 100 < procedure.threshold_pct
-
-    def test_consumption_columns_are_the_private_goods(self, synthetic_economy):
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
-        kinds = np.asarray(synthetic_economy.commodity_kind)
-        columns = np.asarray(plan.consumption_commodity)
-        assert np.all(kinds[columns] == CommodityKind.PRIVATE_GOOD)
-        np.testing.assert_array_equal(
-            columns, synthetic_economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
-        )
-        assert plan.consumption.shape == (synthetic_economy.n_consumers, columns.shape[0])
-        assert np.all(plan.consumption > 0.0)
-
-    def test_provision_is_confined_to_public_goods(self, synthetic_economy):
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
-        kinds = np.asarray(synthetic_economy.commodity_kind)
-        public = kinds == CommodityKind.PUBLIC_GOOD
-        provision = np.asarray(plan.provision)
-        assert np.all(provision[public] > 0.0)
-        assert provision[~public].sum() == 0.0
-        np.testing.assert_allclose(
-            provision[public], plan.total_output(synthetic_economy)[public]
-        )
-
-    def test_the_reported_price_is_the_one_the_proposals_used(self, synthetic_economy):
-        """The published round count is reached at the price of that round, before adjustment."""
-        procedure = HahnelSlides2020(record_trajectory=True)
-        result = run(procedure, synthetic_economy, seed=0)
-        one_round_less = HahnelSlides2020(max_rounds=result.summary.rounds - 1)
-        earlier = run(one_round_less, synthetic_economy, seed=0)
-        assert earlier.summary.converged is False
-        assert not np.allclose(
-            earlier.plan.valuation[INDICATIVE_PRICE], result.plan.valuation[INDICATIVE_PRICE]
-        )
-
-    def test_trajectory_is_off_by_default(self, synthetic_economy):
-        result = run(HahnelSlides2020(), synthetic_economy, seed=0)
-        assert result.summary.trajectory is None
-
-    def test_trajectory_has_one_plan_per_round(self, synthetic_economy):
-        result = run(HahnelSlides2020(record_trajectory=True), synthetic_economy, seed=0)
-        assert result.summary.trajectory is not None
-        assert len(result.summary.trajectory) == result.summary.rounds
-        for plan in result.summary.trajectory:
-            plan.validate(synthetic_economy)
-
-    def test_the_returned_plan_is_the_last_round_recorded_or_not(self, synthetic_economy):
-        """The plan a run answers with is the round that stopped it, either way it is driven."""
-        recorded = run(HahnelSlides2020(record_trajectory=True), synthetic_economy, seed=0)
-        quiet = run(HahnelSlides2020(), synthetic_economy, seed=0)
-        last = recorded.summary.trajectory[-1]
-        assert len(recorded.summary.trajectory) > 1
-
-        for field in ("output", "input_use", "consumption", "consumption_commodity", "provision"):
-            np.testing.assert_array_equal(getattr(recorded.plan, field), getattr(last, field))
-            np.testing.assert_array_equal(getattr(quiet.plan, field), getattr(last, field))
-        np.testing.assert_array_equal(
-            recorded.plan.valuation[INDICATIVE_PRICE], last.valuation[INDICATIVE_PRICE]
-        )
-        np.testing.assert_array_equal(
-            quiet.plan.valuation[INDICATIVE_PRICE], last.valuation[INDICATIVE_PRICE]
-        )
-        for key in ("effort", "consumer_demand"):
-            np.testing.assert_array_equal(quiet.plan.extra[key], last.extra[key])
-
-    def test_the_first_trajectory_entry_is_priced_at_the_initial_price(self, synthetic_economy):
-        procedure = HahnelSlides2020(record_trajectory=True, initial_price=640.0)
-        result = run(procedure, synthetic_economy, seed=0)
-        np.testing.assert_array_equal(
-            result.summary.trajectory[0].valuation[INDICATIVE_PRICE],
-            np.full(synthetic_economy.n_commodities, 640.0),
-        )
-
-    def test_a_round_cap_stops_the_loop(self, synthetic_economy):
-        result = run(HahnelSlides2020(max_rounds=3), synthetic_economy, seed=0)
-        assert result.summary.rounds == 3
-        assert result.summary.converged is False
-
-    def test_a_tighter_threshold_needs_more_rounds(self, synthetic_economy):
-        loose = run(HahnelSlides2020(threshold_pct=5.0), synthetic_economy, seed=0)
-        tight = run(HahnelSlides2020(threshold_pct=3.0), synthetic_economy, seed=0)
-        assert tight.summary.rounds > loose.summary.rounds
-
-    def test_the_seed_does_not_change_the_result(self, synthetic_economy):
-        first = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
-        second = run(HahnelSlides2020(), synthetic_economy, seed=2**63).plan
-        np.testing.assert_array_equal(first.output, second.output)
-
-    def test_determinism_report(self, synthetic_economy):
-        report = check_determinism(HahnelSlides2020(), synthetic_economy, 0, n=3)
-        assert report.identical is True
-        assert report.differing_fields == []
+def model_of(economy, rule=book_2021_rule, threshold_pct=5.0):
+    return CouncilModel(economy, threshold_pct, rule)
 
 
 def output_from_the_production_function(economy, plan):
@@ -273,40 +130,72 @@ def imbalance_rebuilt_from(economy, plan):
 
 
 class RecordingRule:
-    """``slides_2020_rule`` that keeps the imbalance vector of every round it is handed."""
+    """``book_2021_rule`` that keeps a copy of every argument and result of every round."""
 
-    def __init__(self):
+    def __init__(self, inner=book_2021_rule):
+        self.inner = inner
+        self.price = []
+        self.surplus = []
         self.imbalance = []
+        self.state = []
+        self.next_price = []
+        self.next_state = []
 
-    def __call__(self, price, surplus, imbalance):
-        self.imbalance.append(np.asarray(imbalance).copy())
-        return slides_2020_rule(price, surplus, imbalance)
+    def initial_state(self, n_commodities):
+        return self.inner.initial_state(n_commodities)
+
+    def __call__(self, price, surplus, imbalance, state):
+        self.price.append(np.array(price, copy=True))
+        self.surplus.append(np.array(surplus, copy=True))
+        self.imbalance.append(np.array(imbalance, copy=True))
+        self.state.append(np.array(state, copy=True))
+        next_price, next_state = self.inner(price, surplus, imbalance, state)
+        self.next_price.append(np.array(next_price, copy=True))
+        self.next_state.append(np.array(next_state, copy=True))
+        return next_price, next_state
 
 
 class BufferReusingRule:
-    """``slides_2020_rule`` computed into one buffer the rule keeps and rewrites every round.
+    """``book_2021_rule`` computed into two buffers the rule keeps and rewrites every round.
 
     A rule is free to do this: the arithmetic it hands back is the arithmetic of the named
-    rule, and reusing the output buffer is how a rule avoids allocating one per round. It
-    leaves the price the board stepped with reachable from the rule for as long as the board
-    holds it, which is what the tests around this rule put to the board.
+    rule, and reusing its output buffers is how a rule avoids allocating per round. Each call
+    first overwrites both buffers with numbers of its own, so that a board which still held
+    either buffer as the last round's price or state would see those numbers instead.
     """
 
-    def __init__(self):
-        self.buffer = None
-        self.handed_price = []
+    SCRIBBLE_PRICE = 1.0
+    SCRIBBLE_STATE = 7.0
 
-    def __call__(self, price, surplus, imbalance):
-        self.handed_price.append(np.asarray(price).copy())
-        stepped = slides_2020_rule(price, surplus, imbalance)
-        if self.buffer is None:
-            self.buffer = np.empty_like(stepped)
-        self.buffer[:] = stepped
-        return self.buffer
+    def __init__(self):
+        self.price_buffer = None
+        self.state_buffer = None
+        self.handed_price = []
+        self.handed_state = []
+
+    def initial_state(self, n_commodities):
+        return book_2021_rule.initial_state(n_commodities)
+
+    def __call__(self, price, surplus, imbalance, state):
+        if self.price_buffer is not None:
+            self.price_buffer[:] = self.SCRIBBLE_PRICE
+            self.state_buffer[:] = self.SCRIBBLE_STATE
+        self.handed_price.append(np.array(price, copy=True))
+        self.handed_state.append(np.array(state, copy=True))
+        next_price, next_state = book_2021_rule(price, surplus, imbalance, state)
+        if self.price_buffer is None:
+            self.price_buffer = np.empty_like(next_price)
+            self.state_buffer = np.empty_like(next_state)
+        self.price_buffer[:] = next_price
+        self.state_buffer[:] = next_state
+        return self.price_buffer, self.state_buffer
+
+
+RULE_ARGUMENTS = ("price", "surplus", "imbalance", "state")
 
 
 def scribbling_through_the_base_of(argument: str):
-    """``slides_2020_rule`` that writes zeros through one argument's ``base``, if it has one.
+    """``book_2021_rule`` that writes zeros through one argument's ``base``, if it has one.
 
     ``base`` is whatever array a view was taken of. A rule that reaches it writes to memory the
     board is still using, and the read-only flag on the view says nothing about it. The write
@@ -314,14 +203,18 @@ def scribbling_through_the_base_of(argument: str):
     this rule measures what the run produced and not which exception a write raised.
     """
 
-    def rule(price, surplus, imbalance):
-        stepped = slides_2020_rule(price, surplus, imbalance)
-        target = {"price": price, "surplus": surplus, "imbalance": imbalance}[argument]
-        if target.base is not None:
-            target.base[:] = 0.0
-        return stepped
+    class Scribbling:
+        def initial_state(self, n_commodities):
+            return book_2021_rule.initial_state(n_commodities)
 
-    return rule
+        def __call__(self, price, surplus, imbalance, state):
+            stepped = book_2021_rule(price, surplus, imbalance, state)
+            target = dict(zip(RULE_ARGUMENTS, (price, surplus, imbalance, state)))[argument]
+            if target.base is not None:
+                target.base[:] = 0.0
+            return stepped
+
+    return Scribbling()
 
 
 def plan_arrays(plan) -> dict:
@@ -335,15 +228,27 @@ def plan_arrays(plan) -> dict:
     return arrays
 
 
+def assert_the_same_plan(actual, expected, label="plan") -> None:
+    left, right = plan_arrays(actual), plan_arrays(expected)
+    assert sorted(left) == sorted(right), label
+    for name, array in left.items():
+        np.testing.assert_array_equal(array, right[name], err_msg=f"{label}: {name}")
+
+
 def assert_the_same_run(actual, expected) -> None:
-    """Assert two runs agree on the round count, the verdict and every array of the plan."""
+    """Assert two runs agree on the round count, the verdict, the plan and any trajectory."""
     assert actual.summary.rounds == expected.summary.rounds
     assert actual.summary.converged == expected.summary.converged
     assert actual.summary.diverged == expected.summary.diverged
-    left, right = plan_arrays(actual.plan), plan_arrays(expected.plan)
-    assert sorted(left) == sorted(right)
-    for name, array in left.items():
-        np.testing.assert_array_equal(array, right[name], err_msg=name)
+    assert_the_same_plan(actual.plan, expected.plan)
+    if expected.summary.trajectory is None:
+        assert actual.summary.trajectory is None
+        return
+    assert len(actual.summary.trajectory) == len(expected.summary.trajectory)
+    for number, (left, right) in enumerate(
+        zip(actual.summary.trajectory, expected.summary.trajectory), start=1
+    ):
+        assert_the_same_plan(left, right, f"round {number}")
 
 
 def with_a_negative_denominator(economy):
@@ -362,6 +267,141 @@ def with_a_negative_denominator(economy):
     return dataclasses.replace(economy, unit_extra=bag)
 
 
+class TestPackageSurface:
+    def test_the_two_plan_keys(self):
+        assert NEXT_INDICATIVE_PRICE == "next_indicative_price"
+        assert PRICE_RULE_STATE == "price_rule_state"
+
+    def test_the_package_re_exports_both_modules(self):
+        councils = importlib.import_module(COUNCILS_MODULE)
+        book = importlib.import_module(BOOK_MODULE)
+        for name in ("PriceRule", "stateless", "CouncilModel", "NEXT_INDICATIVE_PRICE",
+                     "PRICE_RULE_STATE"):
+            assert getattr(hahnel, name) is getattr(councils, name), name
+        for name in ("Book2021Rule", "book_2021_rule", "HahnelBook2021"):
+            assert getattr(hahnel, name) is getattr(book, name), name
+        assert set(hahnel.__all__) >= {
+            "PriceRule", "stateless", "CouncilModel", "NEXT_INDICATIVE_PRICE",
+            "PRICE_RULE_STATE", "Book2021Rule", "book_2021_rule", "HahnelBook2021",
+        }
+
+    def test_the_prefabs_package_exports_the_hahnel_package(self):
+        assert demplan.prefabs.hahnel is hahnel
+        assert "hahnel" in demplan.prefabs.__all__
+
+    def test_the_slides_names_are_gone(self):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("demplan.prefabs.hahnel_2020_slides")
+        assert not hasattr(demplan.prefabs, "HahnelSlides2020")
+        assert not hasattr(hahnel, "slides_2020_rule")
+        assert not hasattr(hahnel, "HahnelSlides2020")
+
+
+class TestSyntheticEconomy:
+    def test_it_converges(self, synthetic_economy):
+        result = run(HahnelBook2021(), synthetic_economy, seed=0)
+        assert result.summary.converged is True
+        assert result.summary.rounds is not None
+        assert result.summary.rounds < HahnelBook2021().max_rounds
+
+    def test_the_fixture_exercises_the_effort_scale_term(self, synthetic_economy):
+        """``c * log(effort_s)`` vanishes from the closed form when every ``effort_s`` is 1,
+        which would leave the differential tests blind to that term."""
+        effort_s = np.asarray(synthetic_economy.unit_extra["effort_s"])
+        assert np.count_nonzero(np.log(effort_s)) > 0
+
+    def test_the_plan_satisfies_the_schema(self, synthetic_economy):
+        result = run(HahnelBook2021(), synthetic_economy, seed=0)
+        result.plan.validate(synthetic_economy)
+
+    def test_material_balance_at_the_reported_threshold(self, synthetic_economy):
+        """Public goods sit at zero here by construction; the reference run covers them."""
+        procedure = HahnelBook2021()
+        plan = run(procedure, synthetic_economy, seed=0).plan
+        supply = plan.total_output(synthetic_economy) + np.asarray(synthetic_economy.endowment)
+        demand = (
+            plan.total_input_use(synthetic_economy)
+            + plan.total_consumption(synthetic_economy)
+            + np.asarray(plan.provision)
+        )
+        total = supply + demand
+        imbalance = np.where(
+            total > 0, np.abs(2 * (supply - demand)) / np.where(total > 0, total, 1.0), 0.0
+        )
+        assert imbalance.max() * 100 < procedure.threshold_pct
+
+    def test_consumption_columns_are_the_private_goods(self, synthetic_economy):
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
+        kinds = np.asarray(synthetic_economy.commodity_kind)
+        columns = np.asarray(plan.consumption_commodity)
+        assert np.all(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        np.testing.assert_array_equal(
+            columns, synthetic_economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
+        )
+        assert plan.consumption.shape == (synthetic_economy.n_consumers, columns.shape[0])
+        assert np.all(plan.consumption > 0.0)
+
+    def test_provision_is_confined_to_public_goods(self, synthetic_economy):
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
+        kinds = np.asarray(synthetic_economy.commodity_kind)
+        public = kinds == CommodityKind.PUBLIC_GOOD
+        provision = np.asarray(plan.provision)
+        assert np.all(provision[public] > 0.0)
+        assert provision[~public].sum() == 0.0
+        np.testing.assert_allclose(
+            provision[public], plan.total_output(synthetic_economy)[public]
+        )
+
+    def test_the_reported_price_is_the_one_the_proposals_used(self, synthetic_economy):
+        """The published round count is reached at the price of that round, before adjustment."""
+        procedure = HahnelBook2021(record_trajectory=True)
+        result = run(procedure, synthetic_economy, seed=0)
+        one_round_less = HahnelBook2021(max_rounds=result.summary.rounds - 1)
+        earlier = run(one_round_less, synthetic_economy, seed=0)
+        assert earlier.summary.converged is False
+        assert not np.allclose(
+            earlier.plan.valuation[INDICATIVE_PRICE], result.plan.valuation[INDICATIVE_PRICE]
+        )
+
+    def test_trajectory_is_off_by_default(self, synthetic_economy):
+        result = run(HahnelBook2021(), synthetic_economy, seed=0)
+        assert result.summary.trajectory is None
+
+    def test_trajectory_has_one_plan_per_round(self, synthetic_economy):
+        result = run(HahnelBook2021(record_trajectory=True), synthetic_economy, seed=0)
+        assert result.summary.trajectory is not None
+        assert len(result.summary.trajectory) == result.summary.rounds
+        for plan in result.summary.trajectory:
+            plan.validate(synthetic_economy)
+
+    def test_the_returned_plan_is_the_last_round_recorded_or_not(self, synthetic_economy):
+        """The plan a run answers with is the round that stopped it, either way it is driven."""
+        recorded = run(HahnelBook2021(record_trajectory=True), synthetic_economy, seed=0)
+        quiet = run(HahnelBook2021(), synthetic_economy, seed=0)
+        last = recorded.summary.trajectory[-1]
+        assert len(recorded.summary.trajectory) > 1
+        assert_the_same_plan(recorded.plan, last, "recorded")
+        assert_the_same_plan(quiet.plan, last, "quiet")
+
+    def test_the_first_trajectory_entry_is_priced_at_the_initial_price(self, synthetic_economy):
+        procedure = HahnelBook2021(record_trajectory=True, initial_price=640.0)
+        result = run(procedure, synthetic_economy, seed=0)
+        np.testing.assert_array_equal(
+            result.summary.trajectory[0].valuation[INDICATIVE_PRICE],
+            np.full(synthetic_economy.n_commodities, 640.0),
+        )
+
+    def test_a_round_cap_stops_the_loop(self, synthetic_economy):
+        result = run(HahnelBook2021(max_rounds=3), synthetic_economy, seed=0)
+        assert result.summary.rounds == 3
+        assert result.summary.converged is False
+
+    def test_a_tighter_threshold_needs_more_rounds(self, synthetic_economy):
+        loose = run(HahnelBook2021(threshold_pct=5.0), synthetic_economy, seed=0)
+        tight = run(HahnelBook2021(threshold_pct=3.0), synthetic_economy, seed=0)
+        assert tight.summary.rounds > loose.summary.rounds
+
+
 class TestTechnologyGuard:
     """The closed form is Cobb-Douglas; on a Leontief unit it would be a different theory."""
 
@@ -373,14 +413,14 @@ class TestTechnologyGuard:
             ),
         )
         with pytest.raises(ValueError, match="Cobb-Douglas"):
-            run(HahnelSlides2020(), leontief, seed=0)
+            run(HahnelBook2021(), leontief, seed=0)
 
     def test_one_leontief_unit_is_enough_and_the_message_names_it(self, synthetic_economy):
         kinds = np.array(synthetic_economy.technology_kind, dtype=np.int8)
         kinds[2] = TechnologyKind.LEONTIEF
         mixed = dataclasses.replace(synthetic_economy, technology_kind=kinds)
         with pytest.raises(ValueError, match="unit 2"):
-            run(HahnelSlides2020(), mixed, seed=0)
+            run(HahnelBook2021(), mixed, seed=0)
 
 
 class TestRequiredExtraKeys:
@@ -397,7 +437,7 @@ class TestRequiredExtraKeys:
         kept = {name: value for name, value in synthetic_economy.unit_extra.items() if name != key}
         economy = dataclasses.replace(synthetic_economy, unit_extra=kept)
         with pytest.raises(ValueError, match=key):
-            run(HahnelSlides2020(), economy, seed=0)
+            run(HahnelBook2021(), economy, seed=0)
 
     @pytest.mark.parametrize(
         "key", ["entitlement", "utility_exponent", "utility_exponent_commodity"]
@@ -410,12 +450,12 @@ class TestRequiredExtraKeys:
         }
         economy = dataclasses.replace(synthetic_economy, consumer_extra=kept)
         with pytest.raises(ValueError, match=key):
-            run(HahnelSlides2020(), economy, seed=0)
+            run(HahnelBook2021(), economy, seed=0)
 
     def test_the_message_names_every_absent_key_at_once(self, synthetic_economy):
         economy = dataclasses.replace(synthetic_economy, unit_extra={})
         with pytest.raises(ValueError, match="effort_c.*effort_s.*effort_k"):
-            run(HahnelSlides2020(), economy, seed=0)
+            run(HahnelBook2021(), economy, seed=0)
 
 
 class TestPermutedCommodityOrder:
@@ -432,7 +472,7 @@ class TestPermutedCommodityOrder:
 
     def test_the_consumption_columns_are_still_the_private_goods(self):
         economy = synthetic.build_permuted_economy()
-        plan = run(HahnelSlides2020(), economy, seed=0).plan
+        plan = run(HahnelBook2021(), economy, seed=0).plan
         kinds = np.asarray(economy.commodity_kind)
         columns = np.asarray(plan.consumption_commodity)
 
@@ -444,7 +484,7 @@ class TestPermutedCommodityOrder:
 
     def test_the_provision_is_still_confined_to_the_public_goods(self):
         economy = synthetic.build_permuted_economy()
-        plan = run(HahnelSlides2020(), economy, seed=0).plan
+        plan = run(HahnelBook2021(), economy, seed=0).plan
         public = np.asarray(economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
         provision = np.asarray(plan.provision)
         assert np.all(provision[public] > 0.0)
@@ -455,8 +495,8 @@ class TestPermutedCommodityOrder:
     ):
         permuted = synthetic.build_permuted_economy()
         assert (
-            run(HahnelSlides2020(), permuted, seed=0).summary.rounds
-            == run(HahnelSlides2020(), synthetic_economy, seed=0).summary.rounds
+            run(HahnelBook2021(), permuted, seed=0).summary.rounds
+            == run(HahnelBook2021(), synthetic_economy, seed=0).summary.rounds
         )
 
 
@@ -479,12 +519,12 @@ class TestNonFiniteRuns:
     def test_a_run_that_goes_non_finite_does_not_report_convergence(self, synthetic_economy):
         economy = with_a_negative_denominator(synthetic_economy)
         with np.errstate(all="ignore"):
-            result = run(HahnelSlides2020(), economy, seed=0)
+            result = run(HahnelBook2021(), economy, seed=0)
         assert result.summary.converged is False
 
     def test_the_default_configuration_stops_at_the_non_finite_round(self, synthetic_economy):
         economy = with_a_negative_denominator(synthetic_economy)
-        model = CouncilModel(economy, 5.0)
+        model = model_of(economy)
         with np.errstate(all="ignore"):
             result = iterate(
                 lambda: model.initial_state(700.0),
@@ -501,8 +541,8 @@ class TestNonFiniteRuns:
     def test_recording_the_trajectory_does_not_change_the_verdict(self, synthetic_economy):
         economy = with_a_negative_denominator(synthetic_economy)
         with np.errstate(all="ignore"):
-            quiet = run(HahnelSlides2020(), economy, seed=0)
-            recorded = run(HahnelSlides2020(record_trajectory=True), economy, seed=0)
+            quiet = run(HahnelBook2021(), economy, seed=0)
+            recorded = run(HahnelBook2021(record_trajectory=True), economy, seed=0)
         assert quiet.summary.converged == recorded.summary.converged
         assert quiet.summary.rounds == recorded.summary.rounds
 
@@ -510,15 +550,29 @@ class TestNonFiniteRuns:
 class TestPlanRecordsWhatTheMechanismChose:
     """Whatever the mechanism decided has to be readable back off the plan."""
 
-    def test_the_extra_bag_holds_exactly_the_two_documented_keys(self, synthetic_economy):
+    def test_the_extra_bag_holds_exactly_the_three_documented_keys(self, synthetic_economy):
         """Addressed through the exported constants, so the prefab and a reader cannot drift."""
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
-        assert sorted(plan.extra) == sorted([CONSUMER_DEMAND, EFFORT])
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
+        assert sorted(plan.extra) == sorted([CONSUMER_DEMAND, EFFORT, PRICE_RULE_STATE])
         assert plan.extra[EFFORT].shape == (synthetic_economy.n_units,)
         assert plan.extra[CONSUMER_DEMAND].shape == (synthetic_economy.n_commodities,)
+        assert plan.extra[PRICE_RULE_STATE].shape == (synthetic_economy.n_commodities,)
+
+    def test_the_valuation_bag_holds_the_two_prices(self, synthetic_economy):
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
+        assert sorted(plan.valuation) == sorted([INDICATIVE_PRICE, NEXT_INDICATIVE_PRICE])
+        for key in (INDICATIVE_PRICE, NEXT_INDICATIVE_PRICE):
+            assert plan.valuation[key].dtype == np.float64
+            assert plan.valuation[key].shape == (synthetic_economy.n_commodities,)
+
+    def test_every_trajectory_plan_carries_the_same_keys(self, synthetic_economy):
+        result = run(HahnelBook2021(record_trajectory=True), synthetic_economy, seed=0)
+        for plan in result.summary.trajectory:
+            assert sorted(plan.valuation) == sorted([INDICATIVE_PRICE, NEXT_INDICATIVE_PRICE])
+            assert sorted(plan.extra) == sorted([CONSUMER_DEMAND, EFFORT, PRICE_RULE_STATE])
 
     def test_the_plan_reproduces_its_own_production_function(self, synthetic_economy):
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
         np.testing.assert_allclose(
             np.asarray(plan.output),
             output_from_the_production_function(synthetic_economy, plan),
@@ -527,7 +581,7 @@ class TestPlanRecordsWhatTheMechanismChose:
         )
 
     def test_effort_matches_the_upstream_closed_form(self, synthetic_economy):
-        model = CouncilModel(synthetic_economy, 5.0)
+        model = model_of(synthetic_economy)
         price = np.full(synthetic_economy.n_commodities, 700.0)
         _, effort, _ = model._propose(price)
 
@@ -541,17 +595,15 @@ class TestPlanRecordsWhatTheMechanismChose:
         self, synthetic_economy
     ):
         """A flat price hides a term that only shows when the prices differ."""
-        model = CouncilModel(synthetic_economy, 5.0)
-        price = 100.0 + 800.0 * np.arange(
-            synthetic_economy.n_commodities, dtype=np.float64
-        ) / synthetic_economy.n_commodities
+        model = model_of(synthetic_economy)
+        price = uneven_price(synthetic_economy)
         _, effort, _ = model._propose(price)
 
         _, expected_effort = upstream_output_and_effort(synthetic_economy, price)
         np.testing.assert_allclose(effort, expected_effort, rtol=1e-12, atol=0)
 
     def test_effort_is_one_positive_value_per_unit(self, synthetic_economy):
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
         effort = np.asarray(plan.extra["effort"])
         assert effort.shape == (synthetic_economy.n_units,)
         assert effort.dtype == np.float64
@@ -559,7 +611,7 @@ class TestPlanRecordsWhatTheMechanismChose:
 
     def test_dropping_effort_would_not_reproduce_the_output(self, synthetic_economy):
         """Without the effort factor the identity is off by a factor the tolerance rejects."""
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
         owner = unit_of_input(synthetic_economy)
         exponent = np.asarray(synthetic_economy.input_coefficient)
         without_effort = np.exp(
@@ -574,7 +626,7 @@ class TestPlanRecordsWhatTheMechanismChose:
         self, synthetic_economy
     ):
         rule = RecordingRule()
-        result = run(HahnelSlides2020(price_rule=rule), synthetic_economy, seed=0)
+        result = run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0)
         public = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
 
         rebuilt = imbalance_rebuilt_from(synthetic_economy, result.plan)
@@ -587,7 +639,7 @@ class TestPlanRecordsWhatTheMechanismChose:
         self, synthetic_economy
     ):
         """No utility-exponent column names the commodity, so the councils ask for none of it."""
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
         stated = np.asarray(plan.extra["consumer_demand"])
         columns = np.asarray(synthetic_economy.consumer_extra["utility_exponent_commodity"])
         named = np.zeros(synthetic_economy.n_commodities, dtype=bool)
@@ -603,7 +655,7 @@ class TestPlanRecordsWhatTheMechanismChose:
         self, synthetic_economy
     ):
         """The gap that ``provision`` produces is identically zero: it is the supply side."""
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
         supply = plan.total_output(synthetic_economy) + np.asarray(synthetic_economy.endowment)
         demand = (
             plan.total_input_use(synthetic_economy)
@@ -615,50 +667,34 @@ class TestPlanRecordsWhatTheMechanismChose:
 
 
 class TestPriceRuleSeam:
-    """Swapping the price rule is the one change the slides procedure is built to take."""
-
-    def test_the_default_is_the_named_2020_rule(self, synthetic_economy):
-        default = run(HahnelSlides2020(), synthetic_economy, seed=0)
-        named = run(
-            HahnelSlides2020(price_rule=slides_2020_rule), synthetic_economy, seed=0
-        )
-        assert default.summary.rounds == named.summary.rounds
-        np.testing.assert_array_equal(default.plan.output, named.plan.output)
-        np.testing.assert_array_equal(
-            default.plan.valuation[INDICATIVE_PRICE], named.plan.valuation[INDICATIVE_PRICE]
-        )
+    """Swapping the price rule is the one change the procedure is built to take."""
 
     def test_a_rule_that_never_moves_the_price_never_converges(self, synthetic_economy):
         def frozen(price, surplus, imbalance):
             return price
 
         result = run(
-            HahnelSlides2020(price_rule=frozen, max_rounds=6), synthetic_economy, seed=0
+            HahnelBook2021(price_rule=stateless(frozen), max_rounds=6), synthetic_economy, seed=0
         )
         assert result.summary.converged is False
         assert result.summary.rounds == 6
         np.testing.assert_array_equal(
             result.plan.valuation[INDICATIVE_PRICE],
-            np.full(synthetic_economy.n_commodities, HahnelSlides2020().initial_price),
+            np.full(synthetic_economy.n_commodities, HahnelBook2021().initial_price),
         )
 
     def test_the_rule_is_handed_the_surplus_and_the_imbalance_of_that_round(
         self, synthetic_economy
     ):
         """Checked on the private goods, whose supply and demand the plan alone accounts for."""
-        seen = []
-
-        def recording(price, surplus, imbalance):
-            seen.append((price.copy(), surplus.copy(), imbalance.copy()))
-            return slides_2020_rule(price, surplus, imbalance)
-
+        rule = RecordingRule()
         result = run(
-            HahnelSlides2020(price_rule=recording, max_rounds=1, record_trajectory=True),
+            HahnelBook2021(price_rule=rule, max_rounds=1, record_trajectory=True),
             synthetic_economy,
             seed=0,
         )
         plan = result.summary.trajectory[0]
-        _, surplus, imbalance = seen[0]
+        surplus, imbalance = rule.surplus[0], rule.imbalance[0]
 
         private = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PRIVATE_GOOD
         supply = plan.total_output(synthetic_economy) + np.asarray(synthetic_economy.endowment)
@@ -675,18 +711,14 @@ class TestPriceRuleSeam:
         self, synthetic_economy
     ):
         """Driving ``CouncilModel`` through ``iterate`` by hand reaches the same fixed point."""
-        def proportional(price, surplus, imbalance):
-            return price * (1 - 0.2 * np.sign(surplus) * imbalance)
-
+        rule = stateless(proportional)
         through_the_seam = run(
-            HahnelSlides2020(price_rule=proportional, max_rounds=60),
-            synthetic_economy,
-            seed=0,
+            HahnelBook2021(price_rule=rule, max_rounds=60), synthetic_economy, seed=0
         )
 
-        model = CouncilModel(synthetic_economy, 5.0, price_rule=proportional)
+        model = model_of(synthetic_economy, rule)
         by_hand = iterate(
-            lambda: model.initial_state(HahnelSlides2020().initial_price),
+            lambda: model.initial_state(HahnelBook2021().initial_price),
             model.step,
             model.converged,
             60,
@@ -698,52 +730,244 @@ class TestPriceRuleSeam:
         )
 
 
-class TestPriceRuleArgumentsAreReadOnly:
-    """The board hands its price rule read-only views, so a rule that writes to one is stopped.
+class TestTheStateLivesInTheBoard:
+    """A rule carries state from one round to the next, and the board is what carries it.
 
-    Two of the three arguments feed numbers the run reports, and a rule that wrote to either
-    changed those numbers with nothing raised. Measured on ``synthetic_economy`` before the
-    views were put in, against an honest run of 25 rounds ending at prices
-    ``[899.507166, 943.756043, 711.263594, ...]``:
+    The rule object is reused across runs, so any state it kept on itself would leak from one
+    run into the next. The board asks the rule for a starting state once per run, hands each
+    round the state the previous round returned, and files what the rule returned on the plan.
+    """
+
+    class CountingState:
+        """Starts every commodity at zero and returns the state it was handed plus one."""
+
+        initial_calls = 0
+
+        def initial_state(self, n_commodities):
+            type(self).initial_calls += 1
+            return np.zeros(n_commodities)
+
+        def __call__(self, price, surplus, imbalance, state):
+            return proportional(price, surplus, imbalance), state + 1.0
+
+    def test_the_initial_state_is_asked_for_once_per_run(self, synthetic_economy):
+        rule = self.CountingState()
+        type(rule).initial_calls = 0
+        run(HahnelBook2021(price_rule=rule, max_rounds=5), synthetic_economy, seed=0)
+        assert type(rule).initial_calls == 1
+        run(HahnelBook2021(price_rule=rule, max_rounds=5), synthetic_economy, seed=0)
+        assert type(rule).initial_calls == 2
+
+    def test_round_one_is_handed_the_rules_initial_state(self, synthetic_economy):
+        class Distinct(RecordingRule):
+            def initial_state(self, n_commodities):
+                return np.linspace(0.05, 0.2, n_commodities)
+
+        rule = Distinct()
+        run(HahnelBook2021(price_rule=rule, max_rounds=2), synthetic_economy, seed=0)
+        np.testing.assert_array_equal(
+            rule.state[0], np.linspace(0.05, 0.2, synthetic_economy.n_commodities)
+        )
+
+    def test_each_round_is_handed_the_state_the_round_before_returned(self, synthetic_economy):
+        rule = RecordingRule(self.CountingState())
+        run(HahnelBook2021(price_rule=rule, max_rounds=6), synthetic_economy, seed=0)
+        assert len(rule.state) == 6
+        for number, handed in enumerate(rule.state):
+            np.testing.assert_array_equal(
+                handed, np.full(synthetic_economy.n_commodities, float(number))
+            )
+
+    def test_the_plan_files_what_the_rule_returned(self, synthetic_economy):
+        rule = RecordingRule()
+        result = run(
+            HahnelBook2021(price_rule=rule, record_trajectory=True), synthetic_economy, seed=0
+        )
+        trajectory = result.summary.trajectory
+        assert len(trajectory) == len(rule.next_price) > 3
+        for number, plan in enumerate(trajectory):
+            np.testing.assert_array_equal(
+                plan.valuation[NEXT_INDICATIVE_PRICE], rule.next_price[number]
+            )
+            np.testing.assert_array_equal(plan.extra[PRICE_RULE_STATE], rule.next_state[number])
+            np.testing.assert_array_equal(plan.valuation[INDICATIVE_PRICE], rule.price[number])
+
+    @pytest.mark.parametrize("rounds", [1, 2, 5])
+    def test_the_two_new_entries_are_the_next_rounds_inputs(self, synthetic_economy, rounds):
+        """A run of ``rounds`` rounds, and one of ``rounds + 1`` with every round recorded."""
+        shorter = run(HahnelBook2021(max_rounds=rounds), synthetic_economy, seed=0)
+        rule = RecordingRule()
+        longer = run(
+            HahnelBook2021(price_rule=rule, max_rounds=rounds + 1, record_trajectory=True),
+            synthetic_economy,
+            seed=0,
+        )
+        assert shorter.summary.rounds == rounds
+        assert len(rule.price) == rounds + 1
+        np.testing.assert_array_equal(
+            shorter.plan.valuation[NEXT_INDICATIVE_PRICE], rule.price[rounds]
+        )
+        np.testing.assert_array_equal(shorter.plan.extra[PRICE_RULE_STATE], rule.state[rounds])
+        np.testing.assert_array_equal(
+            shorter.plan.valuation[NEXT_INDICATIVE_PRICE],
+            longer.summary.trajectory[rounds].valuation[INDICATIVE_PRICE],
+        )
+        assert_the_same_plan(shorter.plan, longer.summary.trajectory[rounds - 1])
+
+    def test_the_same_procedure_solved_again_is_bit_identical(self, synthetic_economy):
+        report = check_determinism(HahnelBook2021(max_rounds=8), synthetic_economy, 0, n=3)
+        assert report.identical is True
+
+    def test_a_run_in_between_on_another_economy_changes_nothing(self, synthetic_economy):
+        """The same rule object, used on another economy between two runs on this one."""
+        procedure = HahnelBook2021(price_rule=book_2021_rule, record_trajectory=True)
+        first = run(procedure, synthetic_economy, seed=0)
+        run(procedure, synthetic.build_economy_with_unordered_private_columns(), seed=0)
+        second = run(procedure, synthetic_economy, seed=0)
+        assert_the_same_run(second, first)
+
+    def test_a_two_column_state_is_carried_and_filed(self, synthetic_economy):
+        """The state's first dimension is the commodity count; the rest is the rule's."""
+
+        class TwoColumns:
+            def initial_state(self, n_commodities):
+                return np.zeros((n_commodities, 2))
+
+            def __call__(self, price, surplus, imbalance, state):
+                return proportional(price, surplus, imbalance), state + [1.0, 2.0]
+
+        result = run(
+            HahnelBook2021(price_rule=TwoColumns(), max_rounds=3), synthetic_economy, seed=0
+        )
+        expected = np.tile([3.0, 6.0], (synthetic_economy.n_commodities, 1))
+        np.testing.assert_array_equal(result.plan.extra[PRICE_RULE_STATE], expected)
+        result.plan.validate(synthetic_economy)
+
+
+def rule_with_initial_state(state_of):
+    class Rule(RecordingRule):
+        def initial_state(self, n_commodities):
+            return state_of(n_commodities)
+
+    return Rule()
+
+
+def rule_returning_state(state_of):
+    class Rule(RecordingRule):
+        def __call__(self, price, surplus, imbalance, state):
+            next_price, _ = super().__call__(price, surplus, imbalance, state)
+            return next_price, state_of(len(price))
+
+    return Rule()
+
+
+INVALID_STATES = [
+    ("too short", "n_commodities", lambda n: np.full(n - 1, 0.25)),
+    ("too long", "n_commodities", lambda n: np.full(n + 1, 0.25)),
+    ("zero-dimensional", "n_commodities", lambda n: np.array(0.25)),
+    ("float32", "float64", lambda n: np.full(n, 0.25, dtype=np.float32)),
+    ("integer", "float64", lambda n: np.zeros(n, dtype=np.int64)),
+    ("a list", "float64", lambda n: [0.25] * n),
+    ("NaN", "finite", lambda n: np.where(np.arange(n) == 3, np.nan, 0.25)),
+    ("infinite", "finite", lambda n: np.where(np.arange(n) == 3, np.inf, 0.25)),
+]
+
+
+class TestTheStateIsValidated:
+    """A state that cannot be filed on a plan, or carried to the next round, is refused.
+
+    The message names the problem: the dtype, the commodity count, or a value that is not
+    finite.
+    """
+
+    @pytest.mark.parametrize(
+        "problem, named, make", INVALID_STATES, ids=[case[0] for case in INVALID_STATES]
+    )
+    def test_an_invalid_initial_state_from_the_rule_is_refused(
+        self, synthetic_economy, problem, named, make
+    ):
+        rule = rule_with_initial_state(make)
+        with pytest.raises(ValueError, match=named):
+            run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0)
+        assert rule.state == []
+
+    @pytest.mark.parametrize(
+        "problem, named, make", INVALID_STATES, ids=[case[0] for case in INVALID_STATES]
+    )
+    def test_an_invalid_returned_state_is_refused(self, synthetic_economy, problem, named, make):
+        rule = rule_returning_state(make)
+        with pytest.raises(ValueError, match=named):
+            run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0)
+        assert len(rule.state) == 1
+
+    @pytest.mark.parametrize(
+        "problem, named, make", INVALID_STATES, ids=[case[0] for case in INVALID_STATES]
+    )
+    def test_an_invalid_supplied_state_is_refused(self, synthetic_economy, problem, named, make):
+        rule = RecordingRule()
+        state = make(synthetic_economy.n_commodities)
+        with pytest.raises(ValueError, match=named):
+            run(
+                HahnelBook2021(price_rule=rule, initial_rule_state=state),
+                synthetic_economy,
+                seed=0,
+            )
+        assert rule.state == []
+
+
+class TestPriceRuleArgumentsAreReadOnly:
+    """The board hands its price rule read-only copies, so a rule that writes to one is stopped.
+
+    Three of the four arguments feed numbers the run reports, and a rule that wrote to one
+    changed those numbers with nothing raised. Measured on ``synthetic_economy`` with the
+    copies replaced by the board's own arrays, against an honest run of 20 rounds ending at
+    prices ``[897.312008, 942.589276, 711.670185, ...]``:
 
     * a rule writing to ``price`` left the run's own output untouched and
-      ``valuation["indicative_price"]`` holding ``[0, 0, 0, ...]`` -- a plan filed under a price
-      its proposals were never made at;
+      ``valuation["indicative_price"]`` holding ``[0, 0, 0, ...]`` on all 20 plans -- plans
+      filed under a price their proposals were never made at;
     * a rule writing to ``imbalance`` decided the convergence test, and the run stopped after
-      1 round instead of 25, reporting ``converged=True`` on the initial flat price of 700.
+      1 round instead of 20, reporting ``converged=True`` on the initial flat price of 700;
+    * a rule writing to ``state`` left every price and quantity as it was and 19 of the 20
+      plans filing ``extra["price_rule_state"]`` as zeros: the state a round is handed is the
+      one the round before filed.
 
-    ``surplus`` reaches nothing the run reports today; it is handed over read-only because the
+    ``surplus`` reaches nothing the run reports; it is handed over read-only because the
     contract covers the argument list, not because a corruption through it was observed.
     """
 
-    ARGUMENTS = ("price", "surplus", "imbalance")
-
     def scribble_on(self, argument: str):
-        """``slides_2020_rule`` that writes zeros over one of the arguments it was handed."""
+        """``book_2021_rule`` that writes zeros over one of the arguments it was handed."""
 
-        def rule(price, surplus, imbalance):
-            next_price = slides_2020_rule(price, surplus, imbalance)
-            {"price": price, "surplus": surplus, "imbalance": imbalance}[argument][:] = 0.0
-            return next_price
+        class Scribbling:
+            def initial_state(self, n_commodities):
+                return book_2021_rule.initial_state(n_commodities)
 
-        return rule
+            def __call__(self, price, surplus, imbalance, state):
+                stepped = book_2021_rule(price, surplus, imbalance, state)
+                dict(zip(RULE_ARGUMENTS, (price, surplus, imbalance, state)))[argument][:] = 0.0
+                return stepped
 
-    def test_all_three_arguments_arrive_read_only(self, synthetic_economy):
+        return Scribbling()
+
+    def test_all_four_arguments_arrive_read_only(self, synthetic_economy):
         seen = []
 
-        def inspect(price, surplus, imbalance):
-            seen.append(tuple(bool(a.flags.writeable) for a in (price, surplus, imbalance)))
-            return slides_2020_rule(price, surplus, imbalance)
+        class Inspecting(RecordingRule):
+            def __call__(self, price, surplus, imbalance, state):
+                seen.append(
+                    tuple(bool(a.flags.writeable) for a in (price, surplus, imbalance, state))
+                )
+                return super().__call__(price, surplus, imbalance, state)
 
-        run(HahnelSlides2020(price_rule=inspect, max_rounds=3), synthetic_economy, seed=0)
-        assert len(seen) == 3
-        assert seen == [(False, False, False)] * 3
+        run(HahnelBook2021(price_rule=Inspecting(), max_rounds=3), synthetic_economy, seed=0)
+        assert seen == [(False, False, False, False)] * 3
 
-    @pytest.mark.parametrize("argument", ARGUMENTS)
+    @pytest.mark.parametrize("argument", RULE_ARGUMENTS)
     def test_a_rule_that_writes_to_an_argument_is_stopped(self, synthetic_economy, argument):
         with pytest.raises(ValueError, match="read-only"):
             run(
-                HahnelSlides2020(price_rule=self.scribble_on(argument), max_rounds=25),
+                HahnelBook2021(price_rule=self.scribble_on(argument), max_rounds=25),
                 synthetic_economy,
                 seed=0,
             )
@@ -751,49 +975,48 @@ class TestPriceRuleArgumentsAreReadOnly:
     def test_the_price_the_plan_records_is_the_price_the_rule_was_handed(
         self, synthetic_economy
     ):
-        """What writing to ``price`` used to break, stated as the property it broke."""
-        handed = []
-
-        def recording(price, surplus, imbalance):
-            handed.append(np.asarray(price).copy())
-            return slides_2020_rule(price, surplus, imbalance)
-
-        result = run(HahnelSlides2020(price_rule=recording), synthetic_economy, seed=0)
-        np.testing.assert_array_equal(
-            result.plan.valuation[INDICATIVE_PRICE], handed[-1]
-        )
+        """What writing to ``price`` breaks, stated as the property it breaks."""
+        rule = RecordingRule()
+        result = run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0)
+        np.testing.assert_array_equal(result.plan.valuation[INDICATIVE_PRICE], rule.price[-1])
 
     def test_the_round_count_is_the_one_the_measured_imbalance_produces(
         self, synthetic_economy
     ):
-        """What writing to ``imbalance`` used to break: it decided when the loop stopped."""
+        """What writing to ``imbalance`` breaks: it decides when the loop stops."""
         rule = RecordingRule()
-        result = run(HahnelSlides2020(price_rule=rule), synthetic_economy, seed=0)
+        result = run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0)
 
         assert result.summary.converged is True
         assert len(rule.imbalance) == result.summary.rounds
-        threshold = HahnelSlides2020().threshold_pct / 100.0
+        threshold = HahnelBook2021().threshold_pct / 100.0
         assert rule.imbalance[-1].max() < threshold
         assert all(measured.max() >= threshold for measured in rule.imbalance[:-1])
 
     def test_the_state_keeps_the_array_it_was_stepped_with(self, synthetic_economy):
-        """The read-only views are for the rule alone and do not become the recorded state."""
-        model = CouncilModel(synthetic_economy, 5.0)
+        """The read-only copies are for the rule alone and do not become the recorded state."""
+        model = model_of(synthetic_economy)
         start = model.initial_state(700.0)
         stepped = model.step(start)
         assert stepped.price is start.next_price
 
-    def test_a_rule_that_returns_its_own_argument_still_runs(self, synthetic_economy):
+    def test_a_rule_that_returns_its_own_arguments_still_runs(self, synthetic_economy):
         """A rule may hand an argument straight back; only writing to one is refused."""
+
+        class Unmoving:
+            def initial_state(self, n_commodities):
+                return np.zeros(n_commodities)
+
+            def __call__(self, price, surplus, imbalance, state):
+                return price, state
+
         result = run(
-            HahnelSlides2020(price_rule=lambda price, surplus, imbalance: price, max_rounds=4),
-            synthetic_economy,
-            seed=0,
+            HahnelBook2021(price_rule=Unmoving(), max_rounds=4), synthetic_economy, seed=0
         )
         assert result.summary.rounds == 4
         np.testing.assert_array_equal(
             result.plan.valuation[INDICATIVE_PRICE],
-            np.full(synthetic_economy.n_commodities, HahnelSlides2020().initial_price),
+            np.full(synthetic_economy.n_commodities, HahnelBook2021().initial_price),
         )
 
 
@@ -803,112 +1026,236 @@ class TestThePriceRuleCannotReachTheBoardsState:
     The read-only flag alone covers one way in. Two more run through ownership: an argument
     that is a view keeps the board's live array reachable as ``base``, and a return value the
     board keeps is a buffer the rule can go on writing to. Both decide reported numbers -- the
-    plan is filed under the price the board stepped with, and the round count is the
-    convergence test on the measured imbalance -- so each one is asserted against a run of the
-    same rule's arithmetic that reaches for neither.
+    plan is filed under the price the board stepped with, the next round is stepped with the
+    state the board carries, and the round count is the convergence test on the measured
+    imbalance -- so each one is asserted against a run of the same rule's arithmetic that
+    reaches for neither.
     """
 
-    ARGUMENTS = ("price", "surplus", "imbalance")
-
-    def honest_run(self, economy):
-        return run(HahnelSlides2020(), economy, seed=0)
+    def honest_run(self, economy, **settings):
+        return run(HahnelBook2021(**settings), economy, seed=0)
 
     def test_no_argument_is_a_view_of_anything(self, synthetic_economy):
         """An array that owns its memory has no ``base``, and so nothing behind it."""
         seen = []
 
-        def inspect(price, surplus, imbalance):
-            seen.append(tuple(a.base for a in (price, surplus, imbalance)))
-            return slides_2020_rule(price, surplus, imbalance)
+        class Inspecting(RecordingRule):
+            def __call__(self, price, surplus, imbalance, state):
+                seen.append(tuple(a.base for a in (price, surplus, imbalance, state)))
+                return super().__call__(price, surplus, imbalance, state)
 
-        run(HahnelSlides2020(price_rule=inspect, max_rounds=3), synthetic_economy, seed=0)
+        run(HahnelBook2021(price_rule=Inspecting(), max_rounds=3), synthetic_economy, seed=0)
         assert len(seen) == 3
         assert all(base is None for round_of_bases in seen for base in round_of_bases)
 
-    @pytest.mark.parametrize("argument", ARGUMENTS)
+    def test_a_supplied_state_is_not_the_array_the_rule_is_handed(self, synthetic_economy):
+        supplied = np.full(synthetic_economy.n_commodities, 0.2)
+        seen = []
+
+        class Inspecting(RecordingRule):
+            def __call__(self, price, surplus, imbalance, state):
+                seen.append(np.shares_memory(state, supplied))
+                return super().__call__(price, surplus, imbalance, state)
+
+        run(
+            HahnelBook2021(price_rule=Inspecting(), initial_rule_state=supplied, max_rounds=2),
+            synthetic_economy,
+            seed=0,
+        )
+        assert seen == [False, False]
+
+    @pytest.mark.parametrize("argument", RULE_ARGUMENTS)
     def test_writing_through_an_arguments_base_changes_nothing(
         self, synthetic_economy, argument
     ):
         scribbled = run(
-            HahnelSlides2020(price_rule=scribbling_through_the_base_of(argument)),
+            HahnelBook2021(price_rule=scribbling_through_the_base_of(argument)),
             synthetic_economy,
             seed=0,
         )
         assert_the_same_run(scribbled, self.honest_run(synthetic_economy))
+
+    def test_a_rule_that_rewrites_its_returned_buffers_changes_nothing(self, synthetic_economy):
+        """Every round, the plans of every round, and the verdict, as an honest run has them."""
+        reusing = run(
+            HahnelBook2021(price_rule=BufferReusingRule(), record_trajectory=True),
+            synthetic_economy,
+            seed=0,
+        )
+        assert_the_same_run(reusing, self.honest_run(synthetic_economy, record_trajectory=True))
+
+    def test_each_round_is_stepped_with_the_state_returned_not_the_buffer_after(
+        self, synthetic_economy
+    ):
+        rule = BufferReusingRule()
+        run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0)
+        honest = RecordingRule()
+        run(HahnelBook2021(price_rule=honest), synthetic_economy, seed=0)
+        assert len(rule.handed_state) == len(honest.state) > 2
+        for number, (handed, expected) in enumerate(zip(rule.handed_state, honest.state)):
+            np.testing.assert_array_equal(handed, expected, err_msg=f"round {number + 1}")
+            assert not np.any(handed == BufferReusingRule.SCRIBBLE_STATE)
 
     def test_a_rule_that_reuses_its_output_buffer_files_the_price_it_proposed_at(
         self, synthetic_economy
     ):
         """The plan's price is the price the last round's proposals were made at."""
         rule = BufferReusingRule()
-        result = run(HahnelSlides2020(price_rule=rule), synthetic_economy, seed=0)
+        result = run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0)
 
         assert len(rule.handed_price) == result.summary.rounds
         np.testing.assert_array_equal(
             result.plan.valuation[INDICATIVE_PRICE], rule.handed_price[-1]
         )
 
-    def test_reusing_the_output_buffer_changes_nothing_else_either(self, synthetic_economy):
-        reusing = run(
-            HahnelSlides2020(price_rule=BufferReusingRule()), synthetic_economy, seed=0
-        )
-        assert_the_same_run(reusing, self.honest_run(synthetic_economy))
-
-    def test_the_rule_writing_to_its_buffer_after_the_run_moves_no_number(
+    def test_the_rule_writing_to_its_buffers_after_the_run_moves_no_number(
         self, synthetic_economy
     ):
-        """The board holds a price of its own, not the buffer the rule handed it."""
+        """The board holds a price and a state of its own, not the buffers the rule handed it."""
         rule = BufferReusingRule()
-        result = run(HahnelSlides2020(price_rule=rule), synthetic_economy, seed=0)
-        filed = np.asarray(result.plan.valuation[INDICATIVE_PRICE]).copy()
+        result = run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0)
+        filed = {
+            key: np.array(result.plan.valuation[key], copy=True)
+            for key in (INDICATIVE_PRICE, NEXT_INDICATIVE_PRICE)
+        }
+        filed_state = np.array(result.plan.extra[PRICE_RULE_STATE], copy=True)
 
-        rule.buffer[:] = 0.0
-        np.testing.assert_array_equal(result.plan.valuation[INDICATIVE_PRICE], filed)
-        assert filed.max() > 0.0
+        rule.price_buffer[:] = 0.0
+        rule.state_buffer[:] = 0.0
+        for key, value in filed.items():
+            np.testing.assert_array_equal(result.plan.valuation[key], value)
+            assert value.max() > 0.0
+        np.testing.assert_array_equal(result.plan.extra[PRICE_RULE_STATE], filed_state)
+        assert filed_state.max() > 0.0
+
+
+class TestStatelessAdapter:
+    """``stateless`` turns a three-argument price function into a rule with no state to carry."""
+
+    def test_the_state_is_zero_per_commodity(self):
+        state = stateless(proportional).initial_state(5)
+        assert isinstance(state, np.ndarray)
+        assert state.dtype == np.float64
+        np.testing.assert_array_equal(state, np.zeros(5))
+
+    def test_one_call_is_the_function_and_the_state_unchanged(self):
+        price = np.array([700.0, 650.0, 720.0])
+        surplus = np.array([1.0, -2.0, 0.0])
+        imbalance = np.array([0.3, 0.1, 0.0])
+        state = np.array([0.0, 0.5, -1.0])
+        next_price, next_state = stateless(proportional)(price, surplus, imbalance, state)
+        np.testing.assert_array_equal(next_price, proportional(price, surplus, imbalance))
+        np.testing.assert_array_equal(next_state, state)
+
+    def test_a_run_moves_the_price_as_the_function_does(self, synthetic_economy):
+        handed = []
+
+        def recording(price, surplus, imbalance):
+            handed.append((price.copy(), surplus.copy(), imbalance.copy()))
+            return proportional(price, surplus, imbalance)
+
+        result = run(
+            HahnelBook2021(price_rule=stateless(recording), max_rounds=6, record_trajectory=True),
+            synthetic_economy,
+            seed=0,
+        )
+        assert len(handed) == 6
+        for plan, (price, surplus, imbalance) in zip(result.summary.trajectory, handed):
+            np.testing.assert_array_equal(plan.valuation[INDICATIVE_PRICE], price)
+            np.testing.assert_array_equal(
+                plan.valuation[NEXT_INDICATIVE_PRICE], proportional(price, surplus, imbalance)
+            )
+            np.testing.assert_array_equal(
+                plan.extra[PRICE_RULE_STATE], np.zeros(synthetic_economy.n_commodities)
+            )
+
+    def test_it_is_the_same_run_as_the_rule_written_out(self, synthetic_economy):
+        class WrittenOut:
+            def initial_state(self, n_commodities):
+                return np.zeros(n_commodities)
+
+            def __call__(self, price, surplus, imbalance, state):
+                return proportional(price, surplus, imbalance), state
+
+        adapted = run(
+            HahnelBook2021(price_rule=stateless(proportional), max_rounds=40),
+            synthetic_economy,
+            seed=0,
+        )
+        written = run(
+            HahnelBook2021(price_rule=WrittenOut(), max_rounds=40), synthetic_economy, seed=0
+        )
+        assert_the_same_run(adapted, written)
+
+    def test_it_is_a_dataclass_holding_the_function_rather_than_a_closure(self):
+        rule = stateless(proportional)
+        assert isinstance(rule, StatelessPriceRule)
+        assert dataclasses.is_dataclass(rule)
+        assert [field.name for field in dataclasses.fields(rule)] == ["price_function"]
+        assert rule.price_function is proportional
+
+    def test_it_survives_pickling_when_the_function_does(self):
+        rule = pickle.loads(pickle.dumps(stateless(proportional)))
+        price = np.array([700.0, 650.0])
+        surplus = np.array([1.0, -1.0])
+        imbalance = np.array([0.2, 0.4])
+        next_price, _ = rule(price, surplus, imbalance, rule.initial_state(2))
+        np.testing.assert_array_equal(next_price, proportional(price, surplus, imbalance))
+
+
+class TestConfigurationRecordsTheRule:
+    """What a run configuration document says about the price rule a run used."""
+
+    @pytest.fixture
+    def economy(self):
+        return synthetic.build_economy()
+
+    def test_the_default_records_no_rule(self, economy):
+        document = run_configuration(HahnelBook2021(), economy, seed=0)
+        assert document.procedure["parameters"]["price_rule"] is None
+
+    def test_the_programs_rule_is_recorded_as_the_librarys(self, economy):
+        document = run_configuration(HahnelBook2021(price_rule=book_2021_rule), economy, seed=0)
+        rule = document.procedure["parameters"]["price_rule"]
+        assert rule["kind"] == "library"
+        assert rule["module"] == BOOK_MODULE
+        assert rule["qualname"] == "Book2021Rule"
+        assert rule["parameters"] == {}
+        assert rule["source_digest"] == document.procedure["source_digest"]
+
+    def test_a_wrapped_researcher_function_is_recorded_as_undeclared_inside_the_wrapper(
+        self, economy
+    ):
+        document = run_configuration(
+            HahnelBook2021(price_rule=stateless(proportional)), economy, seed=0
+        )
+        rule = document.procedure["parameters"]["price_rule"]
+        assert rule["kind"] == "library"
+        assert rule["module"] == COUNCILS_MODULE
+        assert rule["qualname"] == "StatelessPriceRule"
+        assert rule["parameters"] == {
+            "price_function": {"kind": "researcher", "declared_origin": None, "parameters": None}
+        }
+
+    def test_a_wrapped_library_function_is_pinned_inside_the_wrapper(self, economy):
+        document = run_configuration(
+            HahnelBook2021(price_rule=stateless(_relative_imbalance)), economy, seed=0
+        )
+        wrapped = document.procedure["parameters"]["price_rule"]["parameters"]["price_function"]
+        assert wrapped["kind"] == "library"
+        assert wrapped["module"] == COUNCILS_MODULE
+        assert wrapped["qualname"] == "_relative_imbalance"
+
+    def test_the_document_writes_as_json(self, economy, tmp_path):
+        run_configuration(
+            HahnelBook2021(price_rule=stateless(proportional)), economy, seed=0
+        ).to_json(tmp_path / "configuration.json")
 
 
 @pytest.mark.skipif(not dep1ex_available(1), reason="dep1ex01 archive not available")
 class TestDep1ex01:
-    def test_round_count_matches_the_reference(self, dep1ex01_parsed, dep1ex01_economy):
-        wc, cc, layout = dep1ex01_parsed
-        expected_rounds, _, _ = reference_run(wc, cc, layout)
-        result = run(HahnelSlides2020(), dep1ex01_economy, seed=0)
-        assert result.summary.converged is True
-        assert result.summary.rounds == expected_rounds
-
-    def test_final_prices_match_the_reference(self, dep1ex01_parsed, dep1ex01_economy):
-        wc, cc, layout = dep1ex01_parsed
-        _, expected_prices, _ = reference_run(wc, cc, layout)
-        result = run(HahnelSlides2020(), dep1ex01_economy, seed=0)
-        np.testing.assert_allclose(
-            result.plan.valuation[INDICATIVE_PRICE],
-            unified_price(expected_prices, layout),
-            rtol=1e-9,
-            atol=0,
-        )
-
-    def test_first_round_proposals_match_the_reference(self, dep1ex01_parsed, dep1ex01_economy):
-        wc, cc, layout = dep1ex01_parsed
-        expected_output, expected_input_use = reference_first_round(wc, cc, layout)
-        first = run(
-            HahnelSlides2020(max_rounds=1, record_trajectory=True), dep1ex01_economy, seed=0
-        ).plan
-        np.testing.assert_allclose(first.output, expected_output, rtol=1e-12, atol=0)
-        np.testing.assert_allclose(first.input_use, expected_input_use, rtol=1e-12, atol=0)
-
-    def test_not_slower_than_the_reference(self, dep1ex01_parsed, dep1ex01_economy):
-        wc, cc, layout = dep1ex01_parsed
-        started = time.perf_counter()
-        reference_run(wc, cc, layout)
-        reference_seconds = time.perf_counter() - started
-        result = run(HahnelSlides2020(), dep1ex01_economy, seed=0)
-        assert result.summary.wall_seconds <= TIMING_ALLOWANCE * reference_seconds, (
-            f"prefab {result.summary.wall_seconds:.2f}s "
-            f"vs reference {reference_seconds:.2f}s"
-        )
-
     def test_the_plan_reproduces_its_own_production_function(self, dep1ex01_economy):
-        plan = run(HahnelSlides2020(), dep1ex01_economy, seed=0).plan
+        plan = run(HahnelBook2021(), dep1ex01_economy, seed=0).plan
         np.testing.assert_allclose(
             np.asarray(plan.output),
             output_from_the_production_function(dep1ex01_economy, plan),
@@ -917,7 +1264,7 @@ class TestDep1ex01:
         )
 
     def test_effort_matches_the_upstream_closed_form(self, dep1ex01_economy):
-        model = CouncilModel(dep1ex01_economy, 5.0)
+        model = model_of(dep1ex01_economy)
         price = np.full(dep1ex01_economy.n_commodities, 700.0)
         _, effort, _ = model._propose(price)
 
@@ -928,7 +1275,7 @@ class TestDep1ex01:
         self, dep1ex01_economy
     ):
         rule = RecordingRule()
-        result = run(HahnelSlides2020(price_rule=rule), dep1ex01_economy, seed=0)
+        result = run(HahnelBook2021(price_rule=rule), dep1ex01_economy, seed=0)
         public = np.asarray(dep1ex01_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
 
         rebuilt = imbalance_rebuilt_from(dep1ex01_economy, result.plan)
@@ -936,36 +1283,6 @@ class TestDep1ex01:
             rebuilt[public], rule.imbalance[-1][public], rtol=1e-12, atol=0
         )
         assert rebuilt[public].max() > 0.01
-
-    def test_determinism_report(self, dep1ex01_economy):
-        report = check_determinism(HahnelSlides2020(), dep1ex01_economy, 0, n=2)
-        assert report.identical is True
-        assert report.differing_fields == []
-
-
-@pytest.mark.slow
-@pytest.mark.skipif(
-    not all(dep1ex_available(i) for i in range(1, DEP1EX_COUNT + 1)),
-    reason="the full dep1ex set is not available",
-)
-class TestPublishedExperiments:
-    def test_all_five_experiments(self):
-        cold5_ours, cold5_reference, cold3_ours = [], [], []
-        for index in range(1, DEP1EX_COUNT + 1):
-            wc, cc, layout = parse_dep1ex(dep1ex_path(index))
-            economy = economy_from_repro(wc, cc, layout)
-            reference5, _, _ = reference_run(wc, cc, layout, threshold=5.0)
-            cold5_reference.append(reference5)
-            cold5_ours.append(run(HahnelSlides2020(), economy, seed=0).summary.rounds)
-            cold3_ours.append(
-                run(HahnelSlides2020(threshold_pct=3.0), economy, seed=0).summary.rounds
-            )
-            del wc, cc, economy
-            gc.collect()
-
-        assert cold5_ours == cold5_reference
-        assert sorted(cold5_ours) == COLD_5_PERCENT_ROUNDS
-        assert abs(statistics.fmean(cold3_ours) - COLD_3_PERCENT_MEAN) < 0.05
 
 
 def uneven_price(economy):
@@ -1072,6 +1389,20 @@ def commodity_demand_rebuilt_from(economy, plan, price):
     )
 
 
+def second_round_of(economy):
+    """``(plan, price, surplus)`` of the second round, whose price is no longer flat."""
+    rule = RecordingRule()
+    result = run(
+        HahnelBook2021(price_rule=rule, max_rounds=2, record_trajectory=True),
+        economy,
+        seed=0,
+    )
+    assert len(result.summary.trajectory) == 2
+    price, surplus = rule.price[-1], rule.surplus[-1]
+    assert np.unique(price).size > 1
+    return result.summary.trajectory[-1], price, surplus
+
+
 class TestConsumptionBlockIsNotCopied:
     """``plan_of`` hands over the block the round produced rather than a copy of it.
 
@@ -1080,7 +1411,7 @@ class TestConsumptionBlockIsNotCopied:
     """
 
     def test_the_plan_shares_the_state_consumption_block(self, synthetic_economy):
-        model = CouncilModel(synthetic_economy, 5.0)
+        model = model_of(synthetic_economy)
         state = model.step(model.initial_state(700.0))
         plan = model.plan_of(state)
         assert np.shares_memory(np.asarray(plan.consumption), state.consumption)
@@ -1088,14 +1419,14 @@ class TestConsumptionBlockIsNotCopied:
     def test_it_shares_when_the_private_columns_are_not_contiguous(self):
         """Non-contiguous columns are where a split by position would fall back to a copy."""
         economy = synthetic.build_permuted_economy()
-        model = CouncilModel(economy, 5.0)
+        model = model_of(economy)
         state = model.step(model.initial_state(700.0))
         plan = model.plan_of(state)
         assert np.shares_memory(np.asarray(plan.consumption), state.consumption)
 
     def test_it_shares_when_a_column_is_neither_private_nor_public(self):
         economy = synthetic.build_economy_with_a_third_kind_column()
-        model = CouncilModel(economy, 5.0)
+        model = model_of(economy)
         state = model.step(model.initial_state(700.0))
         plan = model.plan_of(state)
         assert np.shares_memory(np.asarray(plan.consumption), state.consumption)
@@ -1116,22 +1447,7 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
 
     @pytest.fixture
     def second_round(self, third_kind_economy):
-        """``(plan, price, surplus)`` of the second round, whose price is no longer flat."""
-        seen = []
-
-        def recording(price, surplus, imbalance):
-            seen.append((price.copy(), surplus.copy()))
-            return slides_2020_rule(price, surplus, imbalance)
-
-        result = run(
-            HahnelSlides2020(price_rule=recording, max_rounds=2, record_trajectory=True),
-            third_kind_economy,
-            seed=0,
-        )
-        assert len(result.summary.trajectory) == 2
-        price, surplus = seen[-1]
-        assert np.unique(price).size > 1
-        return result.summary.trajectory[-1], price, surplus
+        return second_round_of(third_kind_economy)
 
     def test_the_fixture_holds_a_column_of_each_of_the_three_cases(self, third_kind_economy):
         kinds = np.asarray(third_kind_economy.commodity_kind)
@@ -1305,7 +1621,7 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
         )
 
     def test_a_run_over_the_three_cases_converges(self, third_kind_economy):
-        result = run(HahnelSlides2020(), third_kind_economy, seed=0)
+        result = run(HahnelBook2021(), third_kind_economy, seed=0)
         assert result.summary.converged is True
         result.plan.validate(third_kind_economy)
 
@@ -1330,21 +1646,8 @@ class TestPrivateColumnsOutOfCommodityOrder:
     @pytest.fixture
     def second_round(self, economy):
         """``(plan, price)`` of the second round, whose price is no longer flat."""
-        seen = []
-
-        def recording(price, surplus, imbalance):
-            seen.append(price.copy())
-            return slides_2020_rule(price, surplus, imbalance)
-
-        result = run(
-            HahnelSlides2020(price_rule=recording, max_rounds=2, record_trajectory=True),
-            economy,
-            seed=0,
-        )
-        assert len(result.summary.trajectory) == 2
-        price = seen[-1]
-        assert np.unique(price).size > 1
-        return result.summary.trajectory[-1], price
+        plan, price, _ = second_round_of(economy)
+        return plan, price
 
     def test_the_fixture_is_out_of_order_and_unevenly_entitled(self, economy, second_round):
         _, price = second_round
@@ -1395,7 +1698,7 @@ class TestPrivateColumnsOutOfCommodityOrder:
         )
 
     def test_a_run_over_the_unordered_columns_converges(self, economy):
-        result = run(HahnelSlides2020(), economy, seed=0)
+        result = run(HahnelBook2021(), economy, seed=0)
         assert result.summary.converged is True
         result.plan.validate(economy)
         assert_consumption_columns_are_paired_with_their_labels(
@@ -1419,7 +1722,7 @@ class TestStatedDemandSplit:
     @pytest.fixture
     def model_and_price(self):
         economy = synthetic.build_economy_with_a_third_kind_column()
-        return CouncilModel(economy, 5.0), economy, uneven_price(economy)
+        return model_of(economy), economy, uneven_price(economy)
 
     def test_the_two_blocks_are_the_stated_bundle_split_by_commodity_kind(
         self, model_and_price
@@ -1494,11 +1797,11 @@ class TestThePlanIsAStatedPlan:
     """
 
     def test_the_prefab_files_its_plan_as_a_stated_plan(self, synthetic_economy):
-        result = run(HahnelSlides2020(max_rounds=2), synthetic_economy, seed=0)
+        result = run(HahnelBook2021(max_rounds=2), synthetic_economy, seed=0)
         assert isinstance(result.plan, StatedPlan)
 
     def test_the_council_model_files_the_same_identity(self, synthetic_economy):
-        model = CouncilModel(synthetic_economy, 5.0)
+        model = model_of(synthetic_economy)
         stepped = model.step(model.initial_state(700.0))
         assert isinstance(model.plan_of(stepped), StatedPlan)
 
@@ -1509,15 +1812,15 @@ class TestThePlanIsAStatedPlan:
         Building one from it directly is refused rather than answered with a plan whose
         fields are all empty.
         """
-        model = CouncilModel(synthetic_economy, 5.0)
+        model = model_of(synthetic_economy)
         with pytest.raises(SchemaError, match="consumption"):
             model.plan_of(model.initial_state(700.0))
 
     def test_it_is_not_an_allocated_plan(self, synthetic_economy):
-        result = run(HahnelSlides2020(max_rounds=2), synthetic_economy, seed=0)
+        result = run(HahnelBook2021(max_rounds=2), synthetic_economy, seed=0)
         assert not isinstance(result.plan, AllocatedPlan)
 
     def test_it_still_carries_every_fixed_field(self, synthetic_economy):
-        result = run(HahnelSlides2020(max_rounds=2), synthetic_economy, seed=0)
+        result = run(HahnelBook2021(max_rounds=2), synthetic_economy, seed=0)
         assert result.plan.absent_fields == ()
         result.plan.validate(synthetic_economy)

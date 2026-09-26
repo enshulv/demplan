@@ -60,6 +60,53 @@ The paper says it uses Wolfram Mathematica to generate the equations and then Ma
 `Solve` to solve them (page 5); the solution for two inputs is printed on page 6 as Clojure
 code. The code has eight such expressions, `solution-3` through `solution-10`.
 
+### Demand for private and public goods is not separated by commodity (added 2026-09-26)
+
+`compute-surpluses-prices` in `util.cljc` computes supply and demand for each commodity. The
+supply branch and the input-demand branch both filter by `id-to-use`; **the private-good and
+public-good demand branches do not** (HEAD lines 159-163 and 182-187, from `4c8d307`,
+2025-04-08): they sum the demand of all consumer councils for all 100 private goods and use that
+sum as the demand for each private good; public goods are handled the same way and then divided
+by the number of councils. The `ccs` passed in are not filtered beforehand (`iterate-plan` and
+`update-surpluses-prices` in `csvgen.clj` pass the whole vector for each commodity), and each
+council's `:private-goods` is a vector of per-commodity maps with an `:id`
+(`ccs_revised.clj:13-22`), so the shape of the data does not prevent the error either.
+
+The SQLite path copies this error: HEAD `csvgen.clj:750-751` is `select sum(demand) from
+private_goods`, with no `good_id` condition, although that column is stored and indexed. The
+ClojureScript front end calls the same functions.
+
+Effect: the private-good and public-good quantities that any build of `pequod-plus` (CLJ, CLJS,
+SQLite) converges to cannot be compared with a correct implementation. The book's results come
+from `pequod-cljs` and are not affected.
+
+### Why the code before SQLite took two minutes per round (added 2026-09-26)
+
+The author's log, verbatim (`docs/notes.txt` line 74, `d0536cf`): "An iteration with 60,000
+councils now takes about two minutes, which would mean a completion time from start to finish of
+around two hours, as opposed to something like 12 hours." Lines 70 and 86 also credit "a newer
+and faster computer". The eleven timed runs (2026-01-24 to 03-15, `real` 160–253 minutes) ran
+the `util.cljc` of `0d2506d` (2026-01-18); SQLite first appears in `3745bde` (2026-04-09).
+
+Counting operations from the code (**an estimate, not measured on a JVM**), the bulk of one
+round is:
+
+| Rank | Step | Operations per round | Estimated time |
+|---|---|---|---|
+| 1 | The demand branch from the previous section: for each of the 200 private and public goods, all 30,000 × 100 elements go through a lazy `map`, `get-in` and `flatten` | 6.0e8 elements | 60–150 s |
+| 2 | `consume`: two linear `filter`s per commodity, plus the sum over all 2G exponents redone per commodity, O(C·G²) | about 2.0e9 | 10–30 s |
+| 3 | For each of 301 input goods, `select-keys` and a hash set rebuilt for every worker council | 9e6 + 9e6 | 3–8 s |
+
+The total is about 75–190 seconds, consistent with "about two minutes". The code is
+single-threaded; `user` is 1.4–2.2 times `real`, and the extra is presumably GC and JIT threads.
+
+The author's "optimization" commits from January to March 2026 changed only the closed-form
+solutions `solution-3` to `solution-8` (for example, `solution-8` went from 370 calls to
+`Math/log` to 21). That part takes well under one second per round (estimate), so it does not
+explain the change from 12 hours to about 4 hours, and the log itself mentions a faster
+computer. Aggregating the rank-1 branch once by commodity id fixes the correctness error and
+also removes about 99% of the rank-1 cost.
+
 ### Public-good demand differs by a factor of N between the two code paths
 
 `consume` in `src/cljc/pequod_plus/util.cljc` (the ClojureScript path) has each consumer

@@ -22,7 +22,7 @@ from demplan import (
     StatedPlan,
     run_configuration,
 )
-from demplan.prefabs.hahnel_2020_slides import HahnelSlides2020
+from demplan.prefabs.hahnel import HahnelBook2021
 
 from reference import synthetic
 
@@ -62,13 +62,13 @@ class TestARealPlanReachesTheDocument:
 
     def test_a_plan_that_carries_everything_declares_nothing_absent(self, economy):
         document = run_configuration(
-            HahnelSlides2020(), economy, seed=0, plan=_full_plan(economy)
+            HahnelBook2021(), economy, seed=0, plan=_full_plan(economy)
         )
         assert document.plan_fields_absent == ()
 
     def test_a_plan_that_declares_fields_absent_names_them_in_order(self, economy):
         document = run_configuration(
-            HahnelSlides2020(), economy, seed=0, plan=_sparse_plan(economy)
+            HahnelBook2021(), economy, seed=0, plan=_sparse_plan(economy)
         )
         assert document.plan_fields_absent == (
             "consumption",
@@ -81,13 +81,13 @@ class TestARealPlanReachesTheDocument:
         assert isinstance(Plan.absent_fields, property)
 
     def test_no_plan_at_all_is_the_undeclared_form(self, economy):
-        document = run_configuration(HahnelSlides2020(), economy, seed=0)
+        document = run_configuration(HahnelBook2021(), economy, seed=0)
         assert document.plan_fields_absent is None
 
     @pytest.mark.parametrize("cls", [StatedPlan, AllocatedPlan])
     def test_a_subclass_reaches_the_document_the_same_way(self, economy, cls):
         document = run_configuration(
-            HahnelSlides2020(), economy, seed=0, plan=_sparse_plan(economy, cls)
+            HahnelBook2021(), economy, seed=0, plan=_sparse_plan(economy, cls)
         )
         assert document.plan_fields_absent == (
             "consumption",
@@ -107,7 +107,7 @@ class TestTheContainerConventionHoldsAcrossTheSeam:
 
     def test_the_plan_and_the_document_agree_on_the_type(self, economy):
         plan = _sparse_plan(economy)
-        document = run_configuration(HahnelSlides2020(), economy, seed=0, plan=plan)
+        document = run_configuration(HahnelBook2021(), economy, seed=0, plan=plan)
         assert isinstance(plan.absent_fields, tuple)
         assert isinstance(document.plan_fields_absent, tuple)
 
@@ -116,7 +116,7 @@ class TestTheContainerConventionHoldsAcrossTheSeam:
     ):
         path = tmp_path / "configuration.json"
         run_configuration(
-            HahnelSlides2020(), economy, seed=0, plan=_sparse_plan(economy)
+            HahnelBook2021(), economy, seed=0, plan=_sparse_plan(economy)
         ).to_json(path)
         assert isinstance(json.loads(path.read_text(encoding="utf-8"))["plan_fields_absent"], list)
         assert isinstance(RunConfiguration.from_json(path).plan_fields_absent, tuple)
@@ -126,13 +126,13 @@ class TestARealPrefabReachesTheDocument:
     """The library's own procedure is a dataclass, so its parameters are recorded."""
 
     def test_the_prefab_is_recorded_as_library_code(self, economy):
-        document = run_configuration(HahnelSlides2020(), economy, seed=0)
+        document = run_configuration(HahnelBook2021(), economy, seed=0)
         assert document.procedure["kind"] == "library"
-        assert document.procedure["qualname"] == "HahnelSlides2020"
+        assert document.procedure["qualname"] == "HahnelBook2021"
 
     def test_the_prefabs_parameters_are_recorded_by_value(self, economy):
         document = run_configuration(
-            HahnelSlides2020(threshold_pct=3.0, max_rounds=100), economy, seed=0
+            HahnelBook2021(threshold_pct=3.0, max_rounds=100), economy, seed=0
         )
         assert document.procedure["parameters"]["threshold_pct"] == 3.0
         assert document.procedure["parameters"]["max_rounds"] == 100
@@ -142,7 +142,7 @@ class TestTheDocumentSurvivesARoundTrip:
     def test_a_written_document_reads_back_the_same(self, economy, tmp_path):
         path = tmp_path / "configuration.json"
         written = run_configuration(
-            HahnelSlides2020(), economy, seed=7, plan=_sparse_plan(economy)
+            HahnelBook2021(), economy, seed=7, plan=_sparse_plan(economy)
         )
         written.to_json(path)
         read = RunConfiguration.from_json(path)
@@ -152,7 +152,7 @@ class TestTheDocumentSurvivesARoundTrip:
 
     def test_the_file_is_json_a_second_reader_can_parse(self, economy, tmp_path):
         path = tmp_path / "configuration.json"
-        run_configuration(HahnelSlides2020(), economy, seed=7).to_json(path)
+        run_configuration(HahnelBook2021(), economy, seed=7).to_json(path)
         parsed = json.loads(path.read_text(encoding="utf-8"))
         assert parsed["economy"]["algorithm"] == "sha256-columns-v2"
 
@@ -160,11 +160,11 @@ class TestTheDocumentSurvivesARoundTrip:
 class TestTheDocumentTracksTheEconomyItWasGiven:
     def test_two_economies_that_differ_get_different_digests(self, economy):
         other = synthetic.build_permuted_economy()
-        first = run_configuration(HahnelSlides2020(), economy, seed=0)
-        second = run_configuration(HahnelSlides2020(), other, seed=0)
+        first = run_configuration(HahnelBook2021(), economy, seed=0)
+        second = run_configuration(HahnelBook2021(), other, seed=0)
         assert first.economy["digest"] != second.economy["digest"]
 
     def test_the_same_economy_gets_the_same_digest_twice(self, economy):
-        first = run_configuration(HahnelSlides2020(), economy, seed=0)
-        second = run_configuration(HahnelSlides2020(), economy, seed=0)
+        first = run_configuration(HahnelBook2021(), economy, seed=0)
+        second = run_configuration(HahnelBook2021(), economy, seed=0)
         assert first.economy == second.economy

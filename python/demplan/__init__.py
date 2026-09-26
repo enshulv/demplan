@@ -21,6 +21,14 @@ from demplan.economy import CommodityKind, Economy, SchemaError, TechnologyKind
 from demplan.io import load_dep1ex
 from demplan.iterate import IterateResult, iterate
 from demplan.objectives import MaximizeWeightedConsumption, MinimizeLabor, Objective
+from demplan.periods import (
+    Advance,
+    NextProcedure,
+    PeriodResult,
+    PeriodWarning,
+    PeriodsResult,
+    run_periods,
+)
 from demplan.plan import (
     CONSUMER_DEMAND,
     EFFORT,
@@ -45,6 +53,7 @@ from demplan.seeds import rng, split_seed
 from demplan import prefabs, tools
 
 __all__ = [
+    "Advance",
     "AllocatedPlan",
     "CONSUMER_DEMAND",
     "CommodityKind",
@@ -59,7 +68,11 @@ __all__ = [
     "LABOR_VALUE",
     "MaximizeWeightedConsumption",
     "MinimizeLabor",
+    "NextProcedure",
     "Objective",
+    "PeriodResult",
+    "PeriodWarning",
+    "PeriodsResult",
     "Plan",
     "PlanFieldAbsent",
     "Procedure",
@@ -85,6 +98,7 @@ __all__ = [
     "rng",
     "run",
     "run_configuration",
+    "run_periods",
     "split_seed",
     "tools",
 ]

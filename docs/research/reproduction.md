@@ -285,3 +285,71 @@ gave 4.00 rounds.
 come from the prefab's reading of the cap and are not a faithful reproduction of the published
 procedure. Correcting the prefab's cap and implementing the book's warm start is the next work
 package; see progress.md.
+
+## Second addendum, 2026-09-26: the `pequod-cljs` source that produced the book's results
+
+Note 7 of the book points to `msszczep/pequod-cljs`. Only the code and notes were read, once
+(sparse checkout, without the data blobs). Findings:
+
+**dep1ex01–05 on szcz.org are `dep1ex61`–`65` of that repository**, byte-for-byte identical
+except for the namespace on the first line (the sha256 matches the LFS pointer). The
+repository's own `dep1ex01`–`50` (`0d24482`, 2020-05-14) are a different, smaller data set (10
+commodities per category, 3000 consumer councils), not the experiments in the book. That the
+book's 40 experiments correspond to 61–100 in the repository is an inference
+(`bin/dep_data_process.py:136,141` loops over `range(61, 101)`); only 01–05 were checked.
+
+**The price-update rule that produced the book's results has a one-round lag** (`csvgen.clj`
+@`71e44d3`, 2020-06-23, the version that produced the runs in the book):
+
+`w_k = max(0.001, min(v_{k−1}, 0.25) · (1.05 − 0.5^{v_k}))`, with `v_{−1}` taken as 0.25 before round 1.
+
+- The exponent uses this round's imbalance `v_k`, uncapped; the multiplier uses the **previous**
+  round's imbalance capped at 0.25 (`update-pdlist` stores `min(v, 0.25)`, `get-deltas`
+  multiplies, with a floor of 0.001)
+- Page 181 of the book, "cap only where v first appears, not in the exponent", is structurally
+  right; it only omits that the v in the multiplier is the previous round's, and it omits the
+  0.001 floor
+- The pseudocode on page 10 of the 2023 paper states exactly this rule ("multiply by the
+  corresponding price adjustment from the previous round, take the smaller, floor 0.001"). This
+  library first read "the previous round's price adjustment" as the previous round's step size
+  `w_{k−1}`, and `pequod-plus` implements it the same way; the original multiplies by the
+  previous round's capped imbalance `min(v_{k−1}, 0.25)`. The earlier conclusion that "the
+  page-10 pseudocode does not converge" came from this misreading
+- The lagged rule has been there since the first continuous rule (`4751280`, 2020-04-27); the
+  base 0.5 and the cap 0.25 have not changed since `fbc4766` (2020-05-12)
+
+**Reproduction result**: with this library's `CouncilModel` unchanged and only the lagged rule
+swapped in, dep1ex01–05 cold start at the 5% threshold gives 12, 12, 12, 12, 12, the same as
+Table 9.1 experiment by experiment. The worst imbalance per round matches the original's output
+`dep1ex61.csv`–`65.csv` round by round to the four decimal places shown, and the step sizes per
+round differ by about 1e-15 over 500 × 19 values. At the 3% threshold: 19, 20, 19, 19, 19; Table
+9.2 of the book has 19, 19, 20, 19, 19, with experiments 2 and 3 swapped, while the original's
+output itself is 19, 20, 19, 19, 19. The cause of the swap cannot be found in the repository
+(typesetting or transcription in the book). **The one-round gap at 5% is caused by this lag**;
+endowment, initial prices, public goods, effort and random perturbation have all been ruled out.
+
+**Convergence criterion and round counts**: symmetric imbalance `100·|2(s−d)|/(s+d)`, computed
+over all 500 commodities, measured at this round's proposals; counting starts at 0 and adds one
+after the measurement, the same convention as this library. The original runs once until
+everything is ≤ 3%; the 5% round count is the first round in that same run where everything is <
+5%.
+
+**Warm start** (`augmented-reset` in the same version, lines 194-200; `-main` line 1048):
+- The first year runs until **3%**, and the second year starts from the prices at that point,
+  specifically the prices **after** the update; the lagged rule's `pdlist` is **not reset** and
+  carries into the second year
+- The perturbation changes only the worker councils' input, natural-resource and labor exponents
+  (`augment-wc`, lines 185-188), **not the effort exponent**; for consumer councils it changes
+  the utility exponents of private and public goods. This agrees with the description of the
+  augmented reset in the 2023 paper
+- The repository has `compute-gdp` (line 867), but `csvgen` does not call it; the GDP in note 15
+  of the book was probably computed offline
+
+**Timing**: the `pequod-cljs` repository contains no timing figures at all.
+
+**The mean of Table 9.4 in the book disagrees with the text** (2026-09-26, table extracted with
+`pdftotext` and checked cell by cell): the 40 round counts in Table 9.4 sum to 261, a mean of
+6.525; the text on page 183 says "on average it took only 6.575 iterations". The mean of the GDP
+column is 2.446, which agrees with the text. Table 9.5 has a mean of 3.775 (text: "3.77"), Table
+9.6 a mean of 6.275 (agrees with the text), Table 9.1 a mean of 11.85, and Table 9.2 a mean of
+19.225 (text: "19.2").

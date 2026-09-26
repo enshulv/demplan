@@ -49,12 +49,11 @@ from demplan.configuration import (
     economy_digest,
     run_configuration,
 )
-from demplan.prefabs import HahnelSlides2020
-from demplan.prefabs.hahnel_2020_slides import slides_2020_rule
+from demplan.prefabs.hahnel import HahnelBook2021, book_2021_rule
 
 DEFAULTS_BASELINE = Path(__file__).resolve().parent / "run_configuration_defaults.json"
 
-PREFAB_MODULE = "demplan.prefabs.hahnel_2020_slides"
+PREFAB_MODULE = "demplan.prefabs.hahnel.book_2021"
 
 FIELD_COLUMNS = (
     "period",
@@ -176,8 +175,8 @@ Impostor.__module__ = "demplanx.impostor"
 class LibraryLikeProcedure:
     """A dataclass procedure that claims a library module, to reach the library branch.
 
-    ``HahnelSlides2020`` is the only procedure the library ships, and every one of its
-    parameters is a JSON scalar. The parameter rules also cover values that are not, so this
+    ``HahnelBook2021`` is the only procedure the library ships, and every one of its
+    defaults is a JSON scalar. The parameter rules also cover values that are not, so this
     one borrows a library module name and carries an array and a callable.
     """
 
@@ -433,10 +432,10 @@ class TestTopLevelKeys:
 
 class TestProcedureBlock:
     def test_a_library_procedure_is_recorded_with_its_module_and_source(self, economy):
-        config = run_configuration(HahnelSlides2020(), economy, seed=0)
+        config = run_configuration(HahnelBook2021(), economy, seed=0)
         assert config.procedure["kind"] == "library"
         assert config.procedure["module"] == PREFAB_MODULE
-        assert config.procedure["qualname"] == "HahnelSlides2020"
+        assert config.procedure["qualname"] == "HahnelBook2021"
         assert set(config.procedure) == {
             "kind",
             "module",
@@ -446,17 +445,17 @@ class TestProcedureBlock:
         }
 
     def test_the_source_digest_is_the_whole_module_file(self, economy):
-        config = run_configuration(HahnelSlides2020(), economy, seed=0)
+        config = run_configuration(HahnelBook2021(), economy, seed=0)
         assert config.procedure["source_digest"] == module_file_digest(PREFAB_MODULE)
 
     def test_the_source_digest_is_not_the_source_of_the_class_alone(self, economy):
         """Module-level constants decide behaviour as much as the class body does."""
-        config = run_configuration(HahnelSlides2020(), economy, seed=0)
-        class_source = inspect.getsource(HahnelSlides2020).encode("utf-8")
+        config = run_configuration(HahnelBook2021(), economy, seed=0)
+        class_source = inspect.getsource(HahnelBook2021).encode("utf-8")
         assert config.procedure["source_digest"] != hashlib.sha256(class_source).hexdigest()
 
     def test_the_source_digest_is_not_some_other_library_file(self, economy):
-        config = run_configuration(HahnelSlides2020(), economy, seed=0)
+        config = run_configuration(HahnelBook2021(), economy, seed=0)
         assert config.procedure["source_digest"] != module_file_digest("demplan.seeds")
 
     def test_a_researcher_procedure_records_an_undeclared_origin(self, economy):
@@ -482,11 +481,12 @@ class TestProcedureBlock:
 
 class TestParameters:
     def test_a_dataclass_procedure_records_its_fields(self, economy):
-        config = run_configuration(HahnelSlides2020(threshold_pct=3.0), economy, seed=0)
+        config = run_configuration(HahnelBook2021(threshold_pct=3.0), economy, seed=0)
         assert config.procedure["parameters"] == {
             "threshold_pct": 3.0,
             "max_rounds": 250,
             "initial_price": 700.0,
+            "initial_rule_state": None,
             "record_trajectory": False,
             "price_rule": None,
         }
@@ -518,12 +518,12 @@ class TestParameters:
 
     def test_a_library_callable_parameter_is_recorded_like_a_library_procedure(self, economy):
         config = run_configuration(
-            LibraryLikeProcedure(rule=slides_2020_rule), economy, seed=0
+            LibraryLikeProcedure(rule=book_2021_rule), economy, seed=0
         )
         rule = config.procedure["parameters"]["rule"]
         assert rule["kind"] == "library"
         assert rule["module"] == PREFAB_MODULE
-        assert rule["qualname"] == "slides_2020_rule"
+        assert rule["qualname"] == "Book2021Rule"
         assert rule["source_digest"] == module_file_digest(PREFAB_MODULE)
 
     def test_a_researcher_callable_parameter_falls_to_the_undeclared_form(self, economy):
@@ -593,7 +593,7 @@ class TestJsonFile:
     @pytest.fixture
     def config(self, economy):
         return run_configuration(
-            HahnelSlides2020(),
+            HahnelBook2021(),
             economy,
             seed=17,
             loader={"name": "load_dep1ex", "parameters": {"endowment": 1000.0}},
@@ -750,7 +750,7 @@ class TestResearcherParameters:
 
     def test_a_library_callable_inside_a_researcher_procedure_is_still_pinned(self, economy):
         config = run_configuration(
-            ResearcherDataclassProcedure(rule=slides_2020_rule), economy, seed=0
+            ResearcherDataclassProcedure(rule=book_2021_rule), economy, seed=0
         )
         rule = config.procedure["parameters"]["rule"]
         assert rule["kind"] == "library"

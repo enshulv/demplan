@@ -218,8 +218,13 @@ def reference_first_round(wc: dict, cc: dict, layout: Dep1exLayout, price: float
 
 def reference_run(wc: dict, cc: dict, layout: Dep1exLayout, threshold: float = 5.0,
                   endowment_per_commodity: float = 1000.0):
-    """``endowment.run`` under the 2020 slides price rule: ``(rounds, prices, worst_percent)``."""
+    """``endowment.run`` under the pequod-cljs price rule: ``(rounds, prices, worst_percent)``.
+
+    The mode is ``cljs_lagged``, the rule of ``csvgen.clj`` at ``71e44d3`` that
+    :class:`demplan.prefabs.hahnel.Book2021Rule` implements. ``prices`` are the prices of the
+    round that met the threshold, the ones its proposals were made at.
+    """
     _, endowment = import_reference()
     return endowment.run(
-        wc, cc, reference_dims(layout), endowment_per_commodity, "slides_capv", threshold
+        wc, cc, reference_dims(layout), endowment_per_commodity, "cljs_lagged", threshold
     )

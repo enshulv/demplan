@@ -22,7 +22,7 @@ import demplan
 sys.path.insert(0, str(pathlib.Path(demplan.__file__).resolve().parents[2] / "tests"))
 
 from demplan import run
-from demplan.prefabs import HahnelSlides2020
+from demplan.prefabs.hahnel import HahnelBook2021
 from reference.dep1ex_numpy import economy_from_repro, parse_dep1ex
 from reference.paths import dep1ex_path
 
@@ -47,8 +47,8 @@ def main(out: str) -> None:
     for index in range(1, 6):
         wc, cc, layout = parse_dep1ex(dep1ex_path(index))
         economy = economy_from_repro(wc, cc, layout)
-        five = run(HahnelSlides2020(), economy, seed=0)
-        three = run(HahnelSlides2020(threshold_pct=3.0), economy, seed=0)
+        five = run(HahnelBook2021(), economy, seed=0)
+        three = run(HahnelBook2021(threshold_pct=3.0), economy, seed=0)
         report[f"dep1ex{index:02d}"] = {
             "rounds_5pct": five.summary.rounds,
             "rounds_3pct": three.summary.rounds,

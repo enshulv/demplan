@@ -68,3 +68,20 @@ scope narrowing in [reproducibility.md](../reproducibility.md).
 
 **Revival condition**: if it is observed that nearly all methods skip `iterate`, making the convergence benchmark meaningless in
 practice.
+
+## 2026-09-26
+
+### Build the book's literal rule and the `pequod-plus` rule into the Hahnel module as comparable variants
+
+**Rejected**: The maintainer decided to follow the program. Neither of these two is the program that produced the book's results, so neither is built in.
+
+**Proposal**: Besides the original rule, build two more into `demplan.prefabs.hahnel`: the literal reading of page 181 of the book (`w = min(v, 0.25)·(1.05 − 0.5^v)`, no lag), and the `pequod-plus` reading (`1.05 − 0.5^v` times the previous round's step size). A researcher could then compare the three rules directly on the same data.
+
+**Why it was considered**: All three have a source (the book's text, and the same author's new code from 2023 on), and "how much the result changes when the textual description and the actual program differ by a one-round lag" is itself a mechanism insight about price-update rules.
+
+**Why rejected**:
+- The book's literal reading was never run this way, and the book's numbers do not come from it
+- `pequod-plus` is a different program from two years after the book was published; it does not converge on dep1ex01, and its demand aggregation is also wrong
+- The library defines only the slot; a researcher who wants to compare writes a function and plugs it in, and the library does not need to implement it for them
+
+**Revival condition**: When a researcher wants to compare price-update rules systematically and asks the library to provide these as comparison baselines.

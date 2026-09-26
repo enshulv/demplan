@@ -8,7 +8,8 @@ cold start (arbitrary initial prices) 11.85 rounds at the 5% threshold, 19.2 rou
 Searches two dimensions:
   endowment S          the per-category supply of nature and labor, not published
   price-update rule    the 2020 slides and the 2023 paper's pseudocode give different
-                        formulas; see MODES
+                        formulas, and the program behind Hahnel (2021) runs a third
+                        (cljs_lagged); see MODES
 """
 import sys
 import time
@@ -40,9 +41,36 @@ def delta_slides_capw(v, _prev, _):
     return np.minimum(v * (1.05 - 0.5 ** v), 0.25)
 
 
+def delta_cljs_lagged(v, prev, _):
+    """pequod-cljs csvgen.clj at 71e44d3, get-deltas: max(0.001, min(raw, |raw * prev|)).
+
+    raw = 1.05 - 0.5^v uses this round's v, uncapped. prev is last round's v capped at
+    0.25 (update-pdlist), which the run carries instead of the increment; see CARRIES.
+    """
+    raw = 1.05 - 0.5 ** v
+    return np.maximum(np.minimum(raw, np.abs(raw * prev)), 0.001)
+
+
 MODES = {"paper2023": delta_paper2023,
          "slides_capv": delta_slides_capv,
-         "slides_capw": delta_slides_capw}
+         "slides_capw": delta_slides_capw,
+         "cljs_lagged": delta_cljs_lagged}
+
+
+def carry_increment(_v, d):
+    """What most modes hand the next round as prev: this round's increment."""
+    return d
+
+
+def carry_capped_v(v, _d):
+    """pequod-cljs update-pdlist: this round's v capped at 0.25."""
+    return np.minimum(v, 0.25)
+
+
+# Mode -> (prev before round 1, what a round hands the next as prev). pequod-cljs starts its
+# pdlist at 0.25 for every commodity; the other modes start at 0.05.
+CARRIES = {"cljs_lagged": (0.25, carry_capped_v)}
+DEFAULT_CARRY = (0.05, carry_increment)
 
 
 # ---------------------------------------------------------------- Iteration
@@ -91,7 +119,8 @@ def run(wc, cc, dims, S, mode, threshold, p0=None):
          {k: np.full(n, 700.0) for k, n in
           (("priv", n_priv), ("pub", n_pub), ("inter", n_goods),
            ("nature", n_goods), ("labor", n_goods))})
-    prev = {k: np.full_like(v, 0.05) for k, v in p.items()}
+    prev0, carry = CARRIES.get(mode, DEFAULT_CARRY)
+    prev = {k: np.full_like(v, prev0) for k, v in p.items()}
     fn = MODES[mode]
 
     b, mask, cat, coef = wc["b"], wc["mask"], wc["cat"], wc["coef"]
@@ -121,7 +150,7 @@ def run(wc, cc, dims, S, mode, threshold, p0=None):
             v = np.where(tot > 0, np.abs(2 * surplus) / np.where(tot > 0, tot, 1), 0.0)
             d = fn(v, prev[key], None)
             p[key] = p[key] * np.where(surplus > 0, 1 - d, np.where(surplus < 0, 1 + d, 1.0))
-            prev[key] = d
+            prev[key] = carry(v, d)
     return None, p, worst * 100
 
 

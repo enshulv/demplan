@@ -41,7 +41,7 @@ v1's public surface is two data types, two functions, and a toolbox:
 | `Economy` | Data model: the state of a given period. Commodities, producing units, consumer units, technology, endowments, time |
 | `Plan` | One period's plan: physical layer plus extension layer |
 | `solve(economy, seed) -> Plan` | The coordination procedure interface. An object implementing it is called a `Procedure` |
-| `advance(economy, plan) -> Economy` | The evolution rule; appears only in multi-period runs |
+| `advance(economy, plan, seed) -> Economy` | The evolution rule; appears only in multi-period runs |
 | Tools | `iterate`, proposal behavior, invariant residuals, metrics, reference solution, seed derivation, self-test tools |
 
 `Participant` (produces a proposal given a signal) has no interface position in v1; it appears only at v2's council granularity. Metrics are a collection of functions, not an object.
@@ -50,7 +50,7 @@ v1's public surface is two data types, two functions, and a toolbox:
 
 | Use case | Granularity | Status |
 |---|---|---|
-| Parecon's iterative price adjustment | Sector | Working, `prefabs/hahnel_2020_slides` |
+| Parecon's iterative price adjustment | Sector | Working, `prefabs/hahnel` |
 | Cockshott's direct labor-time calculation | Sector | Envisioned |
 | Kantorovich-style linear programming | Sector | Working, `reference_solution`, but **requires Leontief** |
 | OLIN-EP's nonlinear input-output `(I − F(x))x = d` | Unit (factories and citizens) | Doesn't fit: `technology_kind`'s enum has no entry for it |
@@ -117,7 +117,7 @@ Extension layer (mechanism-specific)
 │   Other keys are free
 └── extra: a named-array bag for mechanism-specific physical quantities. The first dimension is one
     of n_units, n_consumers, or n_commodities.
-    hahnel_2020_slides writes effort (f64[n_units], the effort factor in the production function)
+    prefab hahnel writes effort (f64[n_units], the effort factor in the production function)
     and consumer_demand (f64[n_commodities], the contribution of consumer councils' stated plans to
     demand for each commodity: for private goods, the sum across councils; for public goods, the
     shared quantity counted once for society as a whole; for other commodities, the undivided total;
@@ -136,21 +136,29 @@ Divergence monitoring covers only the physical fields a plan actually carries: a
 
 **`valuation`'s length has two tiers by key**: conventional keys follow their registered row count (`indicative_price`, `labor_value`, and `shadow_price` are one per commodity; `income` is one per consumer unit); other keys' first dimension is one of `n_units`, `n_consumers`, or `n_commodities`. The dtype must be `float64`, and it's **rejected rather than converted** — converting would erase the signal that "the mechanism computed this quantity in a different type."
 
-**`Plan` has two subclasses**: `StatedPlan`'s `consumption` is the stated plan, `AllocatedPlan`'s is the allocated plan. A subclass only adds an identity — no added fields, no narrowed contract. `require_comparable(a, b)` refuses to subtract when the two sides are different subclasses. `hahnel_2020_slides` produces `StatedPlan`; the reference solution produces `AllocatedPlan`.
+**`Plan` has two subclasses**: `StatedPlan`'s `consumption` is the stated plan, `AllocatedPlan`'s is the allocated plan. A subclass only adds an identity — no added fields, no narrowed contract. `require_comparable(a, b)` refuses to subtract when the two sides are different subclasses. The prefab `hahnel` produces `StatedPlan`; the reference solution produces `AllocatedPlan`.
 
 ## Multiple periods
 
 The researcher chooses between static and rolling:
 
 ```
-run_periods(economy, procedure, advance=..., T=5)
+run_periods(economy, procedure, periods, seed, advance=None, next_procedure=None, check_period=True)
 ```
 
-Not passing an evolution rule means static (solving the same problem T times, or doing a one-shot cross-period optimization); passing one means rolling (`Economy` is updated each period). Anyone not doing multi-period work never sees this concept.
+Not passing an evolution rule means static (the same economy is solved `periods` times); passing one means rolling (`Economy` is updated each period). Anyone not doing multi-period work never sees this concept.
 
-**The evolution rule `advance(economy, plan) -> Economy` belongs to the researcher.** It holds capital accumulation, technological progress, resource depletion, population change — each one a theoretical claim. The library provides a few common implementations as tools.
+**The evolution rule `advance(economy, plan, seed) -> Economy` belongs to the researcher.** It holds capital accumulation, technological progress, resource depletion, population change — each one a theoretical claim. The library provides a few common implementations as tools. It is called only between two periods, `periods − 1` times in total. The library assigns the seed it receives, so a random evolution rule is reproducible; the rule must not keep random state between two calls.
 
-It's structurally the same as `iterate`: the value isn't running the loop for the researcher, but letting the library see that this is a trajectory — which is what makes cross-period provenance, multi-period output structure, and cross-period invariants possible.
+**The next period's coordination procedure is built by the function slot `next_procedure(previous_plan) -> Procedure`.** Whatever the previous period passes to the next one (for example the warm-start prices) the mechanism puts into the plan and reads back itself. Without it, every period reuses the same coordination procedure. The coordination procedure interface `solve(economy, seed)` does not change.
+
+**Seed layout**: `split_seed(seed, 2 · periods)` gives `w₀ …`. Period i (counting from 0) uses `w₂ᵢ` for the coordination procedure, and the evolution rule that produces the economy of period i+1 uses `w₂ᵢ₊₁`. The last position is reserved. This layout is part of the determinism contract.
+
+**Output** keeps every period's economy, the `RunResult`, the coordination procedure's seed and the evolution rule's seed.
+
+**Soft check on the period number**: when the `period` returned by the evolution rule is not the previous one plus one, a `PeriodWarning` is issued. It does not raise and does not correct the value; `check_period=False` turns it off.
+
+It's structurally the same as `iterate`: the value isn't running the loop for the researcher, but letting the library see that this is a trajectory — which is what makes cross-period provenance, multi-period output structure, and cross-period residuals possible.
 
 ## Replaceable and fixed
 
@@ -194,7 +202,7 @@ Each of the four carries a theoretical assumption of its own (in order: closed w
 
 **Price homogeneity of degree zero is a property test, not a residual.** It's a property of the coordination procedure, and a single run's output doesn't contain it. The `check_homogeneity` tool rescales the initial valuation, reruns, and compares the physical layer; it's usable only for coordination procedures that expose their initial valuation as a parameter.
 
-**Cross-period invariants** are also in the toolbox, also off by default: cumulative resource use not exceeding the initial stock, non-negative capital stock, population conservation, and a stock equal to the prior period's stock plus this period's net flow.
+**Cross-period residuals** are likewise always computed and neutrally named: the cumulative resource use (against the initial endowment) and the change in the number of consumer units, which can be computed from fixed fields, are computed by default in multi-period runs and written to the output, and can be turned off. Non-negative capital stock and a stock equal to the prior period's stock plus net flow have no corresponding fields in the data model; they are marked N/A with the reason. Which of them constrain a given model is declared by its evolution rule or prefab. The output includes a coverage table.
 
 Their character differs from the single-period batch, and the document calls this out separately: **a single-period invariant violation is visible to the researcher on the spot** (this period's plan is infeasible), **but a cross-period violation is not** — when the evolution rule computes something wrong, every subsequent period's coordination procedure computes a fully self-consistent answer to a wrong problem, every check passes, the charts look fine, and the error grows with the number of periods, silently the whole way.
 

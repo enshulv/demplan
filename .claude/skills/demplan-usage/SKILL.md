@@ -45,10 +45,11 @@ Published economies are downloaded separately, for example
 
 ```python
 from demplan import load_dep1ex, run
-from demplan.prefabs import HahnelSlides2020
+from demplan.prefabs import HahnelBook2021
+from demplan.prefabs.hahnel import stateless
 
 economy = load_dep1ex("dep1ex01.clj.gz")        # endowment defaults to 1000, the paper's value
-result = run(HahnelSlides2020(), economy, seed=0)
+result = run(HahnelBook2021(), economy, seed=0)
 print(result.summary.rounds, result.summary.converged, result.summary.diverged)
 ```
 
@@ -72,7 +73,7 @@ import numpy as np
 def proportional(price, surplus, imbalance):
     return price * (1 - 0.2 * np.sign(surplus) * imbalance)
 
-result = run(HahnelSlides2020(price_rule=proportional), economy, seed=0)
+result = run(HahnelBook2021(price_rule=stateless(proportional)), economy, seed=0)
 ```
 
 Return a new array each round; do not write into the arguments.

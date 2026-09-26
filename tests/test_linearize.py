@@ -18,7 +18,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from demplan import CommodityKind, Economy, Plan, TechnologyKind, run
-from demplan.prefabs import HahnelSlides2020
+from demplan.prefabs.hahnel import HahnelBook2021
 from demplan.tools.leontief import input_requirements_flat
 from demplan.tools.linearize import linearize
 
@@ -147,7 +147,7 @@ class TestTheIdentityItGuarantees:
         )
 
     def test_a_participatory_plan_is_reproduced(self, synthetic_economy):
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
         linearised = linearize(synthetic_economy, plan)
         assert np.all(np.asarray(plan.output) > 0.0)
         np.testing.assert_allclose(
@@ -159,7 +159,7 @@ class TestTheIdentityItGuarantees:
 
     def test_the_cobb_douglas_reading_of_the_same_numbers_is_different(self, synthetic_economy):
         """Without this the identity above would hold for any economy, tool or no tool."""
-        plan = run(HahnelSlides2020(), synthetic_economy, seed=0).plan
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
         as_leontief = input_requirements_flat(synthetic_economy, plan.output)
         assert not np.allclose(as_leontief, np.asarray(plan.input_use), rtol=1e-3)
 

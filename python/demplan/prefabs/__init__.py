@@ -7,6 +7,7 @@ with what that paper reported. The base layer stays free of all of it.
 
 from __future__ import annotations
 
-from demplan.prefabs.hahnel_2020_slides import HahnelSlides2020
+from demplan.prefabs import hahnel
+from demplan.prefabs.hahnel import HahnelBook2021
 
-__all__ = ["HahnelSlides2020"]
+__all__ = ["HahnelBook2021", "hahnel"]

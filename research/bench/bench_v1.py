@@ -26,7 +26,7 @@ import repro  # noqa: E402
 import endowment as E  # noqa: E402
 
 import demplan  # noqa: E402
-from demplan.prefabs.hahnel_2020_slides import HahnelSlides2020  # noqa: E402
+from demplan.prefabs.hahnel import HahnelBook2021  # noqa: E402
 
 UPSTREAM_SECONDS = 4 * 3600.0
 
@@ -41,7 +41,7 @@ def bench_numpy(path):
     t_load = time.perf_counter() - t0
     dims = (cc["priv_exp"].shape[1], cc["pub_exp"].shape[1], int(wc["coef"].max()) + 1)
     t0 = time.perf_counter()
-    rounds, _, _ = E.run(wc, cc, dims, 1000.0, "slides_capv", 5.0)
+    rounds, _, _ = E.run(wc, cc, dims, 1000.0, "cljs_lagged", 5.0)
     t_run = time.perf_counter() - t0
     return t_load, t_run, rounds, rss_mb()
 
@@ -51,7 +51,7 @@ def bench_demplan(path):
     economy = demplan.load_dep1ex(path, endowment=1000.0)
     t_load = time.perf_counter() - t0
     t0 = time.perf_counter()
-    result = demplan.run(HahnelSlides2020(), economy, seed=0)
+    result = demplan.run(HahnelBook2021(), economy, seed=0)
     t_run = time.perf_counter() - t0
     return t_load, t_run, result.summary.rounds, rss_mb()
 

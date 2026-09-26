@@ -49,7 +49,7 @@ from demplan import (
 )
 from demplan.objectives import MaximizeWeightedConsumption, MinimizeLabor
 from demplan.plan import AllocatedPlan, StatedPlan, require_comparable
-from demplan.prefabs import HahnelSlides2020
+from demplan.prefabs.hahnel import HahnelBook2021
 from demplan.reference import (
     ReferenceInfeasible,
     ReferenceProcedure,
@@ -923,7 +923,7 @@ def dep1ex01():
 @pytest.fixture(scope="module")
 def comparison(dep1ex01):
     """``(economy, linearised, participatory plan, reference plan, weights, seconds)``."""
-    participatory = run(HahnelSlides2020(), dep1ex01, seed=0).plan
+    participatory = run(HahnelBook2021(), dep1ex01, seed=0).plan
     linearised = linearize(dep1ex01, participatory)
 
     kinds = np.asarray(dep1ex01.commodity_kind)
@@ -1005,7 +1005,7 @@ class TestThePlanIsAnAllocatedPlan:
         assert self.solved().plan.absent_fields == ()
 
     def test_a_reference_plan_and_a_prefab_plan_are_not_comparable(self, synthetic_economy):
-        stated = run(HahnelSlides2020(max_rounds=2), synthetic_economy, seed=0).plan
+        stated = run(HahnelBook2021(max_rounds=2), synthetic_economy, seed=0).plan
         allocated = self.solved().plan
         with pytest.raises(ValueError, match="AllocatedPlan"):
             require_comparable(stated, allocated)

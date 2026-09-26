@@ -126,3 +126,33 @@ The consequence of `RunSummary` lacking `diverged`: a researcher going through t
 **Alternatives rejected**: Validate only `PriceRule`'s return value's dtype and length at that one call site — the hole is in `Plan.valuation` (which checks neither dtype nor length), and patching only this one call site blocks only one caller. See [data-model.md](data-model.md) 2026-09-05, "`Plan.valuation` doesn't check dtype or length."
 
 **How to apply**: Any array the library hands to researcher code, and still needs itself afterward, should be handed over by **taking ownership first, then freezing it** — `copy()`, then set `writeable = False`; never freeze a view. Arrays the researcher hands back should likewise be snapshotted, not stored by reference. The test is one question: **whose memory is this**, not "is there a read-only flag on it."
+
+## 2026-09-26
+
+### The Hahnel prefab follows the program that produced the book's tables, not the book's text
+
+**Decision**: The prefab `hahnel_2020_slides` is replaced by the package `demplan.prefabs.hahnel`: `councils` holds the council model, which does not depend on any one source, and `book_2021` holds the rule `book_2021_rule` and the coordination procedure `HahnelBook2021`. The rule is implemented as in `csvgen.clj` of `msszczep/pequod-cljs` (commit `71e44d3`):
+
+`w_k = max(0.001, min(v_{k−1}, 0.25) · (1.05 − 0.5^{v_k}))`, with `v` taken as 0.25 before round 1.
+
+A code comment states the two differences from the text on page 181 of the book (the multiplier uses the previous round's capped imbalance; the 0.001 floor) and the reason for following the program. The old rule `slides_2020_rule` (capped in both places, no lag) is removed, with no alias kept.
+
+**Why**: The numbers in Tables 9.1 and 9.2 of the book come from this program. With the library's council model unchanged and only this rule swapped in, dep1ex01–05 cold start at the 5% threshold gives 12, 12, 12, 12, 12, the same as Table 9.1 experiment by experiment, and the worst imbalance per round matches the original's output to four decimal places. The book's literal reading gives only 11, 11, 10, 11, 11. The maintainer decided that the library is not accountable for the author's earlier textual description: where the author has a program, the program is followed. The old rule was the library's own reading of ambiguous text in the slides and the paper, with no source at all.
+
+**Alternatives rejected**: See [rejected/coordination-procedures.md](rejected/coordination-procedures.md) 2026-09-26.
+
+**How to apply**: When reproducing a publication whose text disagrees with its program, follow the program that produced its numbers, and state in the code where they differ. Rejected readings are not built in; a researcher who wants to compare writes a rule and plugs it in.
+
+---
+
+### The price-update rule slot supports stateful rules, with state passed in and out explicitly
+
+**Decision**: `PriceRule` becomes `initial_state(n_commodities)` plus `(price, surplus, imbalance, state) -> (next_price, next_state)`. The state is a float64 array whose first dimension is the number of commodities. The council model holds it and passes it in and out every round; the rule object keeps no state of its own. A stateless function is wrapped into a rule with `stateless(fn)`. The plan carries two more items: `valuation["next_indicative_price"]` (the price after this round's update) and `extra["price_rule_state"]` (the state returned this round), for the next period's warm start to read. The coordination procedure `HahnelBook2021` gets two more parameters: `initial_price`, which accepts a scalar or a vector, and `initial_rule_state`.
+
+**Why**: The original rule has state (it must remember the previous round's imbalance). The old slot could only express this as an object with its own memory, and a prefab is a frozen dataclass: the same rule object is reused across two `solve` calls, so the second call starts from the first call's memory, and the same economy with the same seed gives different results, which breaks determinism. With the state in the council model and passed explicitly, reusing the rule object is safe. Because the state is an array, it can go into the plan, be carried to the next period, and be seen in the provenance. The original's second year continues with the imbalance memory from the last round of the first year (`augmented-reset` does not reset `pdlist`), so a warm start must carry more than the prices.
+
+**Alternatives rejected**:
+- Build a new rule object for every `solve` (a factory) — this fixes reuse, but the state stays hidden in the object, cannot be carried to the next period, and cannot be seen
+- Allow the state to be any object — it cannot go into the plan, so it cannot be carried across periods
+
+**How to apply**: A researcher who writes a stateful price-update rule puts all of its state into the returned array and does not store it on `self`.

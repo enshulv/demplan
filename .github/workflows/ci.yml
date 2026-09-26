@@ -1,7 +1,10 @@
-# Runs both test suites on every push and pull request.
+# Runs on every push and pull request.
 #
-# The dep1ex archives are not downloaded here, so the tests that need them skip themselves;
-# the reproduction targets are checked locally against the published data.
+# checks: repository checks (documentation format, links, required files, no committed data or
+#         build artefacts), Rust formatting and Clippy. Fast, so problems show up first.
+# test:   both test suites on Linux, Windows and macOS. The dep1ex archives are not downloaded
+#         here, so the tests that need them skip themselves; the reproduction targets are checked
+#         locally against the published data.
 name: ci
 
 on:
@@ -12,8 +15,26 @@ permissions:
   contents: read
 
 jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Repository checks
+        run: python tools/check_repo.py
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy -p demplan-core --all-targets -- -D warnings
+
   test:
     name: test ${{ matrix.os }}
+    needs: checks
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

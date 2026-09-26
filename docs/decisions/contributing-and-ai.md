@@ -51,3 +51,60 @@ can follow the existing records in `docs/decisions/`.
 **How to apply**: When reviewing a pull request, read the "Human in the loop" section first:
 whether "Verified by me" lists commands that were run and their results, and whether "Not
 verified" is honest. A bare "tested" does not count.
+
+---
+
+### Two manuals for agents, project hooks, repository checks and CI
+
+**Decision**: The public repository prepares four things for AI agents.
+
+- **Two manuals**, written as Claude Code skills and readable by any agent:
+  `.claude/skills/demplan-usage/` (using the library: reproducing, changing a rule, writing a new
+  mechanism, comparing with the reference solution, reproducibility, reporting) and
+  `.claude/skills/demplan-development/` (changing it: design constraints, commands, workflow,
+  decision records, hooks, the citation check, a finishing checklist). `AGENTS.md` at the root
+  lists the rules for every task and points to both manuals.
+- **The development workflow** is taken from the maintainer's own way of working, keeping only
+  what can be public: settle the design first; write the contract and the tests first; never edit
+  a test to fit the implementation; show that key assertions can fail (mutation testing); keep
+  results bit-identical when they are meant to be; before merging, an adversarial review by someone
+  who did not write the code or by an agent without its context; a regression test that fails
+  before the fix for every defect; numbers come from runs.
+- **Project hooks** (`.claude/settings.json`): before a commit, `tools/check_repo.py` runs and
+  blocks the commit on failure; `--no-verify` and force-pushing are blocked. When an edit adds
+  citation-like text to a Markdown file or `CITATION.cff`, the agent is told to check it against
+  the original, to ask the user for the source if it does not have it, and to remove it if the
+  source cannot be provided.
+- **Repository checks**, `tools/check_repo.py` (standard library only): relative links in
+  Markdown; decision record format (Decision and Why, Rejected first, Superseded paired with
+  Supersedes, index and files matching); required files present and `CITATION.cff` complete; no
+  committed data archives or build artefacts. CI runs it with rustfmt and Clippy first, then both
+  test suites on three operating systems.
+- The fingerprint script `research/bench/golden_dep1ex.py` joins the repository so contributors
+  can compare results across a refactor themselves.
+
+The AI policy is also stated more firmly: AI-generated code submitted without its decision context
+is not accepted. This is in `CONTRIBUTING.md`, the README, and a new wiki page, "AI Development
+Guide".
+
+**Why**: The maintainer expects many researchers to use and change the library with AI help. An
+agent does not have the maintainer's context; writing a citation from its title, editing a test to
+fit the implementation and skipping checks are the mistakes it makes most easily and that are
+hardest to see in the result. The manuals state what matters; the hooks and checks turn what can
+be judged mechanically into hard stops, and make sure the part that cannot (whether a citation is
+true) is at least asked every time.
+
+The citation check closes the development manual because the check before this release found 44
+claims that did not match their sources, including claims about this library's own reproduction.
+
+**Alternatives rejected**:
+- Only `CONTRIBUTING.md`, no manuals for agents — agents need operational guidance (commands, API,
+  pitfalls); `CONTRIBUTING.md` states the rules
+- Publish the maintainer's private workflow as it is — it is full of private terms and tools that
+  only exist in the maintainer's environment, and outside readers could not use it
+- A git pre-commit hook instead of a Claude Code hook — git hooks are not distributed with a clone;
+  CI runs the same script as the backstop
+
+**How to apply**: When the development workflow changes, change the development manual with it;
+when a file becomes required, add it to the list in `check_repo.py`. After changing a hook script,
+test it with sample input for both the allowed and the blocked case.

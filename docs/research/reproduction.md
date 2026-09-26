@@ -242,3 +242,46 @@ or having councils not spend their full entitlement.
 
 The one place it is observable in this library is the per-column stated plan, pinned by
 `TestStatedDemandSplit` in `tests/test_hahnel_2020_slides.py`.
+
+## Addendum, 2026-09-26: Hahnel (2021), chapter 9, and how the prefab differs
+
+Hahnel (2021), *Democratic Economic Planning*, chapter 9 (book pages 178–184), gives details that
+neither the slides nor the paper give. The maintainer holds a private copy; it is not distributed
+with the repository.
+
+**Per-experiment round counts.** Tables 9.1 and 9.2 list the round count of each of the 40
+experiments at the 5% and 3% thresholds (the averages 11.85 and 19.2 come from them). For
+experiments 1 to 5: 12, 12, 12, 12, 12 at 5%; 19, 19, 20, 19, 19 at 3%. The book does not say
+that dep1ex01 to 05 are experiments 1 to 5; they are matched here by number.
+
+**Where the cap in the price-update rule applies.** Page 181: "for any v > 0.25 we substituted
+0.25 for v where it first appears in the price adjustment formula, but not where it appears as an
+exponent". That is, `w = min(v, 0.25) · (1.05 − 0.5^v)`. The slides say only "except when
+v > 0.25" and page 7 of the paper says "then v = 0.25"; neither says where the cap applies.
+**The prefab's `slides_2020_rule` caps v in both places**, which is not what the book specifies.
+
+Measured on dep1ex01 to 05, seed 0:
+
+| | 5% threshold | 3% threshold |
+|---|---|---|
+| Book, Tables 9.1 and 9.2, experiments 1 to 5 | 12, 12, 12, 12, 12 | 19, 19, 20, 19, 19 |
+| demplan prefab (cap in both places) | 14, 13, 13, 14, 13 | 23, 23, 22, 23, 23 |
+| The book's reading (cap only where v first appears) | 11, 11, 10, 11, 11 | 19, 19, 19, 19, 19 |
+
+With the book's reading the 3% counts match almost experiment by experiment; at 5% they are one
+round short, for a reason not yet investigated (candidates: whether the threshold test is `<` or
+`≤`, and where round counting starts).
+
+**Warm start.** Pages 182–183 specify the perturbation: each exponent of every worker council's
+production function is increased by one of {0.000, 0.001, 0.002, 0.003, 0.004} chosen at random,
+each exponent of every consumer council's well-being function by one of {−0.002, −0.001, 0.000,
++0.001, +0.002}, and planning starts from the previous year's final prices. Table 9.4 gives the
+round count and real GDP growth of each of the 40 experiments: 6.575 rounds on average (the 6.5
+of the slides and the paper is this figure rounded), GDP growth from 2.178% to 2.659%, 2.446% on
+average. The warm-start perturbation used here before was chosen by this project, which is why it
+gave 4.00 rounds.
+
+**Consequence**: the 13.40 and 22.80 rounds reported earlier in this document and in the README
+come from the prefab's reading of the cap and are not a faithful reproduction of the published
+procedure. Correcting the prefab's cap and implementing the book's warm start is the next work
+package; see progress.md.

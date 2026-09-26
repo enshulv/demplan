@@ -153,6 +153,12 @@ Honest status, roughly in the order these will be addressed:
   unit has exactly one output (no joint products, so emissions do not fit), and identifiers are
   equal to row numbers, so removing a row renumbers the rest. These are breaking changes and
   will happen before 1.0.
+- **The prefab reads the price-update cap differently from the book.** Hahnel [3, p. 181]
+  caps v only where it first appears in the formula; the prefab caps it in both places, which is
+  where the extra one to four rounds above come from. With the book's reading the 3% counts on
+  dep1ex01 to 05 match the book's per-experiment table almost exactly. Correcting this, and
+  reproducing the book's warm start, is the next piece of work; details are in
+  [docs/research/reproduction.md](docs/research/reproduction.md).
 - **One published procedure.** Only the Hahnel-Szczepanczyk-Weisdorf 2020 procedure ships as a
   prefab. Labour-time planning in the tradition of Cockshott and Cottrell [12] and the
   published algorithms of [7, 8, 9] are candidates.
@@ -490,6 +496,9 @@ changes behaviour, a data model field, or a documented rule has to include a dec
 that shows the human decisions: what options were considered, which one was chosen and why,
 what was rejected, and what the contributor checked with their own eyes. The format and the
 reasons for it are in [CONTRIBUTING.md](CONTRIBUTING.md#ai-assisted-contributions).
+AI-generated code submitted without that context is not accepted. AI agents working in this
+repository should start from [AGENTS.md](AGENTS.md); the wiki's AI Development Guide explains the
+setup.
 
 ## How to cite
 

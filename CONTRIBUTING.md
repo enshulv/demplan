@@ -44,7 +44,8 @@ Run both test suites:
 
 ```sh
 pytest
-cargo test --workspace
+cargo test -p demplan-core
+python tools/check_repo.py
 ```
 
 A skipped test is not a passing test. If you expected the data-dependent tests to run, check
@@ -119,7 +120,9 @@ new decision that overrides an old one says so with **Supersedes**, and the old 
 
 demplan does not reject AI-assisted work. The maintainer uses AI tools, and pretending
 otherwise would help nobody. What the project requires is that **a person remains accountable
-for every change and shows how they exercised that responsibility.**
+for every change and shows how they exercised that responsibility.** AI-generated code submitted
+without its decision context is not accepted. The wiki's AI Development Guide explains how to set
+an agent up for this repository; agents should start from [AGENTS.md](AGENTS.md).
 
 The reason is specific to this field. A wrong coordination procedure does not crash. It produces
 a plan that looks reasonable, passes every structural check, and ends up in a paper. The

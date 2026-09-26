@@ -1,3 +1,10 @@
+# Price rule and perturbation: the update in iterate() multiplies by a per-category delta
+# carried over from the previous round, a "previous delta" reading of the page-10 pseudocode
+# of the 2023 paper, and augmented_reset() draws its perturbation from this script's own
+# generator (seed 0) after a year one run to 5%. The program behind the published tables of Hahnel (2021), pequod-cljs
+# csvgen.clj at 71e44d3, uses neither: its rule is the mode cljs_lagged of endowment.py and,
+# in the library, demplan.prefabs.hahnel.book_2021_rule, and its two years run to 3%, as
+# demplan.prefabs.hahnel.perturb_exponents and WarmStart do. See docs/research/reproduction.md.
 """
 Checks the hypothesis that the published "6.5 rounds" is a warm-start (year 2) figure,
 not a cold-start (year 1) figure.

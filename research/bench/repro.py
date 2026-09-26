@@ -1,3 +1,9 @@
+# Price rules: both DELTA_MODE values here, "category" and "pergood", are readings of the
+# page-10 pseudocode of the 2023 paper, which multiply by a delta carried over from the previous
+# round ("previous delta"): a per-category mean imbalance, or the per-good step. The program
+# behind the published tables of Hahnel (2021), pequod-cljs csvgen.clj at 71e44d3, uses
+# neither. Its rule is the mode cljs_lagged of endowment.py and, in the library,
+# demplan.prefabs.hahnel.book_2021_rule. See docs/research/reproduction.md.
 """
 Reruns the participatory-planning iteration on the authors' published raw experiment data
 (szcz.org/depexperiments), checking the published claim of "converges in 6.5 rounds on

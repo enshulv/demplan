@@ -1,3 +1,9 @@
+# Price rules: every mode this script runs is a reading of the text rather than the program:
+# slides_capv ("cap v everywhere") and slides_capw read the 2020 slides, paper2023 reads the
+# page-10 pseudocode of the 2023 paper ("previous delta"). The program behind the published
+# tables of Hahnel (2021), pequod-cljs csvgen.clj at 71e44d3, uses none of them. Its rule is
+# the mode cljs_lagged of endowment.py and, in the library, demplan.prefabs.hahnel.book_2021_rule.
+# See docs/research/reproduction.md.
 """
 Cross-check: does the 2020 slides' price-update rule, combined with the endowment of 1000
 stated in the paper, reproduce the published results?

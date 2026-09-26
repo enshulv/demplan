@@ -35,7 +35,7 @@ from typing import Callable, Protocol
 import numpy as np
 
 from demplan.economy import CommodityKind, Economy, TechnologyKind
-from demplan.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, StatedPlan
+from demplan.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, Plan, StatedPlan
 from demplan.tools import segment_sum, unit_of_input
 
 NEXT_INDICATIVE_PRICE = "next_indicative_price"
@@ -526,6 +526,29 @@ def _frozen_copy(array: np.ndarray) -> np.ndarray:
     frozen = _owned_copy(array)
     frozen.flags.writeable = False
     return frozen
+
+
+def relative_imbalance(economy: Economy, plan: Plan) -> np.ndarray:
+    """The relative imbalance of every commodity, rebuilt from a plan :class:`CouncilModel` filed.
+
+    Supply is ``plan.total_output(economy)`` plus the endowment; demand is
+    ``plan.total_input_use(economy)`` plus ``plan.extra["consumer_demand"]``. The ratio is the
+    one the model tests convergence on, ``|2(supply - demand) / (supply + demand)|``, zero
+    where supply and demand are both zero and infinite where either is not finite. On a plan
+    the model filed it equals, entry for entry, the imbalance the model measured in that round.
+
+    Returns ``f64[n_commodities]``. Raises ``ValueError`` when the plan carries no
+    ``extra["consumer_demand"]``, and :class:`demplan.SchemaError` when the plan is not shaped
+    for ``economy``.
+    """
+    if CONSUMER_DEMAND not in plan.extra:
+        raise ValueError(
+            f"relative_imbalance needs plan.extra[{CONSUMER_DEMAND!r}], the consumer councils' "
+            "share of demand, which a plan filed by CouncilModel carries"
+        )
+    supply = plan.total_output(economy) + np.asarray(economy.endowment)
+    demand = plan.total_input_use(economy) + np.asarray(plan.extra[CONSUMER_DEMAND])
+    return _relative_imbalance(supply, demand)
 
 
 def _relative_imbalance(supply: np.ndarray, demand: np.ndarray) -> np.ndarray:

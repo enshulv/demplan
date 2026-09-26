@@ -1,3 +1,8 @@
+# Price rules: of the MODES below, paper2023 is a reading of the page-10 pseudocode of the 2023
+# paper ("previous delta"), and slides_capv ("cap v everywhere") and slides_capw are readings of
+# the 2020 slides' text. The program behind the published tables of Hahnel (2021), pequod-cljs
+# csvgen.clj at 71e44d3, uses none of the three. Its rule is the mode cljs_lagged, which the
+# library runs as demplan.prefabs.hahnel.book_2021_rule. See docs/research/reproduction.md.
 """
 Works backward to the authors' endowment parameter and price-update rule.
 

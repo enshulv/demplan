@@ -353,3 +353,34 @@ everything is ≤ 3%; the 5% round count is the first round in that same run whe
 column is 2.446, which agrees with the text. Table 9.5 has a mean of 3.775 (text: "3.77"), Table
 9.6 a mean of 6.275 (agrees with the text), Table 9.1 a mean of 11.85, and Table 9.2 a mean of
 19.225 (text: "19.2").
+
+## 2026-09-26, third addendum: 40 experiments × 10 seeds against the book's five tables
+
+Script `research/bench/hahnel_book.py` (`--experiments 1-40 --seeds 10`), prefab `demplan.prefabs.hahnel` (the original
+program's lagged rule); year 1 runs to 3 %, year 2 starts from the prices after year 1's last update and from its rule
+state. Four processes, 1276 s wall clock; every run converged.
+
+| Table | Book: mean [min, max] | demplan: mean [min, max] | Sample |
+|---|---|---|---|
+| 9.1 cold start, first round all < 5 % | 11.850 [11, 13] | 11.850 [11, 13] | 40 |
+| 9.2 cold start, first round all < 3 % | 19.225 [18, 22] | 19.200 [18, 22] | 40 |
+| 9.5 rounds from all < 10 % to all < 5 % | 3.775 [3, 5] | 3.775 [3, 5] | 40 |
+| 9.4 warm start, year 2 first round < 5 % | 6.525 [5, 8] (text: 6.575) | 6.287 [5, 8] | 40 × 10 seeds |
+| 9.4 real GDP growth % | 2.446 [2.178, 2.659] | 2.477 [2.143, 2.720] | 40 × 10 seeds |
+| 9.6 increasing returns, year 2 first round < 5 % | 6.275 [5, 8] | 6.197 [5, 7] | 40 × 10 seeds |
+| 9.6 real GDP growth % | 1.860 [1.659, 2.101] | 1.852 [1.577, 2.116] | 40 × 10 seeds |
+
+**Per experiment**: Tables 9.1 and 9.5 agree on all 40 experiments. Table 9.2 agrees on 37; the three that differ are
+experiments 2 and 3 (transposed in the book, see above) and experiment 38: book 19, demplan 18. demplan's worst
+imbalance is 2.9992 % in round 18 and 3.2701 % in round 17; the independent numpy reference also gives 18, and the
+original program's stop rule would also stop at 18. Not investigated further (whether experiment 38 is `dep1ex38` is
+part of the unverified numbering).
+
+**Warm-start distribution**: year-2 rounds, book {5: 8, 6: 5, 7: 25, 8: 2}, demplan {5: 126, 6: 39, 7: 229, 8: 6};
+Table 9.6, book {5: 14, 6: 2, 7: 23, 8: 1}, demplan {5: 156, 6: 9, 7: 235}. Both have peaks at 5 and 7. The book's
+per-experiment random draws cannot be recovered, so only distributions are compared.
+
+**The book's mechanism findings hold in demplan**: a warm start cuts the round count from about 11.85 to about 6.3
+(roughly half); tightening the threshold from 5 % to 3 % costs about 7.35 more rounds; real GDP growth under a warm
+start is around 2.4 %; with 20 % of worker councils under increasing returns all 400 runs converge, with round counts
+and GDP growth of the same order as the book's.

@@ -16,8 +16,13 @@ itself was an umbrella over CHECO, Cyberstride, Cybernet, and Opsroom, and this 
 The package name is still free on both crates.io and PyPI.
 
 **Why rejected**: the package name is free, but the name is already taken twice in adjacent spaces. The top GitHub search results
-are `project-cybersyn/cybersyn2` and similar Factorio train-logistics mods, plus a `cybersyn-data` organization — an economic-data
-company that was acquired by Snowflake. The latter collides with this project in the same subject-matter niche.
+are `project-cybersyn/cybersyn2` and similar Factorio train-logistics mods, plus a `cybersyn-data` organization; an economic-data
+company of the same name, Cybersyn, has shut down and sold the assets of its public-domain business to Snowflake. The latter
+collides with this project in the same subject-matter niche.
+(Corrected 2026-09-26 after a citation check: this said the `cybersyn-data` organization was "an economic-data company that was
+acquired by Snowflake"; the founder's article says the company shut down and sold the assets of its public-domain business to
+Snowflake, and there is no evidence linking the GitHub organization `cybersyn-data` to that company, see
+<https://magis.substack.com/p/lessons-from-cybersyn>.)
 
 **Revival condition**: if those two occupied spaces free up. In practice this will not happen, so there is no point waiting for it.
 
@@ -27,7 +32,9 @@ company that was acquired by Snowflake. The latter collides with this project in
 
 **Rejected.**
 
-**Proposal**: take CHECO (CHilean ECOnomy), Cybersyn's economic-simulation component. Both crates.io and PyPI are free.
+**Proposal**: take CHECO (CHilean ECOnomic simulator), Cybersyn's economic-simulation component. Both crates.io and PyPI are free.
+(Corrected 2026-09-26 after a citation check: this said "CHilean ECOnomy"; the source says "CHilean ECOnomic simulator," see
+Medina (2011), *Cybernetic Revolutionaries*, MIT Press.)
 
 **Why it was considered**: the closest functional analogy of any candidate. CHECO was itself an economic simulator — given an
 economy and a policy, it produced a trajectory — which maps one-to-one onto what this library does. Five letters, easy to type and

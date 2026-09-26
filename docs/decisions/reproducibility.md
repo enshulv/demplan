@@ -10,7 +10,7 @@
 
 **Why**: This isn't derived from principle — it's sized from the upstream case, see [research/reproduction.md](../research/reproduction.md).
 
-Upstream's published results could not be reproduced by third parties for a long time. After investigation, the cause was **not** any of the usual suspects:
+This library found, while reproducing them, that upstream's published results could not be reproduced. (Corrected 2026-09-26 after a citation check: this said "upstream's published results could not be reproduced by third parties for a long time"; no record of a third-party attempt was found, and the finding is this library's own, see [research/reproduction.md](../research/reproduction.md).) After investigation, the cause was **not** any of the usual suspects:
 
 | Common suspect | Actual situation |
 |---|---|
@@ -19,7 +19,7 @@ Upstream's published results could not be reproduced by third parties for a long
 | Random seed | The data is a fixed file; no seed needed |
 | Implementation bug | A few existed, but none large enough to cause an order-of-magnitude difference |
 
-The real cause was that **the algorithm drifted between two publications**, and neither natural-language description was precise enough to distinguish the two versions: the 2020 conference report gave a one-line formula, `w = v(1.05 − 0.5ᵛ)`; the 2023 paper described a different rule in prose. Tested side by side, the former converges in 14 rounds, the latter fails to converge after 250. Both materials were cited as "the same algorithm."
+The real cause was that **the algorithm drifted between two publications**: the 2020 conference report gave a one-line formula, `w = v(1.05 − 0.5ᵛ)`; page 7 of the 2023 paper gives the same formula as the one used in the experiments, noting that `v` is taken as 0.25 when `v > 0.25`, and page 10 then gives pseudocode it calls an adaptation, which multiplies by the previous round's delta. Tested side by side, the former converges in 14 rounds, the latter fails to converge after 250. The published round counts can only be reproduced with the former; current upstream code implements the latter. (Corrected 2026-09-26 after a citation check: this said "neither natural-language description was precise enough to distinguish the two versions" and "the 2023 paper described a different rule in prose," and added "Both materials were cited as 'the same algorithm'"; the source says the 2023 paper writes out both versions and marks the page-10 one as an adaptation, see Szczepanczyk (2023), pages 7 and 10. No source was found for "cited as the same algorithm," so that sentence is removed.)
 
 **Natural language is not a specification.** A paragraph of prose describing a price-update rule will be implemented differently by two competent implementers, with different convergence behavior. And these two materials are exactly what the authors published so that others could reimplement the work.
 
@@ -153,7 +153,7 @@ For the third row, the error message for the two causes **must differ**: library
 
 **Decision**: The library computes a content hash for `Economy` and writes it into the run configuration document, **byte-exact, no precision reduction**. Besides the overall hash, it **also stores per-column hashes**; a mismatch error must state which column differs. The hash algorithm carries a version tag (so an old document can still be interpreted correctly).
 
-**Why**: When economies don't match, the reproducer is holding **the same code with different numbers**, and nothing anywhere shows the difference. This is exactly the shape of the case at the top of this document: upstream's published results were long unreproducible even though parameters and data were both public — the failure was that "what you got and what was used originally weren't the same thing, and no one noticed."
+**Why**: When economies don't match, the reproducer is holding **the same code with different numbers**, and nothing anywhere shows the difference. This is exactly the shape of the case at the top of this document: when this library tried to reproduce upstream's published results, it could not, even though parameters and data were both public — the failure was that "what you got and what was used originally weren't the same thing, and no one noticed." (Corrected 2026-09-26 after a citation check: this said "upstream's published results were long unreproducible"; there is no source for "long," and the finding is this library's own, see [research/reproduction.md](../research/reproduction.md).)
 
 It covers three categories that "loader name + parameters" can't cover: a hand-built economy, a researcher's own loader, **and a loader drifting on its own** (same parameters, different loader version). This repository already has a precedent for the last category: `research/bench/repro.py`'s `parse` silently truncates input records whose lengths don't match, while the Rust loader raises an error on the same input.
 

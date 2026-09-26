@@ -15,12 +15,12 @@ tracked by this repository.
 | | OLIN-EP | I-EPOS | Economic-Planning |
 |---|---|---|---|
 | Repository | `ssamot/socialist_planning` | `epournaras/EPOS` | `pablovegan/Economic-Planning` |
-| Paper | Samothrakis (2021) | Nardelli et al. (2025) | None; cites Hagberg and Zacharia |
+| Paper | Samothrakis (2020), arXiv:2005.01539 | Nardelli et al. (2025) | None; cites Hagberg and Zacharia |
 | Form | One-off experiment script | Java framework | Python package, with documentation and CI |
 | Language | Python | Java 8 + Maven | Python + cvxpy |
 | License | GPL-3.0 | GPL-2.0-or-later | GPL-3.0 |
 | Last commit | 2021-01-10 | 2026-05-22 | 2025-07-07 |
-| Granularity | Sector | Council | Sector |
+| Granularity | Unit (factories and citizens) | Council | Sector |
 | Problem solved | Root-finding | Combinatorial selection | Linear programming |
 
 **None of them is shared infrastructure.** OLIN-EP's README states that it only demonstrates
@@ -36,8 +36,9 @@ solver. This is the duplication that this library's point 7 sets out to eliminat
 
 Formulates the allocation as `(I − F(x))x = d`. `F(x)` is **a function of the output
 level**, i.e., input coefficients vary with scale; the solution method is fixed-point
-iteration plus nonlinear least squares. The paper reports solving 50,000 intermediate goods,
-5,000 final goods, and 200 consumption profiles in under 20 seconds on an i7-8700K.
+iteration plus nonlinear least squares. The paper's scale timings measure the linear problem
+`(I − A)x = d`: 50,000 intermediate goods, 5,000 final goods, and 200 consumption profiles,
+solved in under 20 seconds on an i7-8700K.
 
 The quality of a plan is judged by its worst-performing consumption profile (in the original
 text: "the plan is as good as its worst performance"). This is a maximin objective, which
@@ -50,9 +51,11 @@ evaluated on the aggregate signal; agents coordinate over a tree topology. The p
 format is `cost:values`, one candidate per line.
 
 The only dataset in the repository is `gaussian`, i.e., randomly generated vectors — **it
-carries no economic data of any kind**. Nardelli et al. (2025) treat it as a technical
-approach to communizing, listing it as a real entry alongside parecon and Cockshott in a
-list of mechanisms.
+carries no economic data of any kind**. Nardelli et al. (2025) propose a variation
+of I-EPOS as the technical basis of decentralized planning for communizing, and describe their
+approach as closer to Ostrom's commons than to central planning such as Cockshott and Cottrell
+(1993); the paper does not mention parecon. For this library it is one more mechanism alongside
+parecon and labour-time planning; that grouping is this library's, not the paper's.
 
 ### Economic-Planning: constrained linear programming
 
@@ -71,8 +74,8 @@ and `periods` equals `len(supply)`.
 ### 1. Opening up the enum now has its first external empirical need
 
 `Economy.technology_kind` currently only recognizes 0 (Leontief) and 1 (Cobb-Douglas).
-OLIN-EP's `F(x)` is neither. A published mechanism, with code, running at 50,000
-intermediate goods, does not fit into this library's fixed layer.
+OLIN-EP's `F(x)` is neither. A published mechanism, with code, does not fit into this
+library's fixed layer.
 
 The decision that "kind attributes should be declarable and the enum should be opened up"
 was previously supported only by reasoning from the design adversarial review; it now has an
@@ -163,7 +166,7 @@ solve was actually constructed** rather than hardcoded.
 At the dep1ex scale, both paths run in sub-second to low-single-digit seconds. The
 difference is within one order of magnitude, and the two sides are not even solving the
 same class of problem (root-finding / combinatorial selection / linear programming).
-OLIN-EP's 50,000 × 5,000 in 20 seconds is a worthwhile scale target to cite, and it also
+OLIN-EP's linear problem `(I − A)x = d` at 50,000 × 5,000, solved in 20 seconds, is a worthwhile scale target to cite, and it also
 supports point 11, "the entire economy resident in memory."
 
 **Computational efficiency only becomes an issue above 10⁵ commodities; economic

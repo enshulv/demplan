@@ -2,7 +2,8 @@
 Acceptance-time end-to-end timing: how long the same set of experiments takes on each of
 three paths.
 
-  upstream pequod-plus   Clojure + SQLite, about 4 hours per set (see docs/research/reproduction.md)
+  upstream pequod-plus   Clojure; the author's run log records 160 to 253 minutes per experiment,
+                         measured before the SQLite version (see docs/research/reproduction.md)
   numpy reference        research/bench/{repro,endowment}.py
   demplan                this library: the Rust loader + a Python prefab
 

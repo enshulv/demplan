@@ -18,9 +18,14 @@ Assurance" page:
   reviews the tests before the code; a report of "no problems found" must list every attack tried
   and why each failed
 - Every confirmed defect gets a regression test that fails before the fix
-- Results are anchored by: published round counts as regression targets, independent numpy
-  reference implementations, bit-level fingerprints, Hypothesis property tests, byte-exact
-  determinism checks, and README examples executed by the test suite
+- Results are anchored by: round counts from this library's own reproduction as regression
+  targets, independent numpy reference implementations, bit-level fingerprints, Hypothesis
+  property tests, byte-exact determinism checks, and README examples executed by the test suite.
+  (Corrected 2026-09-26 after a citation check: this said "published round counts as regression
+  targets"; the prefab follows the published procedure and gives 14, 13, 13, 14 and 13 rounds on
+  dep1ex01 through 05, which are this library's reproduction results, while the only published
+  figures are means over 40 experiments; see page 7 of the 2020 slides and
+  [research/reproduction.md](../research/reproduction.md).)
 - On the design side: theory-neutrality reviews, limitations stated prominently, periodic reviews
   (not yet run for the first time)
 - Much of the implementation and review work is done with AI under the maintainer's direction:

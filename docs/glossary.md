@@ -31,9 +31,9 @@ This glossary defines terms specific to this project. Where a term conflicts wit
 | evolution rule (`advance`) | What the economy becomes after this period's plan is carried out: capital accumulation, technological progress, resource depletion, population change. Belongs to the researcher; it's a parameter of the multi-period driver tool, not a core abstraction. **Not called an "iteration rule,"** to avoid colliding with the term above |
 | physical layer / extension layer | `Plan`'s two layers. The physical layer is the allocation (output, input use, consumption, endowment use), theory-neutral; the extension layer is valuation quantities (prices, labor values, shadow prices), mechanism-specific |
 | entitlement (`entitlement`) | dep1ex's `income`. An exogenously given **flow**, not an accumulable money stock. v1 has no money stock; don't conflate the two |
-| Cybersyn | Chile's 1971-73 economic control project (Spanish original name Proyecto Synco), the only attempt at democratic economic planning ever to reach production operation. It comprised four components: CHECO, Cyberstride, Cybernet, and Opsroom |
+| Cybersyn | Chile's 1971-73 decision-support system for managing the national economy (Spanish original name Proyecto Synco). It reached the prototype stage in 1972 and was left uncompleted after the 1973 coup. It comprised four components: CHECO, Cyberstride, Cybernet, and Opsroom. Source: Medina (2011), *Cybernetic Revolutionaries*, MIT Press |
 | Cyberstride | Cybersyn's statistical forecasting and early-warning component. The library's former name came from it; the library was renamed `demplan` on 2026-09-26, see [decisions/naming.md](decisions/naming.md) |
-| CHECO | CHilean ECOnomy, Cybersyn's economic simulation component. Functionally analogous to this library, but not the source of its name |
+| CHECO | CHilean ECOnomic simulator, Cybersyn's economic simulation component. Functionally analogous to this library, but not the source of its name |
 
 Inclusion criterion: these terms either already appear repeatedly in the design documents, or have no consistent usage in public sources.
 

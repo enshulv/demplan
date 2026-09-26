@@ -19,9 +19,9 @@ Reproduction and review of existing implementations. These results inform this l
 | `msszczep/pe_ifb_compute` | Repository studying computational requirements, Python |
 | `msszczep/pequod-clj`, `pequod2` | Earlier implementations, Clojure and NetLogo |
 
-The five above are successive implementations of the same model. There are also three **unrelated** economic-planning implementations, with different formalizations and data models, cloned under `upstream/` — see [related-implementations.md](related-implementations.md): `ssamot/socialist_planning`, `epournaras/EPOS`, `pablovegan/Economic-Planning`. All three are GPL-licensed; **read-only, not copied from**.
+Apart from `pe_ifb_compute`, the four above are successive implementations of the same model; `pe_ifb_compute` does not implement the model, it only studies its computational requirements. There are also three **unrelated** economic-planning implementations, with different formalizations and data models, cloned under `upstream/` — see [related-implementations.md](related-implementations.md): `ssamot/socialist_planning`, `epournaras/EPOS`, `pablovegan/Economic-Planning`. All three are GPL-licensed; **read-only, not copied from**.
 
-The same model has been rewritten five times over seven years, across four languages, without ever settling into a reusable library. That is this project's reason to exist.
+Since 2017 the same model has been implemented at least four times (`pequod2` in NetLogo, `pequod-clj`, `pequod-cljs`, `pequod-plus`), across three languages, without ever settling into a reusable library. That is this project's reason to exist.
 
 ## Key literature
 
@@ -31,9 +31,14 @@ Sources and download locations for the original texts are in [literature/](liter
   democratically planned economies. *Journal of Information Economics* 1(3), 15
 - Hahnel, Szczepanczyk, Weisdorf (2020-12-04). Computer Simulation Experiments of
   Participatory Annual Planning. Systems Science Noon Seminar. **Cold-start and warm-start
-  iteration counts are listed separately here**; this is currently the only public material
-  that makes this distinction
-- Hahnel, R. (2021). *Democratic Economic Planning*. Routledge. Chapter 9. Not obtained
+  iteration counts are listed separately here**. Hahnel (2021), chapter 9, makes the same
+  distinction and gives per-experiment data
+- Hahnel, R. (2021). *Democratic Economic Planning*. Routledge. Chapter 9, pp. 178–184: round
+  counts for each of the 40 experiments at the 5% and 3% thresholds (Tables 9.1, 9.2); the cap in
+  the price-update rule applies to v where it first appears, not in the exponent (p. 181); the
+  warm-start perturbation of the exponents and its per-experiment results (pp. 182–183,
+  Table 9.4, average 6.575 rounds). The maintainer holds a private copy; it is not distributed
+  with the repository
 - Project page: <https://participatoryeconomy.org/project/computer-simulations-of-participatory-planning/>
 
 The 2023 paper lists seven future directions at its end, each of which maps to a capability
@@ -43,6 +48,6 @@ interaction, and integration with interactive planning software.
 
 The second one is worth noting on its own: the authors state that the price-adjustment rule
 "was arrived at with little concerted effort," and that they intended to search the rule
-space systematically. That search would require hundreds or thousands of runs, while
-upstream's own experiment takes four hours to run once. The 2020 slides already say
-"there's room for improvement here"; six years later, that search still hasn't been done.
+space systematically. That search would require hundreds or thousands of runs, while in the
+author's January 2026 run log one complete experiment took four hours. The 2020 slides already
+say "there's room for improvement here".

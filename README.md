@@ -14,16 +14,17 @@ democratic planning has nothing comparable. It is scattered across one-off imple
 each with its own data model:
 
 - **The same model keeps being rewritten.** The participatory planning model of Hahnel and
-  Szczepanczyk has been implemented at least five times in seven years (`pequod-clj`,
-  `pequod2` in NetLogo, `pequod-cljs`, `pequod-plus`, `pe_ifb_compute`), in four languages,
-  and none of them became a library someone else could build on. Other groups, such as
+  Szczepanczyk has been implemented at least four times since 2017 (`pequod2` in NetLogo,
+  `pequod-clj`, `pequod-cljs`, `pequod-plus`), in three languages, and none of them became a
+  library someone else could build on. Other groups, such as
   OLIN-EP [7], I-EPOS [8] and Economic-Planning [9], each define their own data model, so no
   group's economy runs in another group's solver.
 - **Published results are hard to reproduce.** Re-running the published participatory planning
-  experiments (see [below](#reproducing-the-published-experiments)) showed that the pseudocode
-  published in 2023 does not converge to the results published in 2020, because the
-  price-update rule changed between the two and the prose descriptions could not tell the
-  versions apart. Running one experiment on the current upstream code takes two to four hours.
+  experiments (see [below](#reproducing-the-published-experiments)) showed that the published
+  round counts come back only with the price-update formula the 2023 paper states on its page 7.
+  The pseudocode the same paper gives on page 10, described there as an adaptation of that
+  formula, does not converge, and it is the version the current upstream code implements. The
+  author's own run log for the upstream code records 160 to 253 minutes per full experiment.
 
 None of this is a failing of the researchers involved. It is what happens when economists also
 have to be software engineers. Research and infrastructure are different kinds of work, and
@@ -73,22 +74,22 @@ price vector; a warm start begins from the previous period's converged prices.
 |---|---|---|
 | 2020 seminar slides [2], 40 experiments | **11.85** (19.2 at 3%) | **6.5** |
 | 2023 journal paper [4] | not reported | 6.5 |
-| Current upstream code [6], its own run log | 41 to 96 | mean 6.0 |
-| Independent re-implementation from the 2023 pseudocode, dep1ex01 | 54 to 155 | 7, 8 |
+| Upstream code [6], the author's run log (300 to 3000 councils, not the dep1ex data) | 41 to 96 | 1 to 14 across the logged runs |
+| This project's re-implementation of the page-10 pseudocode, dep1ex01 | 54 to 155 | 7, 8 |
 | **demplan, prefab `hahnel_2020_slides`, dep1ex01 to 05** | **13.40** (22.80 at 3%) | 4.00 |
 
-The warm-start figures agree across sources. The cold-start figures did not, and the difference
-traces to the price-update rule:
+The warm-start figures are of the same order across sources. The cold-start figures are not,
+and the difference traces to the price-update rule:
 
 | Price-update rule, dep1ex01, endowment 1000 | Cold start, 5% |
 |---|---|
-| 2023 pseudocode (increment multiplied by the previous round's increment) | does not converge; worst imbalance 30.2% after 250 rounds |
-| 2020 slides, `w = v(1.05 − 0.5^v)` with `v` capped at 0.25 | **14 rounds** |
+| 2023 paper, page 10: the adapted pseudocode (the adjustment multiplied by the previous round's) | does not converge; worst imbalance 30.2% after 250 rounds |
+| 2023 paper, page 7: `w = v(1.05 − 0.5^v)`, with `v = 0.25` when `v > 0.25` (the 2020 slides give the same formula without saying how `v > 0.25` is handled) | **14 rounds** |
 
-With the 2020 rule, demplan's prefab reproduces 14, 13, 13, 14 and 13 rounds on dep1ex01 to
+With the page-7 formula, demplan's prefab takes 14, 13, 13, 14 and 13 rounds on dep1ex01 to
 05. Those are within 13% (5% threshold) and 19% (3% threshold) of the reported 40-experiment
 means, and the ratio between the two thresholds matches (1.70 here, 1.62 reported). The
-endowment of 1000 stated in the paper is confirmed: a sweep puts the minimum round count
+endowment of 1000, the value the paper gives "in one instantiation", is confirmed: a sweep puts the minimum round count
 between 700 and 1000.
 
 Two further findings, stated as properties of the published model rather than of any
@@ -99,8 +100,9 @@ implementation:
   councils multiplies the stated quantity by the same number, and aggregation divides it back.
   Removing the rule leaves the round count and every plan array unchanged (largest relative
   difference 2.3e-14). The round counts above therefore do not test that rule.
-- The upstream run log covers the `ppex` experiments (300 to 3000 councils), not the published
-  `dep1ex` series, so the current upstream code has not been run on the published data.
+- None of the runs in the upstream author's log uses the published `dep1ex` data: the round
+  counts come from `ppex` experiments with 300 to 3000 councils, and the timed runs are
+  full-size `ppex` experiments.
 
 What is not reproduced yet: only 5 of the 40 experiments were run; the warm-start perturbation
 is not calibrated (three seeds give identical results, which suggests it is smaller than
@@ -109,13 +111,16 @@ Details, scripts and every intermediate number are in
 [docs/research/reproduction.md](docs/research/reproduction.md) and
 [docs/research/upstream-code-issues.md](docs/research/upstream-code-issues.md).
 
-**Speed at the same scale** (30,000 worker councils, 30,000 consumer councils, 100 goods), one
-machine:
+**Speed at the same scale** (30,000 worker councils and 30,000 consumer councils):
 
 | | Per round | One experiment |
 |---|---|---|
-| Upstream `pequod-plus` (Clojure, economy in SQLite) | about 144 s | 160 to 253 min |
-| demplan, prefab `hahnel_2020_slides`, dep1ex01 | about 0.08 s (14 rounds in 1.18 s) | about 2 s, including 0.78 s to load the archive |
+| Upstream `pequod-plus` (Clojure), the author's run log, January to March 2026 | about two minutes | 160 to 253 min |
+| demplan, prefab `hahnel_2020_slides`, dep1ex01, one machine | about 0.08 s (14 rounds in 1.18 s) | about 2 s, including 0.78 s to load the archive |
+
+The upstream figures are the author's own measurements on the code as it was before its current
+SQLite-based version, which has no published timings. They were taken on a different machine,
+so the comparison shows an order of magnitude, not a precise ratio.
 
 ## A first comparison between two mechanisms, and why it is not citable yet
 
@@ -185,7 +190,8 @@ curl -sSL -o dep1ex01.clj.gz https://www.szcz.org/depexperiments/dep1ex01.clj.gz
 ## Ten lines
 
 `HahnelSlides2020` is the iterative price procedure of the 2020 Hahnel-Szczepanczyk-Weisdorf
-simulation experiments, set up to reproduce their published round counts. The dep1ex archives
+simulation experiments, implemented as published; its round counts on dep1ex01 to 05 are
+compared with the published averages above. The dep1ex archives
 it reads are at <https://www.szcz.org/depexperiments/>.
 
 ```python
@@ -499,13 +505,13 @@ experiments [2] and the pseudocode paper [4].
 1. Albert, M., and Hahnel, R. (1991). *The Political Economy of Participatory Economics.*
    Princeton University Press.
 2. Hahnel, R., Szczepanczyk, M., and Weisdorf, M. (2020). *Computer Simulation Experiments of
-   Participatory Annual Planning.* Systems Science Noon Seminar, Portland State University,
-   4 December 2020. Slides:
+   Participatory Annual Planning.* Systems Science Noon Seminar, 4 December 2020. Slides:
    <https://thenextrecession.wordpress.com/wp-content/uploads/2021/01/computersimulationexperimentsofparti_powerpoint.pdf>
 3. Hahnel, R. (2021). *Democratic Economic Planning.* Routledge.
 4. Szczepanczyk, M. (2023). Pseudocode and algorithms for computer simulations of
-   democratically planned economies. *Journal of Information Economics* 1(3), 15.
-   <https://doi.org/10.58567/jie01030004>
+   democratically planned economies. *Journal of Information Economics* 1(3), 15, 43–54.
+   <https://doi.org/10.58567/jie01030004>. Open access under CC BY 4.0. Page numbers in this
+   README refer to the author's version, <http://www.szcz.org/img/jie-paper-2023.pdf>.
 5. Szczepanczyk, M. Participatory planning experiment data (`dep1ex01` to `dep1ex40`).
    <https://www.szcz.org/depexperiments/>
 6. Szczepanczyk, M. `pequod-plus`: participatory planning procedure prototype (Clojure,
@@ -516,8 +522,8 @@ experiments [2] and the pseudocode paper [4].
    decentralized planning for communizing. *Competition & Change* 29(1).
    <https://doi.org/10.1177/10245294231213141>. I-EPOS code (GPL-2.0-or-later):
    <https://github.com/epournaras/EPOS>
-9. `Economic-Planning`: a Python package for multi-period linear-programming planning
-   (GPL-3.0). <https://github.com/pablovegan/Economic-Planning>
+9. Parellada, P. V. `Economic-Planning`: a Python package for multi-period
+   linear-programming planning (GPL-3.0). <https://github.com/pablovegan/Economic-Planning>
 10. Vezhnevets, A. S., et al. (2023). Generative agent-based modeling with actions grounded in
     physical, social, or digital space using Concordia. arXiv:2312.03664.
 11. Piao, J., et al. (2025). AgentSociety: Large-scale simulation of LLM-driven generative

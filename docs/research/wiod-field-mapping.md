@@ -1,13 +1,14 @@
 # WIOD field mapping: what's missing from `Economy`
 
+⚠ This document was written from memory of the WIOD 2016 release's public documentation,
+**without checking the original files**. The industry count, the SEA fields, and the source of
+the CO₂ emissions data are to be checked by the WIOD loader work package. Before starting
+Stage 3, download a copy and check against it — rows marked ⚠ especially need checking.
+
 Per the requirement in [decisions/phasing-and-granularity.md](../decisions/phasing-and-granularity.md),
 2026-09-05, before Stage 2 locks down the residual definition, this document lists what is
 missing to load the WIOD 2016 release into `Economy`. **This document only lists gaps; it
 writes no code and settles on no approach.**
-
-⚠ This document was written from memory of the WIOD 2016 release's public documentation,
-**without checking the original files**. Before starting Stage 3, download a copy and check
-against it — rows marked ⚠ especially need checking.
 
 ## What the WIOD 2016 release provides
 
@@ -20,8 +21,8 @@ against it — rows marked ⚠ especially need checking.
 | SEA | Socio-economic accounts: employment, hours worked, compensation of employees, capital stock, hours worked by skill level (⚠ whether the 2016 release still splits into three skill tiers needs checking) | Economy × industry × year |
 | Environmental accounts | Not included in the 2016 release itself. CO₂ emissions have a separate supplementary dataset released in 2019 (⚠ source needs checking) | Economy × industry × year |
 
-All values are denominated in **millions of current-price US dollars**. This determines
-most of the gaps below.
+WIOT values are denominated in **millions of current-price US dollars**; SEA's monetary
+values are in millions of local currency. This determines most of the gaps below.
 
 ## Item-by-item mapping
 

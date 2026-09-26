@@ -53,7 +53,7 @@ v1's public surface is two data types, two functions, and a toolbox:
 | Parecon's iterative price adjustment | Sector | Working, `prefabs/hahnel_2020_slides` |
 | Cockshott's direct labor-time calculation | Sector | Envisioned |
 | Kantorovich-style linear programming | Sector | Working, `reference_solution`, but **requires Leontief** |
-| OLIN-EP's nonlinear input-output `(I − F(x))x = d` | Sector | Doesn't fit: `technology_kind`'s enum has no entry for it |
+| OLIN-EP's nonlinear input-output `(I − F(x))x = d` | Unit (factories and citizens) | Doesn't fit: `technology_kind`'s enum has no entry for it |
 | I-EPOS's discrete candidate-plan selection | Council | v2. A proposal isn't a continuous vector; the `Participant` interface needs to accommodate "choose from a finite candidate set" |
 
 The last two rows have public code and published results, see [research/related-implementations.md](research/related-implementations.md). Two of the first three rows are already working, but **the two cannot be compared today**: dep1ex's 30,000 units are all Cobb-Douglas, the reference solution requires Leontief, so it must pass through `linearize`, and linearization silently swaps decreasing returns to scale for constant returns.

@@ -26,7 +26,7 @@
 | Obtaining published data | ✅ | Downloaded 5 of 40 groups (dep1ex01 through 05), enough to work with |
 | Reverse-engineering the endowment parameter | ✅ | It's exactly the 1000 the paper states in its text. The sensitivity curve bottoms out between 700 and 1000 |
 | Locating the price-update rule | ✅ | The 2020 slides' formula reproduces; the 2023 paper's pseudocode does not converge. The current code uses the latter |
-| Reproducing cold-start round counts | ✅ | Mean over 5 groups: 5% threshold 13.40 (paper reports 11.85), 3% threshold 22.80 (paper reports 19.2) |
+| Reproducing cold-start round counts | ✅ | Mean over 5 groups: 5% threshold 13.40 (slides report 11.85), 3% threshold 22.80 (slides report 19.2) |
 | Reproducing warm-start round counts | 🟡 | This run: 4.00, paper reports 6.5. Variance across three seeds is zero, so the perturbation magnitude may be too small. **Not pursuing further** |
 | Running the remaining 35 groups | ❌ | Low marginal benefit, see [decisions/research-scope.md](decisions/research-scope.md) |
 | Reconciling the GDP growth figure | ❌ | Doesn't affect any design decision, see [decisions/research-scope.md](decisions/research-scope.md) |

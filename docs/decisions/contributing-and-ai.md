@@ -29,8 +29,13 @@ The rules are in `CONTRIBUTING.md`, the pull request template and the wiki's con
 **Why**: The reason is a failure mode specific to this field. A wrong coordination procedure does
 not crash. It converges to a plan that looks reasonable, passes every structural check and ends
 up in a paper. The library's own reproduction work ran into this: a published price-update rule
-that does not converge, which two careful prose descriptions could not distinguish from the one
-that does.
+that does not converge. Page 7 of the 2023 paper gives the formula used in the experiments,
+`w = v(1.05 − 0.5ᵛ)`, noting that `v` is taken as 0.25 when `v > 0.25`; page 10 gives pseudocode
+it calls an adaptation, which multiplies by the previous round's delta. The published round
+counts can only be reproduced with the former; current upstream code implements the latter.
+(Corrected 2026-09-26 after a citation check: this said "two careful prose descriptions could not
+distinguish [it] from the one that does"; the source says the 2023 paper writes out both versions
+and marks the page-10 one as an adaptation, see Szczepanczyk (2023), pages 7 and 10.)
 
 AI makes plausible code cheap to write; it does not make review cheap. A decision record puts the
 reasoning in the open, so a reviewer checks it instead of reconstructing it. This format was

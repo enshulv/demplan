@@ -17,14 +17,24 @@ curl -sSL -o szczepanczyk-2023-jie-pseudocode-and-algorithms.pdf   http://www.sz
 curl -sSL -o hahnel-szczepanczyk-weisdorf-2020-simulation-experiments-slides.pdf   https://thenextrecession.wordpress.com/wp-content/uploads/2021/01/computersimulationexperimentsofparti_powerpoint.pdf
 ```
 
-The slide PDF's text layer is corrupted (inter-character spacing is eaten), so text search
-cannot find content; you have to look at the page images by page number. Wherever this
-repository's documents cite the slides, they give the page number.
+The paper has two addresses, one for each of two versions:
+
+- The `szcz.org` address above is the author's own version, exported from Word: 14 pages, no
+  journal header
+- The publisher's version of record is at <https://www.anserpress.org/journal/jie/1/3/15/pdf>:
+  12 pages, with the header "Journal of Information Economics 2023 1 (3) 43-54", licensed
+  CC BY 4.0. That license covers only the publisher's version
+
+The key sentences checked agree between the two versions. Page numbers this repository's
+documents give for the paper follow the author's version.
+
+In the slide PDF's text layer, some pages have lost symbols and superscripts (for example the
+formula on page 5), so check formulas against the page images. The text is still searchable.
 
 ## Materials not obtained
 
 | Material | Status |
 |---|---|
-| Hahnel (2021), *Democratic Economic Planning*, Chapter 9 | Book, not publicly available. The slides state the full results are here |
+| Hahnel (2021), *Democratic Economic Planning*, Chapter 9 | Book, not open access. The slides state the full results are here. The maintainer has a private copy for checking; it is not distributed with the repository, and what it contains is summarised in [research/README.md](../README.md) |
 | AEA 2021 annual meeting paper | A listing exists on the conference page; no publicly available full text found |
 | ZNetwork interview video | Not processed |

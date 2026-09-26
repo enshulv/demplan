@@ -13,8 +13,12 @@ and update the iteration state in place inside the database.
 `pequod-plus` in 2026 — so it has real appeal: when data does not fit in memory, a database is the obvious answer, and aggregation
 queries are genuinely simpler to write in SQL.
 
-**Why rejected**: measured cost is about 1450x — a single experiment at the same scale took 4 hours instead of under 10 seconds.
+**Why rejected**: the cost is about 1450x — a single experiment at the same scale took 4 hours in the upstream author's log, against
+under 10 seconds measured in this library.
 The bottleneck is the round-trip and serialization of 6 million rows per round to disk, not floating-point work.
+(Corrected 2026-09-26 after a citation check: this said "measured cost is about 1450x," treating the 4 hours as a measurement of
+the database approach; the source is the author's run log from January to March 2026, which predates upstream's SQLite code, first
+appearing on 2026-04-09, see upstream's `docs/notes.txt`.)
 
 And the premise that drove upstream to this choice was itself false: measurement shows that dataset is only 54.8 MB resident in
 memory. What was blowing past a 4 GB heap was the representational overhead of a boxed map, not the amount of data. **When you hit

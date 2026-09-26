@@ -123,9 +123,9 @@ for every change and shows how they exercised that responsibility.**
 
 The reason is specific to this field. A wrong coordination procedure does not crash. It produces
 a plan that looks reasonable, passes every structural check, and ends up in a paper. The
-reproduction work behind this library found exactly that: a published price-update rule that
-does not converge, which two careful prose descriptions could not distinguish from the one that
-does. AI tools make plausible code cheap to produce; they do not make it cheap to review. The
+reproduction work behind this library found how easily such a difference slips through: a
+published pseudocode, presented as an adaptation of a price-update rule that works, does not
+converge, and the two differ by a single factor in one formula. AI tools make plausible code cheap to produce; they do not make it cheap to review. The
 decision record moves the reasoning into the open, so a reviewer checks it instead of
 reconstructing it.
 

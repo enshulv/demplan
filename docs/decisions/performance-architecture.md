@@ -8,7 +8,7 @@
 
 **Why**: This lesson comes from measurements of the upstream implementation, see [research/reproduction.md](../research/reproduction.md) for details.
 
-Upstream put its data in SQLite, running an UPDATE with a correlated subquery over six million rows every iteration; at that scale, one experiment took about 4 hours. The same computation done with column-oriented arrays measures 99 milliseconds per round, with the whole economy resident in memory at 54.8 MB — under 10 seconds for 100 rounds. About a 1450x difference.
+Upstream put its data in SQLite, running an UPDATE with a correlated subquery over six million rows every iteration. In the author's run log from January to March 2026, one experiment at that scale took about 4 hours; upstream had no SQLite code at the time. The same computation done with column-oriented arrays measures 99 milliseconds per round, with the whole economy resident in memory at 54.8 MB — under 10 seconds for 100 rounds. About a 1450x difference. (Corrected 2026-09-26 after a citation check: this presented the roughly 4 hours as the SQLite implementation's running time; the source is the author's run log from January to March 2026, which predates upstream's SQLite code, first appearing on 2026-04-09, see upstream's `docs/notes.txt`.)
 
 The reason upstream ended up on disk was a 4 GB JVM heap getting exhausted. But what exhausted it wasn't the data volume, it was the representation: nested maps with keywords carry 50 to 100x the overhead of plain arrays. This is "a memory wall caused by representation," solved by "moving the data to disk" — at the cost of being three orders of magnitude slower.
 

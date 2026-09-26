@@ -42,8 +42,11 @@ at a 5% threshold:
 | 10⁵ | 97 | 255 (did not converge) |
 
 Warm start follows the paper's augmented reset: perturb the exponents, reset the round
-counter, **prices are not reset** (upstream's `augmented-reset` in `util.cljc` confirms that
-prices are not reset).
+counter. **Prices are not reset**; the basis is page 5 of the slides, "Repeat experiment
+starting with previous experiment's prices" (upstream's `augmented-reset` in `util.cljc`
+confirms that prices are not reset). Step 4 of the paper's augmented reset says to repeat the
+procedure from step three of the pseudocode, and step three sets the initial prices, so read
+literally the paper does reset prices.
 
 ## Conclusions
 
@@ -62,7 +65,8 @@ economy from an arbitrary initial value.
 
 **This distinction disappeared in later citations.** The 2023 JIE paper states "across two
 years of the lifespan... we see an average of 6.5 iterations," keeping only the 6.5 figure;
-the project page likewise mentions only that one number. Readers are left with
+the project page likewise gives 6.5 as its only average, and adds "it never took more than 8
+iterations". Readers are left with
 "participatory planning takes only six or seven rounds," while the original report gives
 11.85 rounds from an arbitrary starting point, and 19.2 rounds at the 3% threshold.
 
@@ -72,10 +76,10 @@ the project page likewise mentions only that one number. Readers are left with
 |---|---|---|
 | 2020 slides (40 experiments, 5% threshold) | **11.85** | **6.5** |
 | 2023 JIE paper | Not stated | 6.5 |
-| Upstream's own records for the new code (`notes.txt`, six runs) | 41 to 96 | 1, 5, 6, 11, 12, 1; mean 6.0 |
+| Upstream's own records for the new code (`notes.txt`) | 41 to 96 | The six-run table of 2026-01-03: 1, 12, 11, 1, 5, 6; mean 6.0. The same log also has 11 and 6, 14 for one run with 12,000 councils, and 13 for each of three runs |
 | This independent reimplementation (dep1ex01) | 54 to 155 | 7, 8 |
 
-**The warm-start column agrees across all four sources**: 6.5, 6.0, 7, 8. This can be
+**The warm-start column agrees across all four sources**: 6.5, 6.0 (the mean of one six-run table in the log), 7, 8. This can be
 considered reproduced.
 
 **The cold-start column does not agree**: the authors reported 11.85 in 2020, while the
@@ -88,16 +92,18 @@ close to each other.
 The cold-start gap has been located. **The endowment is exactly the 1000 stated in the
 paper**; the price-update rule is where the readings diverge.
 
-The 2020 slides and the 2023 paper give **two different formulas**:
+The 2023 paper writes out both versions:
 
 | Source | Rule |
 |---|---|
-| 2020 slides, page 5 | `w = v(1.05 − 0.5ᵛ)`, with `v = 0.25` when `v > 0.25`. No recursion |
-| 2023 paper pseudocode | The adjustment is `1.05 − 0.5ᵛ`, **multiplied by the previous round's delta**, then min, absolute value, floored at 0.001 |
+| 2023 paper, page 7, the formula used in the experiments | `w = v(1.05 − 0.5ᵛ)`, with `v = 0.25` when `v > 0.25`. No recursion |
+| 2023 paper, page 10, pseudocode it calls an adaptation | The adjustment is `1.05 − 0.5ᵛ`, **multiplied by the previous round's delta**, then absolute value, min, floored at 0.001 |
 
-The 2023 version replaces the leading `v ×` factor from the 2020 version with "multiplied by
-the previous round's delta." Upstream's current code (`pequod-plus`) implements the 2023
-version.
+Page 5 of the 2020 slides gives the first formula too, but only says "except when v > 0.25"
+without saying what happens then; "`v = 0.25`" comes from page 7 of the paper. The pseudocode
+replaces the formula's leading `v ×` factor with "multiplied by the previous round's delta."
+The published round counts can only be reproduced with the former; upstream's current code
+(`pequod-plus`) implements the latter.
 
 Comparing three readings on the same data (dep1ex01) and the same endowment (1000):
 
@@ -157,11 +163,14 @@ At the same scale (30,000 WC × 30,000 CC × 100 commodities):
 | Implementation | Per round | 100 rounds | Resident memory |
 |---|---|---|---|
 | numpy, single-threaded | 99.1 ms | 9.91 s | 54.8 MB |
-| Upstream's SQLite implementation | ~144 s | ~4 hours | Data on disk |
+| Upstream `pequod-plus`, before the SQLite code | About two minutes | — | — |
 
-Upstream's wall-clock time for one complete experiment is 160 to 253 minutes (eleven records
-in `docs/notes.txt`). Note that its `user` time is more than double its `real` time even
-though the code is single-threaded — the extra CPU time is JVM garbage collection.
+The upstream row comes from the author's run log (`docs/notes.txt`); this library did not
+measure it. The per-round figure is the log's own wording: "An iteration with 60,000 councils
+now takes about two minutes" (2026-01-21). The wall-clock time for one complete experiment is
+160 to 253 minutes (eleven records in the same log, January to March 2026). All of these runs
+predate upstream's SQLite code, which first appears on 2026-04-09. Across the eleven records,
+`user` time is 1.4 to 2.2 times `real` time.
 
 Another repository, `pe_ifb_compute`, studies computational requirements specifically; its
 load function calls `con.commit()` inside the insert loop. Measured comparison (20,000
@@ -181,9 +190,9 @@ rows):
 - The warm-start augmented-reset perturbation used self-chosen seeds; the three seeds produce
   identical results, giving zero variance. This is not expected; the perturbation magnitude
   may be smaller than upstream's
-- The six runs recorded in upstream's `notes.txt` use the ppex series (300 to 3000 councils),
-  not the published dep1ex series. Strictly speaking, upstream's new code has never been run
-  against the published data
+- The round-count tables in upstream's `notes.txt` come from ppex runs with 300 to 3000
+  councils; the timed runs are full-size ppex experiments. The log has no run on dep1ex data.
+  Strictly speaking, upstream's new code has never been run against the published data
 
 ## This line of work ends here
 

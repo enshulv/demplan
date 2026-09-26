@@ -9,7 +9,7 @@ wc, cc = repro.parse(str(DATA / "dep1ex01.clj.gz"))
 n_priv = cc["priv_exp"].shape[1]; n_pub = cc["pub_exp"].shape[1]
 n_goods = int(wc["coef"].max()) + 1
 
-print("\n禀赋 S      模式        收敛轮数")
+print("\nendowment S   mode        rounds to converge")
 print("-" * 42)
 for S in (1e3, 1e4, 1e5, 1e6, 1e7, 1e8):
     for mode in ("category", "pergood"):
@@ -19,4 +19,4 @@ for S in (1e3, 1e4, 1e5, 1e6, 1e7, 1e8):
         with contextlib.redirect_stdout(buf):
             it, used, thr = repro.run(wc, cc, n_priv, n_pub, n_goods, "x")
         worst = max(np.nanmax(v) for v in thr.values())
-        print(f"{S:>9.0e}  {mode:<10}  {('第 '+str(it)+' 轮') if it else f'>120 轮 (最差{worst:.1f}%)'}")
+        print(f"{S:>9.0e}  {mode:<10}  {('round '+str(it)+'') if it else f'>120 rounds (worst {worst:.1f}%)'}")

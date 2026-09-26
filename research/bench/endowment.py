@@ -1,12 +1,14 @@
 """
-倒推作者的禀赋参数与调价规则。
+Works backward to the authors' endowment parameter and price-update rule.
 
-目标：找到能重现 2020 年幻灯片所报结果的配置——
-冷启动（任意初值）5% 阈值 11.85 轮、3% 阈值 19.2 轮，热启动 6.5 轮。
+Goal: find a configuration that reproduces the results reported in the 2020 slides --
+cold start (arbitrary initial prices) 11.85 rounds at the 5% threshold, 19.2 rounds at the
+3% threshold, and 6.5 rounds for warm start.
 
-搜索两个维度：
-  禀赋 S      自然资源与劳动的每类供给量，未公开
-  调价规则    2020 幻灯片与 2023 论文伪代码给的公式不同，见 MODES
+Searches two dimensions:
+  endowment S          the per-category supply of nature and labor, not published
+  price-update rule    the 2020 slides and the 2023 paper's pseudocode give different
+                        formulas; see MODES
 """
 import sys
 import time
@@ -18,23 +20,23 @@ import repro
 MAX_ITER = 250
 
 
-# ---------------------------------------------------------------- 调价规则
+# ---------------------------------------------------------------- Price-update rules
 
 def delta_paper2023(v, prev, _):
-    """(1.05 − 0.5^v) 乘上一轮增量，取小、下限 0.001、上限 0.25。"""
+    """(1.05 - 0.5^v) times the previous round's increment, floored at 0.001, capped at 0.25."""
     raw = 1.05 - 0.5 ** v
     d = np.maximum(np.minimum(np.abs(raw * prev), raw), 0.001)
     return np.minimum(d, 0.25)
 
 
 def delta_slides_capv(v, _prev, _):
-    """2020 幻灯片：v 先截到 0.25，再算 w = v(1.05 − 0.5^v)。"""
+    """2020 slides: v is first capped at 0.25, then w = v(1.05 - 0.5^v)."""
     vc = np.minimum(v, 0.25)
     return vc * (1.05 - 0.5 ** vc)
 
 
 def delta_slides_capw(v, _prev, _):
-    """2020 幻灯片的另一读法：w = v(1.05 − 0.5^v) 之后再截到 0.25。"""
+    """The other reading of the 2020 slides: w = v(1.05 - 0.5^v), then cap the result at 0.25."""
     return np.minimum(v * (1.05 - 0.5 ** v), 0.25)
 
 
@@ -43,7 +45,7 @@ MODES = {"paper2023": delta_paper2023,
          "slides_capw": delta_slides_capw}
 
 
-# ---------------------------------------------------------------- 迭代
+# ---------------------------------------------------------------- Iteration
 
 def proposals(wc, cc, p, n_cc, tot_exp, precomp):
     a, c, s, k, b, mask, cat, coef, ind, prod, B, D, log_b = precomp
@@ -140,7 +142,7 @@ if __name__ == "__main__":
     dims = (n_priv, n_pub, n_goods)
     n_cc = len(cc["income"])
 
-    # ---- 诊断：初始价格 700 下的劳动与自然需求
+    # ---- Diagnostic: labor and nature demand at the initial price of 700
     b, mask = wc["b"], wc["mask"]
     B = b.sum(axis=1)
     precomp = (wc["a"], wc["c"], wc["s"], wc["k"], b, mask, wc["cat"], wc["coef"],
@@ -153,19 +155,19 @@ if __name__ == "__main__":
     output, x, d_priv, d_pub = proposals(wc, cc, p0, n_cc, tot_exp, precomp)
     _, dem0 = aggregate(wc, output, x, d_priv, d_pub, n_priv, n_pub, n_goods, n_cc, 0.0)
 
-    print("\n=== 初始价格 700 下的首轮需求 ===")
+    print("\n=== First-round demand at the initial price of 700 ===")
     for key in ("labor", "nature", "inter", "priv", "pub"):
         d = dem0[key]
-        print(f"  {key:<7} 均值={d.mean():>14,.1f}  中位={np.median(d):>14,.1f}  "
+        print(f"  {key:<7} mean={d.mean():>14,.1f}  median={np.median(d):>14,.1f}  "
               f"min={d.min():>12,.1f}  max={d.max():>14,.1f}")
     balanced = float(np.median(np.concatenate([dem0["labor"], dem0["nature"]])))
-    print(f"\n  使劳动与自然在初始价格下平衡的 S ≈ {balanced:,.0f}")
+    print(f"\n  S that balances labor and nature at the initial price ~ {balanced:,.0f}")
 
-    # ---- 搜索
+    # ---- Search
     cands = sorted({1e3, 3e3, 1e4, 3e4,
                     balanced / 10, balanced / 3, balanced, balanced * 3, balanced * 10})
-    print(f"\n=== 搜索：{len(cands)} 个禀赋 × {len(MODES)} 种调价规则 ===")
-    print(f"{'禀赋 S':>14}  {'规则':<12} {'冷5%':>7} {'冷3%':>7} {'热5%':>7}")
+    print(f"\n=== Search: {len(cands)} endowments x {len(MODES)} price-update rules ===")
+    print(f"{'endowment S':>14}  {'rule':<12} {'cold5%':>7} {'cold3%':>7} {'warm5%':>7}")
     print("-" * 56)
     best = []
     for S in cands:
@@ -173,7 +175,7 @@ if __name__ == "__main__":
             t0 = time.perf_counter()
             n1, p1, w1 = run(wc, cc, dims, S, mode, 5.0)
             if n1 is None:
-                print(f"{S:>14,.0f}  {mode:<12} {'>250':>7} {'-':>7} {'-':>7}   (最差 {w1:.0f}%)", flush=True)
+                print(f"{S:>14,.0f}  {mode:<12} {'>250':>7} {'-':>7} {'-':>7}   (worst {w1:.0f}%)", flush=True)
                 continue
             n3, _, _ = run(wc, cc, dims, S, mode, 3.0)
             rng = np.random.default_rng(0)
@@ -183,6 +185,6 @@ if __name__ == "__main__":
                   f"{str(n2 or '>250'):>7}   ({time.perf_counter()-t0:.0f}s)", flush=True)
             best.append((abs(n1 - 11.85), S, mode, n1, n3, n2))
 
-    print("\n=== 与 2020 年报告值（冷 11.85 / 冷3% 19.2 / 热 6.5）最接近的配置 ===")
+    print("\n=== Configurations closest to the 2020 reported values (cold 11.85 / cold3% 19.2 / warm 6.5) ===")
     for _, S, mode, n1, n3, n2 in sorted(best)[:5]:
-        print(f"  S={S:>12,.0f}  {mode:<12} 冷5%={n1:<4} 冷3%={str(n3 or '>250'):<5} 热5%={str(n2 or '>250')}")
+        print(f"  S={S:>12,.0f}  {mode:<12} cold5%={n1:<4} cold3%={str(n3 or '>250'):<5} warm5%={str(n2 or '>250')}")

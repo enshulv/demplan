@@ -1,9 +1,10 @@
 """
-两个基准：
-A. 复现 pe_ifb_compute 的 SQLite 加载路径（每行 commit）与批量提交的对照。
-B. 用 numpy 实现 pequod-plus 一轮迭代的等价计算，测其真实算术成本。
+Two benchmarks:
+A. Compares pe_ifb_compute's SQLite loading path (commit per row) against a batched commit.
+B. A numpy implementation equivalent to one pequod-plus iteration round, timing its real
+   arithmetic cost.
 
-只测量级，不追求精确。
+Order-of-magnitude only, not precision.
 """
 import os
 import sqlite3
@@ -12,10 +13,10 @@ import time
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROWS = 20_000  # 每行 commit 的路径很慢，用两万行取速率后外推
+ROWS = 20_000  # the commit-per-row path is slow; measure a rate on 20k rows and extrapolate
 
 
-# ---------------------------------------------------------------- 实验 A
+# ---------------------------------------------------------------- Experiment A
 
 def make_rows(path, n):
     rng = np.random.default_rng(0)
@@ -25,7 +26,7 @@ def make_rows(path, n):
 
 
 def load_per_row_commit(db, txt):
-    """逐字照搬 pe_ifb_compute/src/core.py 的 load_data_to_sqlite_db。"""
+    """Verbatim copy of load_data_to_sqlite_db from pe_ifb_compute/src/core.py."""
     product_file = open(txt, "r")
     con = sqlite3.connect(db)
     cur = con.cursor()
@@ -37,13 +38,13 @@ def load_per_row_commit(db, txt):
             break
         d = L.strip().split(",")
         cur.execute("INSERT INTO wc_products VALUES(?, ?, ?)", [d[0], d[1], d[2]])
-        con.commit()          # <- 原代码就在循环里
+        con.commit()          # <- this is where the original code puts it, inside the loop
     product_file.close()
     con.close()
 
 
 def load_batched(db, txt):
-    """唯一的改动：commit 移出循环，并用 executemany。"""
+    """The only change: commit moved outside the loop, using executemany."""
     con = sqlite3.connect(db)
     cur = con.cursor()
     cur.execute("CREATE TABLE wc_products(council_id, product_id, quantity)")
@@ -57,37 +58,37 @@ def load_batched(db, txt):
 
 def run_a():
     print("=" * 70)
-    print(f"实验 A: SQLite 加载路径对照（{ROWS:,} 行）")
+    print(f"Experiment A: SQLite loading path comparison ({ROWS:,} rows)")
     print("=" * 70)
 
     txt = os.path.join(HERE, "rows.txt")
     make_rows(txt, ROWS)
 
     results = {}
-    for name, fn in (("每行 commit（原代码）", load_per_row_commit),
-                     ("批量 commit", load_batched)):
-        db = os.path.join(HERE, f"a_{'per' if 'commit（' in name else 'batch'}.db")
+    for name, fn in (("per-row commit (original code)", load_per_row_commit),
+                     ("batch commit", load_batched)):
+        db = os.path.join(HERE, f"a_{'per' if '(original code)' in name else 'batch'}.db")
         if os.path.exists(db):
             os.remove(db)
         t0 = time.perf_counter()
         fn(db, txt)
         dt = time.perf_counter() - t0
         results[name] = dt
-        print(f"  {name:<24} {dt:8.3f} s   ({ROWS / dt:>12,.0f} 行/秒)")
+        print(f"  {name:<24} {dt:8.3f} s   ({ROWS / dt:>12,.0f} rows/s)")
 
-    slow, fast = results["每行 commit（原代码）"], results["批量 commit"]
-    print(f"\n  倍数差: {slow / fast:.0f}x")
+    slow, fast = results["per-row commit (original code)"], results["batch commit"]
+    print(f"\n  Ratio: {slow / fast:.0f}x")
 
-    # 按 pe_ifb_compute 自己的 exp=6 目标规模外推
-    # population 1e6，议会均 ~76 人 -> ~13,158 个议会；每议会 1e6 个产品行
+    # Extrapolated to pe_ifb_compute's own exp=6 target scale:
+    # population 1e6, ~76 members per council -> ~13,158 councils; 1e6 product rows per council
     target = 13_158 * 1_000_000
-    print(f"\n  外推到该仓库自述的目标规模（100 万产品 / 100 万人 = {target:,} 行/表）：")
-    print(f"    每行 commit : {target / (ROWS / slow) / 86400:>12,.0f} 天")
-    print(f"    批量 commit : {target / (ROWS / fast) / 86400:>12,.1f} 天")
-    print("    (注：该规模本身就不现实，此处只为显示两条路径的量级差)")
+    print(f"\n  Extrapolated to the repo's stated target scale (1M products / 1M people = {target:,} rows/table):")
+    print(f"    per-row commit : {target / (ROWS / slow) / 86400:>12,.0f} days")
+    print(f"    batch commit   : {target / (ROWS / fast) / 86400:>12,.1f} days")
+    print("    (note: this scale itself is unrealistic; it's only here to show the order-of-magnitude gap between the two paths)")
 
 
-# ---------------------------------------------------------------- 实验 B
+# ---------------------------------------------------------------- Experiment B
 
 N_WC = 30_000
 N_CC = 30_000
@@ -98,30 +99,30 @@ MAX_IN = 10
 def build_economy(seed=0):
     rng = np.random.default_rng(seed)
 
-    # --- 消费议会：每个议会对 100 种私人品 + 100 种公共品有指数
+    # --- Consumer councils: each has exponents over 100 private goods + 100 public goods
     cc = {
         "income": np.full(N_CC, 5000.0),
         "priv_exp": rng.uniform(0.005, 0.010, (N_CC, N_GOODS)),
         "pub_exp": rng.uniform(0.005, 0.010, (N_CC, N_GOODS)),
     }
 
-    # --- 工人议会：每个 3~10 个投入品，用掩码补齐到 10 列
+    # --- Worker councils: each has 3-10 inputs, padded to 10 columns with a mask
     n_inputs = rng.integers(3, MAX_IN + 1, N_WC)
     mask = np.arange(MAX_IN)[None, :] < n_inputs[:, None]
     b = np.zeros((N_WC, MAX_IN))
-    # 指数按 populate.clj: U(0.75/n, 0.85/n)
+    # exponents follow populate.clj: U(0.75/n, 0.85/n)
     lo = (0.75 / n_inputs)[:, None]
     hi = (0.85 / n_inputs)[:, None]
     b[mask] = (lo + (hi - lo) * rng.random((N_WC, MAX_IN)))[mask]
 
     wc = {
-        "a": rng.uniform(4, 6, N_WC),            # 全要素生产率
-        "c": rng.uniform(0.05, 0.10, N_WC),      # 努力弹性
-        "k": rng.uniform(3, 4, N_WC),            # 努力负效用指数
-        "s": np.ones(N_WC),                      # 努力负效用系数
+        "a": rng.uniform(4, 6, N_WC),            # total factor productivity
+        "c": rng.uniform(0.05, 0.10, N_WC),      # effort elasticity
+        "k": rng.uniform(3, 4, N_WC),            # effort disutility exponent
+        "s": np.ones(N_WC),                      # effort disutility coefficient
         "b": b,
         "mask": mask,
-        "coef": rng.integers(0, N_GOODS, (N_WC, MAX_IN)),   # 投入品是哪一种
+        "coef": rng.integers(0, N_GOODS, (N_WC, MAX_IN)),   # which good each input is
         "industry": rng.integers(0, 3, N_WC),
         "product": rng.integers(0, N_GOODS, N_WC),
     }
@@ -129,10 +130,10 @@ def build_economy(seed=0):
 
 
 def one_iteration(wc, cc, prices):
-    """一轮：WC 出提案 -> CC 出提案 -> 聚合供需 -> 调价。"""
+    """One round: WC proposals -> CC proposals -> aggregate supply and demand -> update prices."""
     p_priv, p_pub, p_inter = prices["priv"], prices["pub"], prices["inter"]
 
-    # ---- WC 侧：闭式解（通用 n 元形式，与展开式等价）
+    # ---- WC side: closed-form solution (general n-input form, equivalent to the expanded one)
     lam = np.where(wc["industry"] == 0, p_priv[wc["product"]],
           np.where(wc["industry"] == 1, p_inter[wc["product"]],
                                         p_pub[wc["product"]]))
@@ -156,12 +157,12 @@ def one_iteration(wc, cc, prices):
     output = np.exp(log_Q)
     x = np.where(mask, np.exp(log_x), 0.0)
 
-    # ---- CC 侧：柯布-道格拉斯需求
+    # ---- CC side: Cobb-Douglas demand
     tot_exp = cc["priv_exp"].sum(axis=1) + cc["pub_exp"].sum(axis=1)
     d_priv = (cc["income"][:, None] * cc["priv_exp"]) / (tot_exp[:, None] * p_priv[None, :])
     d_pub = (cc["income"][:, None] * cc["pub_exp"]) / (tot_exp[:, None] * p_pub[None, :])
 
-    # ---- 聚合
+    # ---- Aggregation
     supply_priv = np.bincount(wc["product"][wc["industry"] == 0],
                               weights=output[wc["industry"] == 0], minlength=N_GOODS)
     supply_inter = np.bincount(wc["product"][wc["industry"] == 1],
@@ -172,7 +173,7 @@ def one_iteration(wc, cc, prices):
     demand_priv = d_priv.sum(axis=0)
     demand_pub = d_pub.sum(axis=0) / N_CC
 
-    # ---- 调价
+    # ---- Price update
     out = {}
     for key, sup, dem in (("priv", supply_priv, demand_priv),
                           ("pub", supply_pub, demand_pub),
@@ -187,33 +188,33 @@ def one_iteration(wc, cc, prices):
 def run_b():
     print()
     print("=" * 70)
-    print(f"实验 B: numpy 参考实现，{N_WC:,} WC × {N_CC:,} CC × {N_GOODS} 商品")
+    print(f"Experiment B: numpy reference implementation, {N_WC:,} WC x {N_CC:,} CC x {N_GOODS} goods")
     print("=" * 70)
 
     t0 = time.perf_counter()
     wc, cc = build_economy()
-    print(f"  构造经济体          {time.perf_counter() - t0:8.3f} s")
+    print(f"  build economy       {time.perf_counter() - t0:8.3f} s")
 
     nbytes = sum(v.nbytes for v in cc.values() if isinstance(v, np.ndarray))
     nbytes += sum(v.nbytes for v in wc.values() if isinstance(v, np.ndarray))
-    print(f"  全经济体常驻内存    {nbytes / 1e6:8.1f} MB")
+    print(f"  full economy in RAM {nbytes / 1e6:8.1f} MB")
 
     prices = {"priv": np.full(N_GOODS, 700.0),
               "pub": np.full(N_GOODS, 700.0),
               "inter": np.full(N_GOODS, 700.0)}
 
-    one_iteration(wc, cc, prices)          # 预热
+    one_iteration(wc, cc, prices)          # warm-up
 
     reps = 10
     t0 = time.perf_counter()
     for _ in range(reps):
         prices = one_iteration(wc, cc, prices)
     dt = (time.perf_counter() - t0) / reps
-    print(f"  单轮迭代            {dt * 1000:8.1f} ms   (单线程 numpy)")
-    print(f"  100 轮合计          {dt * 100:8.2f} s")
+    print(f"  one round           {dt * 1000:8.1f} ms   (single-threaded numpy)")
+    print(f"  100 rounds total    {dt * 100:8.2f} s")
 
 
 if __name__ == "__main__":
     run_a()
     run_b()
-    print("\n完成。")
+    print("\nDone.")

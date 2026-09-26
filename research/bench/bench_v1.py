@@ -1,11 +1,12 @@
 """
-验收用的端到端计时：同一组实验，三条路各花多久。
+Acceptance-time end-to-end timing: how long the same set of experiments takes on each of
+three paths.
 
-  上游 pequod-plus   Clojure + SQLite，约 4 小时一组（见 研究/复现记录.md）
-  numpy 参考         research/bench/{repro,endowment}.py
-  demplan            本库：Rust 加载器 + Python prefab
+  upstream pequod-plus   Clojure + SQLite, about 4 hours per set (see docs/research/reproduction.md)
+  numpy reference        research/bench/{repro,endowment}.py
+  demplan                this library: the Rust loader + a Python prefab
 
-用法：
+Usage:
   .venv/Scripts/python.exe research/bench/bench_v1.py [dep1ex01.clj.gz ...]
 """
 import os

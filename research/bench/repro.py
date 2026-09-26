@@ -1,9 +1,10 @@
 """
-用作者公开的原始实验数据（szcz.org/depexperiments）重跑参与式计划迭代，
-检验已发表的「平均 6.5 轮收敛」这一主张。
+Reruns the participatory-planning iteration on the authors' published raw experiment data
+(szcz.org/depexperiments), checking the published claim of "converges in 6.5 rounds on
+average".
 
-数据是 pequod-cljs 的输入经济体（30,000 WC + 30,000 CC + 100 商品）。
-算法按 JIE 2023 论文的伪代码与 util.cljc 的 CLJS 路径实现。
+The data is a pequod-cljs input economy (30,000 WC + 30,000 CC + 100 goods).
+The algorithm follows the JIE 2023 paper's pseudocode and the CLJS path in util.cljc.
 """
 import gzip
 import re
@@ -14,7 +15,7 @@ import numpy as np
 
 DATA = __import__('pathlib').Path(__file__).resolve().parent.parent / 'data'
 
-THRESHOLD = 5.0        # 论文用的 5% 阈值
+THRESHOLD = 5.0        # the 5% threshold used in the paper
 MAX_ITER = 300
 INIT_PRICE = 700.0
 INIT_CAT_DELTA = 0.05
@@ -38,7 +39,7 @@ def parse(path):
     cut = text.index("(def wcs")
     cc_text, wc_text = text[:cut], text[cut:]
     del text
-    print(f"  解压+切分 {time.perf_counter() - t0:.1f}s", flush=True)
+    print(f"  decompress+split {time.perf_counter() - t0:.1f}s", flush=True)
 
     # ---- CC
     t0 = time.perf_counter()
@@ -51,7 +52,7 @@ def parse(path):
         "income": np.array(inc, dtype=np.float64),
     }
     del cc_text
-    print(f"  CC 解析  {time.perf_counter() - t0:.1f}s  "
+    print(f"  CC parse {time.perf_counter() - t0:.1f}s  "
           f"{cc['priv_exp'].shape=} {cc['pub_exp'].shape=} "
           f"income[0]={cc['income'][0]}", flush=True)
 
@@ -69,10 +70,10 @@ def parse(path):
     prod = np.array(re.findall(r":product\s+(\d+)", wc_text), dtype=np.int64)
     del wc_text
     n_wc = len(pi)
-    print(f"  WC 解析  {time.perf_counter() - t0:.1f}s  n_wc={n_wc} "
+    print(f"  WC parse {time.perf_counter() - t0:.1f}s  n_wc={n_wc} "
           f"a={len(a)} c={len(c)} du={len(du)} ind={len(ind)}", flush=True)
 
-    # 变长投入 -> padding 成矩阵
+    # variable-length inputs -> pad into a matrix
     ii = [ints(x[0]) for x in pi]
     nn = [ints(x[1]) for x in pi]
     ll = [ints(x[2]) for x in pi]
@@ -83,13 +84,13 @@ def parse(path):
     counts = np.array([len(x) + len(y) + len(z) for x, y, z in zip(ii, nn, ll)])
     bad = [i for i in range(n_wc)
            if len(ii[i]) != len(ie[i]) or len(nn[i]) != len(ne[i]) or len(ll[i]) != len(le[i])]
-    print(f"  投入品数 分布={dict(zip(*np.unique(counts, return_counts=True)))} "
-          f"长度不一致记录={len(bad)}", flush=True)
+    print(f"  input count distribution={dict(zip(*np.unique(counts, return_counts=True)))} "
+          f"mismatched-length records={len(bad)}", flush=True)
 
     W = counts.max()
     coef = np.zeros((n_wc, W), dtype=np.int64)
     b = np.zeros((n_wc, W))
-    cat = np.full((n_wc, W), -1, dtype=np.int8)   # 0=中间品 1=自然 2=劳动
+    cat = np.full((n_wc, W), -1, dtype=np.int8)   # 0=intermediate good, 1=nature, 2=labor
     for i in range(n_wc):
         segs = [(ii[i], ie[i], 0), (nn[i], ne[i], 1), (ll[i], le[i], 2)]
         j = 0
@@ -101,9 +102,9 @@ def parse(path):
             j += m
     mask = cat >= 0
 
-    print(f"  product 范围=[{prod.min()},{prod.max()}]  "
-          f"coef 范围=[{coef[mask].min()},{coef[mask].max()}]", flush=True)
-    # 数据中商品编号从 1 开始，统一改成 0-based
+    print(f"  product range=[{prod.min()},{prod.max()}]  "
+          f"coef range=[{coef[mask].min()},{coef[mask].max()}]", flush=True)
+    # good IDs in the data start at 1; normalize to 0-based
     coef = np.where(mask, coef - 1, 0)
     prod = prod - 1
 
@@ -133,7 +134,7 @@ def run(wc, cc, n_priv, n_pub, n_goods, label):
 
     t0 = time.perf_counter()
     for it in range(1, MAX_ITER + 1):
-        # --- 投入价格：按类别取
+        # --- Input prices: looked up by category
         p_in = np.where(cat == 0, p["inter"][coef],
                 np.where(cat == 1, p["nature"][coef],
                 np.where(cat == 2, p["labor"][coef], 1.0)))
@@ -145,7 +146,7 @@ def run(wc, cc, n_priv, n_pub, n_goods, label):
                                  p["pub"][prod % n_pub]))
         log_lam = np.log(lam)
 
-        # --- WC 闭式解
+        # --- WC closed-form solution
         num = (-k * np.log(a) - k * (b * log_b).sum(axis=1)
                - c * np.log(c) + c * np.log(k)
                + k * (b * log_p).sum(axis=1) + c * np.log(s)
@@ -154,11 +155,11 @@ def run(wc, cc, n_priv, n_pub, n_goods, label):
         output = np.exp(log_Q)
         x = np.where(mask, np.exp(log_b + log_lam[:, None] - log_p + log_Q[:, None]), 0.0)
 
-        # --- CC 需求
+        # --- CC demand
         d_priv = (cc["income"][:, None] * cc["priv_exp"]) / (tot_exp[:, None] * p["priv"][None, :])
         d_pub = (cc["income"][:, None] * cc["pub_exp"]) / (tot_exp[:, None] * (p["pub"] / n_cc)[None, :])
 
-        # --- 聚合
+        # --- Aggregation
         sup, dem = {}, {}
         for key, iid, n in (("priv", 0, n_priv), ("inter", 1, n_goods), ("pub", 2, n_pub)):
             sel = ind == iid
@@ -173,7 +174,7 @@ def run(wc, cc, n_priv, n_pub, n_goods, label):
             dem[key] = np.bincount(coef[m], weights=x[m],
                                    minlength=n_goods)[:n_goods]
 
-        # --- 阈值
+        # --- Threshold
         worst, thr_all, worst_cat = 0.0, {}, None
         for key in p:
             tot = sup[key] + dem[key]
@@ -183,15 +184,15 @@ def run(wc, cc, n_priv, n_pub, n_goods, label):
                 worst, worst_cat = np.nanmax(t), key
 
         if not np.isfinite(worst):
-            print(f"  [{label}] 第 {it} 轮出现非有限值，中止")
+            print(f"  [{label}] non-finite value at round {it}, aborting")
             return None, it, thr_all
 
         if worst < THRESHOLD:
             dt = time.perf_counter() - t0
-            print(f"  [{label}] 收敛于第 {it} 轮  (最差失衡 {worst:.2f}%)  用时 {dt:.2f}s")
+            print(f"  [{label}] converged at round {it}  (worst imbalance {worst:.2f}%)  took {dt:.2f}s")
             return it, it, thr_all
 
-        # --- 调价
+        # --- Price update
         for key in p:
             surplus = sup[key] - dem[key]
             tot = sup[key] + dem[key]
@@ -205,23 +206,23 @@ def run(wc, cc, n_priv, n_pub, n_goods, label):
             cat_delta[key] = abs(surplus.mean() / ((m_s + m_d) / 2)) if (m_s + m_d) else INIT_CAT_DELTA
 
         if it % 10 == 0 or it <= 3:
-            print(f"    ...第 {it} 轮 最差失衡 {worst:.1f}% ({worst_cat})  " + " ".join(f"{kk}={np.nanmax(vv):.1f}" for kk,vv in thr_all.items()), flush=True)
+            print(f"    ...round {it} worst imbalance {worst:.1f}% ({worst_cat})  " + " ".join(f"{kk}={np.nanmax(vv):.1f}" for kk,vv in thr_all.items()), flush=True)
 
     dt = time.perf_counter() - t0
-    print(f"  [{label}] {MAX_ITER} 轮未收敛 (最差失衡 {worst:.2f}%)  用时 {dt:.2f}s")
+    print(f"  [{label}] did not converge in {MAX_ITER} rounds (worst imbalance {worst:.2f}%)  took {dt:.2f}s")
     return None, MAX_ITER, thr_all
 
 
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else str(DATA / "dep1ex01.clj.gz")
     if len(sys.argv) > 2: DELTA_MODE = sys.argv[2]
-    print(f"  price-delta 模式: {DELTA_MODE}", flush=True)
-    print(f"=== 解析 {path} ===", flush=True)
+    print(f"  price-delta mode: {DELTA_MODE}", flush=True)
+    print(f"=== Parsing {path} ===", flush=True)
     wc, cc = parse(path)
     n_priv = cc["priv_exp"].shape[1]
     n_pub = cc["pub_exp"].shape[1]
     n_goods = int(wc["coef"].max()) + 1
-    print(f"  私人品={n_priv} 公共品={n_pub} 投入品编号上界={n_goods} "
+    print(f"  private goods={n_priv} public goods={n_pub} input ID upper bound={n_goods} "
           f"WC={len(wc['a'])} CC={len(cc['income'])}", flush=True)
-    print(f"=== 迭代（阈值 {THRESHOLD}%）===", flush=True)
+    print(f"=== Iterating (threshold {THRESHOLD}%) ===", flush=True)
     run(wc, cc, n_priv, n_pub, n_goods, path)

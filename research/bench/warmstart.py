@@ -1,10 +1,11 @@
 """
-检验假说：已发表的「6.5 轮」是热启动（第二年）数字，不是冷启动（第一年）。
+Checks the hypothesis that the published "6.5 rounds" is a warm-start (year 2) figure,
+not a cold-start (year 1) figure.
 
-流程完全按 JIE 2023 论文与 util.cljc/augmented-reset：
-  第一年：价格全部 700 起，跑到 5% 阈值
-  augmented reset：扰动指数，重置轮次计数器，**价格不重置**
-  第二年：从第一年的收敛价格接着跑，重新数轮数
+The procedure follows the JIE 2023 paper and util.cljc/augmented-reset exactly:
+  Year 1: all prices start at 700, run to the 5% threshold
+  augmented reset: perturb the exponents, reset the round counter, **prices are not reset**
+  Year 2: continue from year 1's converged prices, counting rounds again from scratch
 """
 import time
 
@@ -88,7 +89,7 @@ def iterate(wc, cc, n_priv, n_pub, n_goods, S, p0=None, tag=""):
 
 
 def augmented_reset(wc, cc, rng):
-    """按论文: WC 指数 +{0,.001,.002,.003,.004}; CC 指数 +{-.002,-.001,0,.001,.002}"""
+    """Per the paper: WC exponents +{0,.001,.002,.003,.004}; CC exponents +{-.002,-.001,0,.001,.002}"""
     wc2 = dict(wc)
     bump = rng.choice([0, 0.001, 0.002, 0.003, 0.004], size=wc["b"].shape)
     wc2["b"] = np.where(wc["mask"], wc["b"] + bump, 0.0)
@@ -103,17 +104,17 @@ if __name__ == "__main__":
     n_priv, n_pub = cc["priv_exp"].shape[1], cc["pub_exp"].shape[1]
     n_goods = int(wc["coef"].max()) + 1
 
-    print("\n禀赋 S     第一年(冷启动)   第二年(热启动)   备注")
+    print("\nendowment S   year 1 (cold start)   year 2 (warm start)   notes")
     print("-" * 62)
     for S in (1e3, 1e4, 1e5):
         t0 = time.perf_counter()
         n1, p1, w1 = iterate(wc, cc, n_priv, n_pub, n_goods, S)
         if n1 is None:
-            print(f"{S:>8.0e}   未收敛({w1:.0f}%)      --              第一年就没到阈值")
+            print(f"{S:>8.0e}   did not converge({w1:.0f}%)      --              year 1 never reached the threshold")
             continue
         rng = np.random.default_rng(SEED)
         wc2, cc2 = augmented_reset(wc, cc, rng)
         n2, _, w2 = iterate(wc2, cc2, n_priv, n_pub, n_goods, S, p0=p1)
         dt = time.perf_counter() - t0
-        n2s = str(n2) if n2 else f"未收敛({w2:.0f}%)"
+        n2s = str(n2) if n2 else f"did not converge({w2:.0f}%)"
         print(f"{S:>8.0e}   {n1:>10}      {n2s:>10}       {dt:.0f}s")

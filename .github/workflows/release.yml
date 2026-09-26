@@ -1,0 +1,76 @@
+# Builds wheels and an sdist, and publishes them to PyPI when a GitHub release is published.
+#
+# The extension module uses the stable ABI (abi3, Python 3.10 and newer), so one wheel per
+# platform covers every supported Python version. Publishing uses PyPI trusted publishing:
+# the `pypi` environment below is registered on PyPI as the trusted publisher for `demplan`,
+# so no token is stored anywhere.
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: wheel ${{ matrix.os }} ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64, native: true }
+          - { os: ubuntu-latest, target: aarch64, native: false }
+          - { os: macos-latest, target: aarch64, native: true }
+          - { os: macos-latest, target: x86_64, native: false }
+          - { os: windows-latest, target: x64, native: true }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: auto
+      - name: Import the built wheel
+        if: matrix.native
+        shell: bash
+        run: |
+          python -m pip install dist/*.whl
+          python -c "import demplan; print(demplan.core_version())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: dist
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist
+
+  publish:
+    needs: [wheels, sdist]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

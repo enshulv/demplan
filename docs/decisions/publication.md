@@ -105,3 +105,39 @@ memory all read as genuine; only a check against the original tells them apart.
 
 **How to apply**: Find the original before writing a new citation. A claim without a located
 source does not get a citation number.
+
+---
+
+### Releases go through GitHub Actions: prebuilt wheels and trusted publishing
+
+**Decision**: `.github/workflows/release.yml` builds wheels and an sdist and uploads them to PyPI
+when a GitHub release is published. The wheels cover five targets: Linux x86_64 and aarch64
+(manylinux), macOS arm64 and x86_64, and Windows x64. The extension module uses the stable ABI
+(`abi3-py310`), so one wheel per platform covers every Python version from 3.10 on. Uploads use
+PyPI trusted publishing: the trusted publisher registered on PyPI is `release.yml` in the
+`enshulv/demplan` repository with the environment `pypi`, and no token is stored anywhere.
+
+`.github/workflows/ci.yml` runs pytest and `cargo test -p demplan-core` on Linux, Windows and
+macOS on every push and pull request. CI does not download the dep1ex data, so the tests that
+need it skip themselves; the reproduction targets are still checked locally against the
+published data.
+
+**Why**: Social scientists cannot be expected to install a Rust toolchain, so without prebuilt
+wheels the library is effectively unusable for its intended users (the charter's third part, a
+low-barrier interface). Trusted publishing needs no secret to guard, so there is nothing to leak.
+CI lets outside contributors see test results when they submit, without waiting for the
+maintainer to run them locally.
+
+Only `demplan-core` is tested on the Rust side: all Rust tests live in that crate, and the
+Python binding crate has the `extension-module` feature, which can leave its test binary unable
+to find libpython's symbols when linking on Linux and macOS.
+
+**Alternatives rejected**:
+- Generate a PyPI API token and store it as a repository secret — one more secret to guard and
+  possibly leak, when trusted publishing does the same job
+- Build one wheel per Python version — the bindings already use the stable ABI, so per-version
+  builds would only produce duplicate files
+
+**How to apply**: Neither workflow has run yet, because the repository did not exist when they
+were written; check the logs of the first runs. Before releasing `v0.1.0`, trigger `release.yml`
+by hand once (`workflow_dispatch` does not upload) and confirm that all five wheels build.

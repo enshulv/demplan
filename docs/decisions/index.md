@@ -135,3 +135,4 @@
 | 2026-09-26 | Publication | Every citation needs evidence from the original source | [publication.md](publication.md) |
 | 2026-09-26 | Contributing and AI | AI assistance is accepted, but a person is accountable for every change and shows the decision process | [contributing-and-ai.md](contributing-and-ai.md) |
 | 2026-09-26 | Quality assurance | Publish the quality assurance practices, and commit to formal proof where it is needed | [quality-assurance.md](quality-assurance.md) |
+| 2026-09-26 | Publication | Releases go through GitHub Actions: prebuilt wheels and trusted publishing | [publication.md](publication.md) |

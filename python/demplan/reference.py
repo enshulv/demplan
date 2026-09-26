@@ -16,7 +16,7 @@ the constraints rather than going in.
 
 Leontief technology is required, since the constraint above is linear in output only when the
 input coefficients are constants. Feed a Cobb-Douglas economy through
-:func:`cyberstride.tools.linearize.linearize` first, and read that tool's docstring for what
+:func:`demplan.tools.linearize.linearize` first, and read that tool's docstring for what
 the conversion assumes.
 """
 
@@ -28,16 +28,16 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.sparse import coo_matrix
 
-from cyberstride.economy import CommodityKind, Economy, TechnologyKind
-from cyberstride.objectives import (
+from demplan.economy import CommodityKind, Economy, TechnologyKind
+from demplan.objectives import (
     Objective,
     _require_consumable_support,
     _require_finite_declaration,
     _require_non_negative,
 )
-from cyberstride.plan import SHADOW_PRICE, AllocatedPlan, Plan
-from cyberstride.tools import unit_of_input
-from cyberstride.tools.leontief import input_requirements_flat
+from demplan.plan import SHADOW_PRICE, AllocatedPlan, Plan
+from demplan.tools import unit_of_input
+from demplan.tools.leontief import input_requirements_flat
 
 SOLVER_METHOD = "highs"
 
@@ -59,7 +59,7 @@ class ReferenceInfeasible(RuntimeError):
 
     Unbounded is the common one on a first run, and it usually means some commodity can be
     produced without inputs while carrying weight in the objective. An idle unit that has been
-    through :func:`cyberstride.tools.linearize.linearize` is one way to arrive there.
+    through :func:`demplan.tools.linearize.linearize` is one way to arrive there.
     """
 
 
@@ -100,7 +100,7 @@ def _require_the_whole_minimisation_pair(objective, lower_bound, minimize_kind) 
 def _require_a_well_formed_floor(objective, economy: Economy, floor: np.ndarray) -> None:
     """Check the floor of any objective read as a minimisation, whoever wrote that objective.
 
-    :class:`cyberstride.objectives.MinimizeLabor` checks its own targets, but a minimisation is
+    :class:`demplan.objectives.MinimizeLabor` checks its own targets, but a minimisation is
     recognised here by :data:`MINIMISATION_ATTRIBUTES` and not by type, so an objective a
     researcher wrote reaches the program with those checks unrun. Each malformed floor comes
     back with status ``"optimal"``: a non-finite entry is no bound at all to the solver, a
@@ -145,7 +145,7 @@ def _require_a_declared_commodity_kind(objective, minimize_kind) -> None:
     """Refuse a ``minimize_kind`` that names no class of the commodity table.
 
     The cost vector counts an input when its commodity carries this kind, so a value outside
-    :class:`cyberstride.CommodityKind` matches nothing: the program minimises an all-zero cost
+    :class:`demplan.CommodityKind` matches nothing: the program minimises an all-zero cost
     and reports an objective value of zero for a plan that spends whatever it likes.
     """
     try:
@@ -274,7 +274,7 @@ def _require_leontief(economy: Economy) -> None:
         raise ValueError(
             f"reference_solution needs Leontief technology, but unit {unit} carries "
             f"technology_kind {kind}; convert the economy with "
-            "cyberstride.tools.linearize.linearize first"
+            "demplan.tools.linearize.linearize first"
         )
 
 
@@ -325,7 +325,7 @@ def reference_solution(economy: Economy, objective: Objective) -> ReferenceResul
 
 
 class ReferenceProcedure:
-    """:func:`reference_solution` as a :class:`cyberstride.Procedure`.
+    """:func:`reference_solution` as a :class:`demplan.Procedure`.
 
     The linear program is deterministic, so ``seed`` is accepted and ignored: two runs on the
     same economy and objective return the same plan whatever seed they are given. The parameter

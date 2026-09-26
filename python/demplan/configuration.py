@@ -70,7 +70,7 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from cyberstride._core import core_version
+from demplan._core import core_version
 
 CONFIGURATION_VERSION = 1
 """Version of the document layout. A new layout takes a new number."""
@@ -78,7 +78,7 @@ CONFIGURATION_VERSION = 1
 ECONOMY_DIGEST_ALGORITHM = "sha256-columns-v2"
 """Name of the economy normalisation, stored in every document beside the digest."""
 
-LIBRARY_MODULE_PREFIX = "cyberstride."
+LIBRARY_MODULE_PREFIX = "demplan."
 """A procedure defined under this module prefix is one the library ships and can digest."""
 
 UNKNOWN_VERSION = "unknown"
@@ -96,7 +96,7 @@ _DIGEST_BLOCK_KEYS = ("algorithm", "digest", "columns")
 class ConfigurationError(ValueError):
     """A run cannot be described, or a configuration document cannot be read.
 
-    It derives from ``ValueError`` for the same reason :class:`cyberstride.SchemaError` does:
+    It derives from ``ValueError`` for the same reason :class:`demplan.SchemaError` does:
     a caller who catches ``ValueError`` around the library's data handling catches this too.
     """
 
@@ -126,7 +126,7 @@ def economy_digest(economy) -> dict[str, Any]:
 
     The result is the ``economy`` block of a configuration document:
     ``{"algorithm": ..., "digest": hex, "columns": {name: hex}}``. Column names come from the
-    dataclass fields of ``economy``, so a field added to :class:`cyberstride.Economy` is
+    dataclass fields of ``economy``, so a field added to :class:`demplan.Economy` is
     covered without anything here being edited.
     """
     columns = {name: _column_digest(name, value) for name, value in _columns(economy)}
@@ -250,7 +250,7 @@ def compare_economy_digests(
     apart from data that really is different.
 
     Whether the difference matters is his call, so the result comes back as a report on the
-    pattern of :func:`cyberstride.check_determinism` rather than as an exception. The one
+    pattern of :func:`demplan.check_determinism` rather than as an exception. The one
     thing that is not his call is two blocks taken under different algorithms: their digests
     were built by different normalisations, so neither agreement nor disagreement between them
     would mean anything, and that raises :class:`ConfigurationError`.
@@ -423,8 +423,8 @@ def _require_readable_version(version) -> None:
     if version > CONFIGURATION_VERSION:
         raise ConfigurationError(
             f"configuration_version {version}: this library writes and reads version "
-            f"{CONFIGURATION_VERSION}, so the document was written by a newer cyberstride "
-            f"than {_library_version()}. Upgrade cyberstride to read it."
+            f"{CONFIGURATION_VERSION}, so the document was written by a newer demplan "
+            f"than {_library_version()}. Upgrade demplan to read it."
         )
 
 
@@ -442,19 +442,19 @@ def _unknown_key_message(key: str) -> str:
     retired = RETIRED_KEYS.get(key)
     if retired is not None:
         return (
-            f"{key!r}: this setting no longer exists in cyberstride. It was removed in "
+            f"{key!r}: this setting no longer exists in demplan. It was removed in "
             f"{retired.removed_in} because {retired.reason}. Drop the key from the document."
         )
     return (
-        f"{key!r}: this version of cyberstride has no such setting and never had one, so the "
+        f"{key!r}: this version of demplan has no such setting and never had one, so the "
         f"document was written by a newer library than {_library_version()}. Upgrade "
-        f"cyberstride to read it."
+        f"demplan to read it."
     )
 
 
 def _library_version() -> str:
     try:
-        return metadata.version("cyberstride")
+        return metadata.version("demplan")
     except metadata.PackageNotFoundError:
         return UNKNOWN_VERSION
 

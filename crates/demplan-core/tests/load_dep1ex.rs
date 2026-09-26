@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use cyberstride_core::{load_dep1ex, Economy, ExtraArray, LoadError};
+use demplan_core::{load_dep1ex, Economy, ExtraArray, LoadError};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
@@ -111,7 +111,7 @@ fn temp_file(label: &str, bytes: &[u8]) -> PathBuf {
     std::process::id().hash(&mut hasher);
     let serial = COUNTER.fetch_add(1, Ordering::Relaxed);
 
-    let dir = std::env::temp_dir().join("cyberstride-tests");
+    let dir = std::env::temp_dir().join("demplan-tests");
     fs::create_dir_all(&dir).expect("create temp directory");
     let path = dir.join(format!("{label}-{:x}-{serial}.clj.gz", hasher.finish()));
     fs::write(&path, bytes).expect("write temp file");
@@ -535,7 +535,7 @@ fn load_rejects_input_that_is_not_gzip() {
 
 #[test]
 fn load_rejects_a_path_that_does_not_exist() {
-    let path = std::env::temp_dir().join("cyberstride-tests/absent-scenario.clj.gz");
+    let path = std::env::temp_dir().join("demplan-tests/absent-scenario.clj.gz");
 
     let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
     assert!(matches!(err, LoadError::Open { .. }));

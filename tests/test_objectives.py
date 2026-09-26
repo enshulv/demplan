@@ -14,8 +14,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cyberstride import CommodityKind, Economy, Plan
-from cyberstride.objectives import MaximizeWeightedConsumption, MinimizeLabor, Objective
+from demplan import CommodityKind, Economy, Plan
+from demplan.objectives import MaximizeWeightedConsumption, MinimizeLabor, Objective
 
 TOLERANCE = 1e-12
 

@@ -14,15 +14,15 @@ import json
 import numpy as np
 import pytest
 
-import cyberstride
-from cyberstride import (
+import demplan
+from demplan import (
     AllocatedPlan,
     Plan,
     RunConfiguration,
     StatedPlan,
     run_configuration,
 )
-from cyberstride.prefabs.hahnel_2020_slides import HahnelSlides2020
+from demplan.prefabs.hahnel_2020_slides import HahnelSlides2020
 
 from reference import synthetic
 
@@ -35,7 +35,7 @@ def economy():
 def _full_plan(economy, cls=Plan):
     """A plan carrying every field, shaped for ``economy``."""
     private = np.flatnonzero(
-        np.asarray(economy.commodity_kind) == int(cyberstride.CommodityKind.PRIVATE_GOOD)
+        np.asarray(economy.commodity_kind) == int(demplan.CommodityKind.PRIVATE_GOOD)
     ).astype(np.int64)
     return cls(
         output=np.zeros(economy.n_units, dtype=np.float64),

@@ -10,8 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cyberstride import load_dep1ex, run
-from cyberstride.prefabs import HahnelSlides2020
+from demplan import load_dep1ex, run
+from demplan.prefabs import HahnelSlides2020
 from reference import dep1ex_numpy
 from reference.paths import dep1ex_available, dep1ex_path
 

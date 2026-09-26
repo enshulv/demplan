@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cyberstride import (
+from demplan import (
     CONSUMER_DEMAND,
     EFFORT,
     INDICATIVE_PRICE,

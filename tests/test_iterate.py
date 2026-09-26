@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cyberstride import IterateResult, Plan, SchemaError, iterate
+from demplan import IterateResult, Plan, SchemaError, iterate
 
 
 def counting_step(log: list[int]):

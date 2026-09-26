@@ -10,9 +10,9 @@ import dataclasses
 import time
 from typing import Protocol, runtime_checkable
 
-from cyberstride.economy import Economy
-from cyberstride.iterate import IterateResult, _recorder
-from cyberstride.plan import Plan
+from demplan.economy import Economy
+from demplan.iterate import IterateResult, _recorder
+from demplan.plan import Plan
 
 
 @runtime_checkable
@@ -28,7 +28,7 @@ class RunSummary:
     """How the run went, as opposed to what it produced.
 
     ``rounds``, ``converged`` and ``diverged`` are ``None`` when the procedure did not use
-    :func:`cyberstride.iterate`: the library has no way to count rounds it never saw. That is
+    :func:`demplan.iterate`: the library has no way to count rounds it never saw. That is
     a different statement from "ran zero rounds", "did not converge" or "did not diverge".
 
     ``diverged`` is ``None`` in one more case: a loop driven without ``plan_of`` showed the
@@ -56,7 +56,7 @@ class RunResult:
 def run(procedure: Procedure, economy: Economy, seed: int) -> RunResult:
     """Call ``procedure.solve``, timing it and collecting any loop it drove.
 
-    A procedure that calls :func:`cyberstride.iterate` more than once reports the last loop:
+    A procedure that calls :func:`demplan.iterate` more than once reports the last loop:
     that is the one whose result the returned plan came out of. A nested ``run`` gets its own
     collector, so an inner procedure's loop never lands in the outer summary.
     """

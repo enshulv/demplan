@@ -16,7 +16,7 @@ import time
 import numpy as np
 import pytest
 
-from cyberstride import (
+from demplan import (
     CONSUMER_DEMAND,
     EFFORT,
     INDICATIVE_PRICE,
@@ -27,14 +27,14 @@ from cyberstride import (
     iterate,
     run,
 )
-from cyberstride.plan import AllocatedPlan, StatedPlan
-from cyberstride.prefabs import HahnelSlides2020
-from cyberstride.prefabs.hahnel_2020_slides import (
+from demplan.plan import AllocatedPlan, StatedPlan
+from demplan.prefabs import HahnelSlides2020
+from demplan.prefabs.hahnel_2020_slides import (
     CouncilModel,
     _relative_imbalance,
     slides_2020_rule,
 )
-from cyberstride.tools import segment_sum, unit_of_input
+from demplan.tools import segment_sum, unit_of_input
 from reference import synthetic
 from reference.dep1ex_numpy import (
     Dep1exLayout,

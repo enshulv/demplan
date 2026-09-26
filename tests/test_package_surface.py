@@ -7,20 +7,20 @@ of the whole list, and two people adding an export land it in the same place.
 
 from __future__ import annotations
 
-import cyberstride
+import demplan
 
 
 class TestExportList:
     def test_every_exported_name_resolves_to_an_attribute(self):
-        missing = [name for name in cyberstride.__all__ if not hasattr(cyberstride, name)]
+        missing = [name for name in demplan.__all__ if not hasattr(demplan, name)]
         assert missing == []
 
     def test_the_list_is_in_ascii_order(self):
-        assert list(cyberstride.__all__) == sorted(cyberstride.__all__)
+        assert list(demplan.__all__) == sorted(demplan.__all__)
 
     def test_no_name_is_listed_twice(self):
         duplicated = sorted(
-            {name for name in cyberstride.__all__ if cyberstride.__all__.count(name) > 1}
+            {name for name in demplan.__all__ if demplan.__all__.count(name) > 1}
         )
         assert duplicated == []
 
@@ -35,13 +35,13 @@ class TestPlanKeyConstants:
 
     def test_the_valuation_keys_are_exported(self):
         for name in ("INCOME", "INDICATIVE_PRICE", "LABOR_VALUE", "SHADOW_PRICE"):
-            assert name in cyberstride.__all__
+            assert name in demplan.__all__
 
     def test_the_two_plan_extra_keys_are_exported(self):
         for name in ("CONSUMER_DEMAND", "EFFORT"):
-            assert name in cyberstride.__all__
+            assert name in demplan.__all__
 
     def test_the_economy_extra_keys_are_not_exported(self):
         """They are a mechanism's input parameters, not vocabulary for reading a plan back."""
         for name in ("ENTITLEMENT", "EFFORT_C", "UTILITY_EXPONENT"):
-            assert name not in cyberstride.__all__
+            assert name not in demplan.__all__

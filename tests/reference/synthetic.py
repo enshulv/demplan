@@ -21,7 +21,7 @@ import dataclasses
 
 import numpy as np
 
-from cyberstride import CommodityKind, Economy, TechnologyKind
+from demplan import CommodityKind, Economy, TechnologyKind
 
 N_PER_CLASS = 3
 N_CONSUMERS = 4

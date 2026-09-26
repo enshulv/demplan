@@ -1,4 +1,4 @@
-//! Core data model and loaders for cyberstride.
+//! Core data model and loaders for demplan.
 //!
 //! [`Economy`] is the state of an economy in one period, stored as three
 //! columnar tables. [`load_dep1ex`] builds one from a dep1ex scenario file.

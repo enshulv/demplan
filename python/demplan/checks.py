@@ -12,9 +12,9 @@ from typing import Mapping
 
 import numpy as np
 
-from cyberstride.economy import Economy
-from cyberstride.plan import Plan
-from cyberstride.procedure import Procedure
+from demplan.economy import Economy
+from demplan.plan import Plan
+from demplan.procedure import Procedure
 
 _PHYSICAL_FIELDS = ("output", "input_use", "consumption", "consumption_commodity", "provision")
 

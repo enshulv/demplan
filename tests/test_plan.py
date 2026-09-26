@@ -14,14 +14,14 @@ import inspect
 import numpy as np
 import pytest
 
-import cyberstride.plan
-from cyberstride.plan import (
+import demplan.plan
+from demplan.plan import (
     AllocatedPlan,
     PlanFieldAbsent,
     StatedPlan,
     require_comparable,
 )
-from cyberstride import (
+from demplan import (
     CONSUMER_DEMAND,
     EFFORT,
     INCOME,
@@ -90,8 +90,8 @@ class TestExtraKeys:
         assert CONSUMER_DEMAND == "consumer_demand"
 
     def test_the_package_re_exports_the_names_the_plan_module_defines(self):
-        assert EFFORT is cyberstride.plan.EFFORT
-        assert CONSUMER_DEMAND is cyberstride.plan.CONSUMER_DEMAND
+        assert EFFORT is demplan.plan.EFFORT
+        assert CONSUMER_DEMAND is demplan.plan.CONSUMER_DEMAND
 
     def test_a_bag_written_under_the_constants_reads_back_under_them(
         self, plan, synthetic_economy
@@ -1019,14 +1019,14 @@ class TestValuationLengthFollowsTheKey:
 
 
 def key_constants_documented_as(role: str) -> set[str]:
-    """The string constants of :mod:`cyberstride.plan` whose docstring opens with ``role``.
+    """The string constants of :mod:`demplan.plan` whose docstring opens with ``role``.
 
     The role is read from the source because a module-level constant's docstring is not kept
     at runtime. Reading it is what makes this a check on the module rather than on a list
     written out beside it: a constant added under ``role`` joins the set without anyone
     editing the test.
     """
-    module = ast.parse(inspect.getsource(cyberstride.plan))
+    module = ast.parse(inspect.getsource(demplan.plan))
     found = set()
     for statement, following in zip(module.body, module.body[1:]):
         if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
@@ -1048,10 +1048,10 @@ def key_constants_documented_as(role: str) -> set[str]:
 
 
 def published_key_constants() -> set[str]:
-    """The public upper-case string constants :mod:`cyberstride.plan` exports."""
+    """The public upper-case string constants :mod:`demplan.plan` exports."""
     return {
         value
-        for name, value in vars(cyberstride.plan).items()
+        for name, value in vars(demplan.plan).items()
         if not name.startswith("_") and name.isupper() and isinstance(value, str)
     }
 
@@ -1072,7 +1072,7 @@ class TestTheValuationRegistryIsComplete:
 
     def test_every_valuation_key_constant_is_registered(self):
         assert key_constants_documented_as("Valuation key:") == set(
-            cyberstride.plan._VALUATION_ROWS
+            demplan.plan._VALUATION_ROWS
         )
 
     def test_every_published_key_constant_declares_which_bag_it_belongs_to(self):

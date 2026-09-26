@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cyberstride import rng, split_seed
+from demplan import rng, split_seed
 
 TWO_64 = 1 << 64
 

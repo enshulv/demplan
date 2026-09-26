@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from cyberstride.economy import Economy
-from cyberstride.tools import unit_of_input
+from demplan.economy import Economy
+from demplan.tools import unit_of_input
 
 
 def input_requirements(coefficients: np.ndarray, output: float) -> np.ndarray:

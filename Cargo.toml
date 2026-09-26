@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cyberstride-core", "crates/cyberstride-py"]
+members = ["crates/demplan-core", "crates/demplan-py"]
 
 [workspace.package]
 version = "0.1.0"

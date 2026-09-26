@@ -34,10 +34,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import cyberstride
-from cyberstride import Economy
-from cyberstride import configuration
-from cyberstride.configuration import (
+import demplan
+from demplan import Economy
+from demplan import configuration
+from demplan.configuration import (
     CONFIGURATION_VERSION,
     ECONOMY_DIGEST_ALGORITHM,
     RETIRED_KEYS,
@@ -49,12 +49,12 @@ from cyberstride.configuration import (
     economy_digest,
     run_configuration,
 )
-from cyberstride.prefabs import HahnelSlides2020
-from cyberstride.prefabs.hahnel_2020_slides import slides_2020_rule
+from demplan.prefabs import HahnelSlides2020
+from demplan.prefabs.hahnel_2020_slides import slides_2020_rule
 
 DEFAULTS_BASELINE = Path(__file__).resolve().parent / "run_configuration_defaults.json"
 
-PREFAB_MODULE = "cyberstride.prefabs.hahnel_2020_slides"
+PREFAB_MODULE = "demplan.prefabs.hahnel_2020_slides"
 
 FIELD_COLUMNS = (
     "period",
@@ -169,7 +169,7 @@ class Impostor:
         raise AssertionError("writing a configuration document must not run the procedure")
 
 
-Impostor.__module__ = "cyberstridex.impostor"
+Impostor.__module__ = "demplanx.impostor"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -194,7 +194,7 @@ class LibraryLikeProcedure:
         raise AssertionError("writing a configuration document must not run the procedure")
 
 
-LibraryLikeProcedure.__module__ = "cyberstride.configuration"
+LibraryLikeProcedure.__module__ = "demplan.configuration"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -224,7 +224,7 @@ class NestedRule:
     tolerance: float = 0.5
 
 
-NestedRule.__module__ = "cyberstride.configuration"
+NestedRule.__module__ = "demplan.configuration"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -395,7 +395,7 @@ class TestTopLevelKeys:
 
     def test_the_library_version_comes_from_the_installed_distribution(self, economy):
         config = run_configuration(ResearcherProcedure(), economy, seed=0)
-        assert config.library_version == metadata.version("cyberstride")
+        assert config.library_version == metadata.version("demplan")
 
     def test_an_uninstalled_library_records_an_unknown_version(self, economy, monkeypatch):
         def missing(name):
@@ -407,7 +407,7 @@ class TestTopLevelKeys:
 
     def test_the_core_version_is_recorded_beside_it(self, economy):
         config = run_configuration(ResearcherProcedure(), economy, seed=0)
-        assert config.core_version == cyberstride.core_version()
+        assert config.core_version == demplan.core_version()
 
     def test_the_seed_is_recorded(self, economy):
         assert run_configuration(ResearcherProcedure(), economy, seed=4242).seed == 4242
@@ -457,7 +457,7 @@ class TestProcedureBlock:
 
     def test_the_source_digest_is_not_some_other_library_file(self, economy):
         config = run_configuration(HahnelSlides2020(), economy, seed=0)
-        assert config.procedure["source_digest"] != module_file_digest("cyberstride.seeds")
+        assert config.procedure["source_digest"] != module_file_digest("demplan.seeds")
 
     def test_a_researcher_procedure_records_an_undeclared_origin(self, economy):
         config = run_configuration(ResearcherProcedure(), economy, seed=0)
@@ -472,7 +472,7 @@ class TestProcedureBlock:
         assert "declared_origin" in config.procedure
 
     def test_a_module_merely_starting_with_the_name_is_not_the_library(self, economy):
-        """The test is on ``cyberstride.``, dot included, so ``cyberstridex`` is outside."""
+        """The test is on ``demplan.``, dot included, so ``demplanx`` is outside."""
         config = run_configuration(Impostor(), economy, seed=0)
         assert config.procedure["kind"] == "researcher"
 
@@ -496,7 +496,7 @@ class TestParameters:
             def solve(self, economy, seed):
                 raise AssertionError("never run")
 
-        Plain.__module__ = "cyberstride.configuration"
+        Plain.__module__ = "demplan.configuration"
         config = run_configuration(Plain(), economy, seed=0)
         assert config.procedure["parameters"] is None
 
@@ -586,7 +586,7 @@ class TestPlanFieldsAbsent:
     def test_the_module_does_not_import_the_plan_type(self):
         """The document records what the researcher declared; it does not check his plan."""
         source = Path(configuration.__file__).read_text(encoding="utf-8")
-        assert "cyberstride.plan" not in source
+        assert "demplan.plan" not in source
 
 
 class TestJsonFile:
@@ -1535,11 +1535,11 @@ class TestExportedNames:
 
     @pytest.mark.parametrize("name", CONFIGURATION_EXPORTS)
     def test_the_name_is_exported(self, name):
-        assert name in cyberstride.__all__
+        assert name in demplan.__all__
 
     @pytest.mark.parametrize("name", CONFIGURATION_EXPORTS)
     def test_the_name_is_reachable_on_the_package(self, name):
-        assert getattr(cyberstride, name) is getattr(configuration, name)
+        assert getattr(demplan, name) is getattr(configuration, name)
 
 
 class TestBooleanIsNotAnInteger:

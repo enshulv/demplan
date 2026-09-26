@@ -14,10 +14,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-BENCH_DIR = Path(os.environ.get("CYBERSTRIDE_BENCH_DIR", REPO_ROOT / "research" / "bench")).resolve()
+BENCH_DIR = Path(os.environ.get("DEMPLAN_BENCH_DIR", REPO_ROOT / "research" / "bench")).resolve()
 """Directory holding ``repro.py``, ``endowment.py`` and ``confirm.py``."""
 
-DATA_DIR = Path(os.environ.get("CYBERSTRIDE_DATA_DIR", REPO_ROOT / "research" / "data")).resolve()
+DATA_DIR = Path(os.environ.get("DEMPLAN_DATA_DIR", REPO_ROOT / "research" / "data")).resolve()
 """Directory holding ``dep1ex01.clj.gz`` .. ``dep1ex05.clj.gz``."""
 
 

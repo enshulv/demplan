@@ -1,4 +1,4 @@
-# cyberstride
+# demplan
 
 Shared research infrastructure for democratic economic planning.
 
@@ -43,8 +43,8 @@ it reads are at <https://www.szcz.org/depexperiments/>.
 
 ```python
 import numpy as np
-from cyberstride import load_dep1ex, run
-from cyberstride.prefabs import HahnelSlides2020
+from demplan import load_dep1ex, run
+from demplan.prefabs import HahnelSlides2020
 
 economy = load_dep1ex("dep1ex01.clj.gz")
 result = run(HahnelSlides2020(), economy, seed=0)
@@ -91,8 +91,8 @@ aggregation, stays as the 2020 slides describe it:
 
 ```python
 import numpy as np
-from cyberstride import run
-from cyberstride.prefabs import HahnelSlides2020
+from demplan import run
+from demplan.prefabs import HahnelSlides2020
 
 
 def proportional_rule(price, surplus, imbalance):
@@ -110,14 +110,14 @@ round, still reaches the price the plan records and the imbalance the loop tests
 on, and neither raises. Closing that needs the board to own those arrays, which it does not
 yet.
 
-`cyberstride.prefabs.hahnel_2020_slides.slides_2020_rule` is the published rule in the same
+`demplan.prefabs.hahnel_2020_slides.slides_2020_rule` is the published rule in the same
 shape, so you can compare against it or wrap it.
 
 To change more than the rule, write `solve` yourself. `CouncilModel` in that same module is
 the councils' side of the slides procedure on its own, with `initial_state`, `step`,
 `converged` and `plan_of` in exactly the shape `iterate` takes, so a procedure that wants a
 different loop can drive it directly; using it commits you to the theory its docstring
-states. `cyberstride.tools` holds the closed forms of the two technologies the data model
+states. `demplan.tools` holds the closed forms of the two technologies the data model
 knows about.
 
 If your method drives a fixed point, running the loop through `iterate` lets the library count
@@ -189,7 +189,7 @@ aggregated against another.
 
 ```python
 import numpy as np
-from cyberstride import CommodityKind, Economy, TechnologyKind
+from demplan import CommodityKind, Economy, TechnologyKind
 
 kinds = [CommodityKind.PRIVATE_GOOD, CommodityKind.PRIVATE_GOOD, CommodityKind.PUBLIC_GOOD,
          CommodityKind.INTERMEDIATE, CommodityKind.INTERMEDIATE,
@@ -285,7 +285,7 @@ can write with `to_json` and someone else can load with `from_json`. It is setti
 provenance: what went in, in a form that goes back in.
 
 ```python
-from cyberstride import run_configuration
+from demplan import run_configuration
 
 configuration = run_configuration(procedure, economy, seed=7, plan=plan)
 configuration.to_json("run.json")

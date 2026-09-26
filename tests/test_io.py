@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from cyberstride import Economy, load_dep1ex
+from demplan import Economy, load_dep1ex
 
 CORE_LOADER = "load_dep1ex"
 
@@ -28,7 +28,7 @@ def mapping_of(economy: Economy) -> dict:
 
 @pytest.fixture
 def core():
-    from cyberstride import _core
+    from demplan import _core
 
     return _core
 

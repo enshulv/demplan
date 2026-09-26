@@ -32,10 +32,10 @@ from typing import Protocol
 
 import numpy as np
 
-from cyberstride.economy import CommodityKind, Economy, TechnologyKind
-from cyberstride.iterate import iterate
-from cyberstride.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, Plan, StatedPlan
-from cyberstride.tools import segment_sum, unit_of_input
+from demplan.economy import CommodityKind, Economy, TechnologyKind
+from demplan.iterate import iterate
+from demplan.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, Plan, StatedPlan
+from demplan.tools import segment_sum, unit_of_input
 
 IMBALANCE_CAP = 0.25
 """Above this relative imbalance the price step stops growing."""
@@ -130,7 +130,7 @@ class CouncilModel:
     Everything that does not change with the price is computed once in ``__init__``: the flat
     input layout, the price-independent part of the worker councils' closed form, and the split
     of the utility-exponent columns into the private goods and the rest. ``initial_state``,
-    ``step``, ``converged`` and ``plan_of`` are the four arguments :func:`cyberstride.iterate`
+    ``step``, ``converged`` and ``plan_of`` are the four arguments :func:`demplan.iterate`
     takes, so a procedure that wants a different loop can drive this model directly.
     """
 
@@ -233,9 +233,9 @@ class CouncilModel:
         of demand and not an allocation of supply.
 
         It takes a state :meth:`step` produced. The state :meth:`initial_state` returns carries
-        a price and nothing else, so this raises :class:`cyberstride.SchemaError` on it:
+        a price and nothing else, so this raises :class:`demplan.SchemaError` on it:
         ``Plan`` refuses ``output`` and ``input_use`` as ``None``, those being quantities no
-        mechanism may declare absent. :func:`cyberstride.iterate` calls this after every
+        mechanism may declare absent. :func:`demplan.iterate` calls this after every
         ``step`` and never on the starting state, so a loop driven through it never meets that.
         """
         return StatedPlan(
@@ -365,7 +365,7 @@ def _owned_copy(array: np.ndarray) -> np.ndarray:
 def _frozen_copy(array: np.ndarray) -> np.ndarray:
     """A read-only array of the board's own, holding the same numbers as ``array``.
 
-    :func:`cyberstride.economy._freeze_array` hands out a read-only view instead, so that
+    :func:`demplan.economy._freeze_array` hands out a read-only view instead, so that
     building an ``Economy`` or a ``Plan`` around a caller's buffer leaves that buffer with the
     caller. The board's position is the other one: it owns the three arrays it shows the price
     rule, and a copy of an array it owns has no ``base`` for the rule to write through.
@@ -408,7 +408,7 @@ def slides_2020_rule(
 
 @dataclasses.dataclass(frozen=True)
 class HahnelSlides2020:
-    """The 2020 slides procedure as a :class:`cyberstride.Procedure`.
+    """The 2020 slides procedure as a :class:`demplan.Procedure`.
 
     ``threshold_pct`` is the worst relative imbalance, in percent, at which the board declares
     the plan feasible; the slides report runs at 5 and at 3. ``initial_price`` is the flat

@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use cyberstride_core::{Economy, ExtraArray, SchemaError};
+use demplan_core::{Economy, ExtraArray, SchemaError};
 
 /// Builds an economy that satisfies every structural rule.
 ///

@@ -1,5 +1,5 @@
 [package]
-name = "cyberstride-core"
+name = "demplan-core"
 description = "Shared research infrastructure for democratic economic planning: data model and loaders"
 version.workspace = true
 edition.workspace = true

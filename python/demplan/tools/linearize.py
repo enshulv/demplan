@@ -19,9 +19,9 @@ import dataclasses
 
 import numpy as np
 
-from cyberstride.economy import Economy, TechnologyKind
-from cyberstride.plan import Plan
-from cyberstride.tools import unit_of_input
+from demplan.economy import Economy, TechnologyKind
+from demplan.plan import Plan
+from demplan.tools import unit_of_input
 
 UNIT_SCALE = 1.0
 """Every linearised unit has scale one: the coefficients already carry the whole technology."""
@@ -31,7 +31,7 @@ def linearize(economy: Economy, plan: Plan) -> Economy:
     """The same economy with every unit's technology replaced by the plan's input ratios.
 
     Each coefficient becomes ``input_use / output`` for the unit that owns it, so asking
-    :func:`cyberstride.tools.leontief.input_requirements_flat` for the plan's own output
+    :func:`demplan.tools.leontief.input_requirements_flat` for the plan's own output
     returns the plan's own input use.
 
     A unit that produced nothing has no ratios to read, and gets zero coefficients. Read that

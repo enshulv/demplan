@@ -17,10 +17,10 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from cyberstride import CommodityKind, Economy, Plan, TechnologyKind, run
-from cyberstride.prefabs import HahnelSlides2020
-from cyberstride.tools.leontief import input_requirements_flat
-from cyberstride.tools.linearize import linearize
+from demplan import CommodityKind, Economy, Plan, TechnologyKind, run
+from demplan.prefabs import HahnelSlides2020
+from demplan.tools.leontief import input_requirements_flat
+from demplan.tools.linearize import linearize
 
 EXACT = 1e-9
 

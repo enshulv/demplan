@@ -1,6 +1,6 @@
 [package]
-name = "cyberstride-py"
-description = "Python bindings for cyberstride-core"
+name = "demplan-py"
+description = "Python bindings for demplan-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,6 +11,6 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-cyberstride-core = { path = "../cyberstride-core" }
+demplan-core = { path = "../demplan-core" }
 pyo3 = { workspace = true }
 numpy = { workspace = true }

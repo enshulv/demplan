@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from cyberstride.economy import Economy
+from demplan.economy import Economy
 
 _CORE_LOADER = "load_dep1ex"
 
@@ -23,12 +23,12 @@ def load_dep1ex(path: str | os.PathLike[str], endowment: float = 1000.0) -> Econ
     Parsing happens in the Rust core, which reads the file once and hands back a mapping of
     columns. Raises ``NotImplementedError`` while the core does not export the loader.
     """
-    from cyberstride import _core
+    from demplan import _core
 
     loader = getattr(_core, _CORE_LOADER, None)
     if loader is None:
         raise NotImplementedError(
-            f"the cyberstride core does not provide {_CORE_LOADER} yet; "
+            f"the demplan core does not provide {_CORE_LOADER} yet; "
             "rebuild the extension module with a core that exports it"
         )
     return Economy.from_arrays(loader(str(path), float(endowment)))

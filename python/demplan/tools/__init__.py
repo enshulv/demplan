@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from cyberstride.economy import Economy
+from demplan.economy import Economy
 
 
 def unit_of_input(economy: Economy) -> np.ndarray:
@@ -33,6 +33,6 @@ def segment_sum(economy: Economy, values: np.ndarray, owner: np.ndarray | None =
     return np.bincount(owner, weights=values, minlength=economy.n_units)
 
 
-from cyberstride.tools import cobb_douglas, leontief, linearize  # noqa: E402
+from demplan.tools import cobb_douglas, leontief, linearize  # noqa: E402
 
 __all__ = ["cobb_douglas", "leontief", "linearize", "segment_sum", "unit_of_input"]

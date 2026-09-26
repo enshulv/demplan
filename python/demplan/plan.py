@@ -21,7 +21,7 @@ from typing import Mapping
 
 import numpy as np
 
-from cyberstride.economy import (
+from demplan.economy import (
     CommodityKind,
     Economy,
     SchemaError,
@@ -240,8 +240,8 @@ class Plan:
         construction rather than in :meth:`validate` because nothing obliges a researcher to
         call :meth:`validate` -- ``run`` does not -- and a plan carrying neither column leaves
         every tool that reads the columns a plan carries with nothing to read: the divergence
-        watch of :func:`cyberstride.iterate` finds no array to test and reports the loop as
-        finite, and :func:`cyberstride.check_determinism` finds no column to compare.
+        watch of :func:`demplan.iterate` finds no array to test and reports the loop as
+        finite, and :func:`demplan.check_determinism` finds no column to compare.
         """
         for name in _REQUIRED_ARRAYS:
             if getattr(self, name) is None:

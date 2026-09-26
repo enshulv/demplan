@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from cyberstride.economy import Economy
-from cyberstride.tools import segment_sum, unit_of_input
+from demplan.economy import Economy
+from demplan.tools import segment_sum, unit_of_input
 
 
 def cost_minimizing_inputs(

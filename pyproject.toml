@@ -3,7 +3,7 @@ requires = ["maturin>=1.15,<2"]
 build-backend = "maturin"
 
 [project]
-name = "cyberstride"
+name = "demplan"
 version = "0.1.0"
 description = "Shared research infrastructure for democratic economic planning"
 readme = "README.md"
@@ -16,8 +16,8 @@ dev = ["pytest", "hypothesis", "pyarrow", "psutil"]
 
 [tool.maturin]
 python-source = "python"
-module-name = "cyberstride._core"
-manifest-path = "crates/cyberstride-py/Cargo.toml"
+module-name = "demplan._core"
+manifest-path = "crates/demplan-py/Cargo.toml"
 features = ["pyo3/extension-module"]
 
 [tool.pytest.ini_options]

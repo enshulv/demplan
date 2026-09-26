@@ -1,4 +1,4 @@
-//! Python extension module `cyberstride._core`.
+//! Python extension module `demplan._core`.
 //!
 //! The module hands the Rust data model to Python as plain dictionaries of numpy
 //! arrays. Keys match the column names of the data model, so the Python package
@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use cyberstride_core::{Economy, ExtraArray, LoadError as CoreLoadError};
+use demplan_core::{Economy, ExtraArray, LoadError as CoreLoadError};
 use numpy::ndarray::{ArrayD, IxDyn};
 use numpy::{Element, IntoPyArray, PyArrayDyn};
 use pyo3::create_exception;
@@ -43,7 +43,7 @@ fn core_version() -> &'static str {
 #[pyfunction]
 fn load_dep1ex<'py>(py: Python<'py>, path: &str, endowment: f64) -> PyResult<Bound<'py, PyDict>> {
     let economy = py
-        .detach(|| cyberstride_core::load_dep1ex(path, endowment))
+        .detach(|| demplan_core::load_dep1ex(path, endowment))
         .map_err(to_py_error)?;
     economy_to_dict(py, economy)
 }

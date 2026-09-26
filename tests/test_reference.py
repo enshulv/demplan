@@ -37,7 +37,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from cyberstride import (
+from demplan import (
     INDICATIVE_PRICE,
     SHADOW_PRICE,
     CommodityKind,
@@ -47,16 +47,16 @@ from cyberstride import (
     load_dep1ex,
     run,
 )
-from cyberstride.objectives import MaximizeWeightedConsumption, MinimizeLabor
-from cyberstride.plan import AllocatedPlan, StatedPlan, require_comparable
-from cyberstride.prefabs import HahnelSlides2020
-from cyberstride.reference import (
+from demplan.objectives import MaximizeWeightedConsumption, MinimizeLabor
+from demplan.plan import AllocatedPlan, StatedPlan, require_comparable
+from demplan.prefabs import HahnelSlides2020
+from demplan.reference import (
     ReferenceInfeasible,
     ReferenceProcedure,
     ReferenceResult,
     reference_solution,
 )
-from cyberstride.tools.linearize import linearize
+from demplan.tools.linearize import linearize
 from reference.paths import dep1ex_available, dep1ex_path
 
 EXACT = 1e-9
@@ -652,7 +652,7 @@ class TestRefusedInputs:
             build_bread_economy(),
             technology_kind=np.full(2, TechnologyKind.COBB_DOUGLAS, dtype=np.int8),
         )
-        with pytest.raises(ValueError, match="cyberstride.tools.linearize"):
+        with pytest.raises(ValueError, match="demplan.tools.linearize"):
             reference_solution(cobb_douglas, MaximizeWeightedConsumption(bread_weights()))
 
     def test_a_commodity_produced_from_nothing_makes_the_program_unbounded(self):

@@ -7,7 +7,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from cyberstride import CommodityKind, Economy, SchemaError, TechnologyKind
+from demplan import CommodityKind, Economy, SchemaError, TechnologyKind
 
 
 def replaced(economy: Economy, **changes) -> Economy:

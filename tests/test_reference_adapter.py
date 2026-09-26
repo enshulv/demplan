@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cyberstride import CommodityKind, TechnologyKind
+from demplan import CommodityKind, TechnologyKind
 from reference import dep1ex_numpy, synthetic
 
 SAMPLE_UNITS = (0, 1, 7, 1234, 15000, 29999)

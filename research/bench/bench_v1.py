@@ -3,7 +3,7 @@
 
   上游 pequod-plus   Clojure + SQLite，约 4 小时一组（见 研究/复现记录.md）
   numpy 参考         research/bench/{repro,endowment}.py
-  cyberstride        本库：Rust 加载器 + Python prefab
+  demplan            本库：Rust 加载器 + Python prefab
 
 用法：
   .venv/Scripts/python.exe research/bench/bench_v1.py [dep1ex01.clj.gz ...]
@@ -23,8 +23,8 @@ sys.path.insert(0, str(HERE))
 import repro  # noqa: E402
 import endowment as E  # noqa: E402
 
-import cyberstride  # noqa: E402
-from cyberstride.prefabs.hahnel_2020_slides import HahnelSlides2020  # noqa: E402
+import demplan  # noqa: E402
+from demplan.prefabs.hahnel_2020_slides import HahnelSlides2020  # noqa: E402
 
 UPSTREAM_SECONDS = 4 * 3600.0
 
@@ -44,12 +44,12 @@ def bench_numpy(path):
     return t_load, t_run, rounds, rss_mb()
 
 
-def bench_cyberstride(path):
+def bench_demplan(path):
     t0 = time.perf_counter()
-    economy = cyberstride.load_dep1ex(path, endowment=1000.0)
+    economy = demplan.load_dep1ex(path, endowment=1000.0)
     t_load = time.perf_counter() - t0
     t0 = time.perf_counter()
-    result = cyberstride.run(HahnelSlides2020(), economy, seed=0)
+    result = demplan.run(HahnelSlides2020(), economy, seed=0)
     t_run = time.perf_counter() - t0
     return t_load, t_run, result.summary.rounds, rss_mb()
 
@@ -60,7 +60,7 @@ def main(files):
     for name in files:
         path = DATA / name
         rows = []
-        for label, fn in (("numpy", bench_numpy), ("cyberstride", bench_cyberstride)):
+        for label, fn in (("numpy", bench_numpy), ("demplan", bench_demplan)):
             t_load, t_run, rounds, rss = fn(path)
             rows.append((label, t_load, t_run, rounds, rss))
             print(f"{name[:8]:<10} {label:<12} {t_load:>8.2f} {t_run:>8.2f} {t_load + t_run:>8.2f} "

@@ -14,7 +14,7 @@ import dataclasses
 
 import numpy as np
 
-from cyberstride import CommodityKind, Economy, TechnologyKind
+from demplan import CommodityKind, Economy, TechnologyKind
 
 from .paths import import_reference
 

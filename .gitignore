@@ -12,8 +12,8 @@ research/data/*.gz
 upstream/
 
 # maturin develop 的构建产物
-python/cyberstride/*.pyd
-python/cyberstride/*.pdb
-python/cyberstride/*.so
+python/demplan/*.pyd
+python/demplan/*.pdb
+python/demplan/*.so
 .pytest_cache/
 .hypothesis/

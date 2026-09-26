@@ -8,8 +8,8 @@ import time
 import numpy as np
 import pytest
 
-from cyberstride import Plan, Procedure, RunResult, RunSummary, iterate, run
-from cyberstride.iterate import _recorder
+from demplan import Plan, Procedure, RunResult, RunSummary, iterate, run
+from demplan.iterate import _recorder
 
 
 def trivial_plan(economy) -> Plan:

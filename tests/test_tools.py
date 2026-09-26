@@ -12,7 +12,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from cyberstride.tools import cobb_douglas, leontief
+from demplan.tools import cobb_douglas, leontief
 
 RELATIVE_TOLERANCE = 1e-9
 

@@ -17,7 +17,7 @@ from typing import Mapping, Protocol, runtime_checkable
 
 import numpy as np
 
-from cyberstride.economy import CommodityKind, Economy
+from demplan.economy import CommodityKind, Economy
 
 EQUAL_SPLIT = "equal"
 """The one split rule implemented here: every consumer unit receives the same quantity."""
@@ -53,7 +53,7 @@ class Objective(Protocol):
 
         ``aggregate`` is ``f64[n_commodities]``. The result is
         ``(consumption f64[n_consumers, k], consumption_commodity int64[k],
-        provision f64[n_commodities])``, shaped for :class:`cyberstride.Plan`.
+        provision f64[n_commodities])``, shaped for :class:`demplan.Plan`.
         """
         ...
 
@@ -211,7 +211,7 @@ class MinimizeLabor:
     private goods and public goods, and never negative. Consumption above the floor is neither
     rewarded nor penalised, so the solution meets the floor and stops.
 
-    :func:`cyberstride.reference.reference_solution` recognises this objective by two
+    :func:`demplan.reference.reference_solution` recognises this objective by two
     attributes rather than by its type, so a researcher's own labour-minimising objective is
     handled the same way: ``final_demand_lower_bound`` carries the floor and ``minimize_kind``
     says which commodity class the objective totals up. An objective carrying one of the two

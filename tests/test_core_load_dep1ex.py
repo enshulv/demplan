@@ -1,4 +1,4 @@
-"""Differential and timing tests for the dep1ex loader exposed by cyberstride._core.
+"""Differential and timing tests for the dep1ex loader exposed by demplan._core.
 
 The reference is research/bench/repro.py, the numpy parser used for the upstream
 replication. Both parsers read the same decimal text, and both Rust's f64 parser
@@ -20,14 +20,14 @@ import time
 import numpy as np
 import pytest
 
-from cyberstride import _core
+from demplan import _core
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "research" / "bench"))
 
 import repro  # noqa: E402  (needs the sys.path entry above)
 
-DATA_DIR = pathlib.Path(os.environ.get("CYBERSTRIDE_DATA_DIR", REPO_ROOT / "research" / "data"))
+DATA_DIR = pathlib.Path(os.environ.get("DEMPLAN_DATA_DIR", REPO_ROOT / "research" / "data"))
 DEP1EX01 = DATA_DIR / "dep1ex01.clj.gz"
 
 #: Natural-resource and labour endowment per commodity, the value used in the paper.
@@ -452,8 +452,8 @@ def test_an_input_number_is_attributed_to_the_unit_whose_record_carries_it(tmp_p
 @requires_data
 @pytest.mark.slow
 @pytest.mark.skipif(
-    os.environ.get("CYBERSTRIDE_RELEASE") is None,
-    reason="timing is only meaningful against a release build; set CYBERSTRIDE_RELEASE=1",
+    os.environ.get("DEMPLAN_RELEASE") is None,
+    reason="timing is only meaningful against a release build; set DEMPLAN_RELEASE=1",
 )
 def test_release_build_loads_dep1ex01_within_the_time_limit():
     timings = []

@@ -16,12 +16,12 @@ from typing import Any, Callable, Iterator
 
 import numpy as np
 
-from cyberstride.plan import Plan
+from demplan.plan import Plan
 
 _recorder: contextvars.ContextVar[list["IterateResult"] | None] = contextvars.ContextVar(
-    "cyberstride_iterate_recorder", default=None
+    "demplan_iterate_recorder", default=None
 )
-"""Where :func:`cyberstride.procedure.run` collects the results of the loops it wraps."""
+"""Where :func:`demplan.procedure.run` collects the results of the loops it wraps."""
 
 _WATCHED_FIELDS = ("output", "input_use", "consumption", "provision")
 """The plan fields the divergence watch reads.

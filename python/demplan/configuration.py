@@ -22,6 +22,21 @@ repeating his run with nothing to repeat it from. The loader block and
 declared" form. This module never runs the procedure and never inspects the plan beyond that
 one attribute.
 
+A run over several periods, as :func:`demplan.run_periods` carries it out, adds three keys:
+``periods``, the number of periods; ``advance``, the evolution law; and ``next_procedure``, the
+slot that builds each period's procedure from the plan of the period before. The two slots are
+recorded as the procedure is, as origin blocks, and are null when the run had none. A
+single-period run writes none of the three, so its document has the same bytes as one written
+by a library that has no multi-period keys, and a document without them reads as a
+single-period run.
+
+What a multi-period document reproduces is the whole trajectory: the initial economy, the
+seed, the evolution law, the next-procedure slot and the number of periods, rerun from the
+first period. A later period's starting point is not in the document. A warm start's starting
+prices, for example, are arrays computed from the previous period's plan, and the document
+does not record arrays by value; they are recomputed by rerunning the trajectory. The economy
+block is the digest of the economy passed in, which for a trajectory is the first period's.
+
 Writing a document costs an economy-wide sha256 -- 0.064 seconds on the 53.3 MB dep1ex01
 economy -- so it is a function the researcher calls rather than something ``run`` does on
 every call. A parameter scan runs thousands of times and should pay once.
@@ -91,6 +106,12 @@ _SIMPLE_DTYPE_KINDS = "biufc"
 
 _DIGEST_BLOCK_KEYS = ("algorithm", "digest", "columns")
 """What :func:`economy_digest` returns, and what :func:`compare_economy_digests` takes."""
+
+_SINGLE_PERIOD = 1
+
+_PERIOD_KEYS = ("periods", "advance", "next_procedure")
+"""The keys a single-period document leaves out, so that its bytes are those of a document
+that has no multi-period keys."""
 
 
 class ConfigurationError(ValueError):
@@ -327,6 +348,13 @@ class RunConfiguration:
     procedure: Mapping[str, Any] | None = None
     loader: Mapping[str, Any] | None = None
     plan_fields_absent: tuple[str, ...] | None = None
+    periods: int = _SINGLE_PERIOD
+    """Number of periods the run covers. 1 is a single-period run."""
+    advance: Mapping[str, Any] | None = None
+    """Origin block of the evolution law, null when the run had none."""
+    next_procedure: Mapping[str, Any] | None = None
+    """Origin block of the slot that builds each period's procedure, null when the run had
+    none."""
 
     def to_json(self, path: str | os.PathLike[str]) -> None:
         """Write the document to ``path`` as UTF-8 JSON, keys sorted, indented by two.
@@ -338,10 +366,15 @@ class RunConfiguration:
         be written leaves no half-written file behind. ``NaN`` and ``Infinity`` are refused:
         Python reads them back, no other language does, and being readable elsewhere is the
         reason this is JSON.
+
+        A single-period document leaves out ``periods``, ``advance`` and ``next_procedure``.
+        A single-period configuration that holds an ``advance`` or a ``next_procedure`` block
+        is refused rather than written without it.
         """
-        document = {
-            field.name: getattr(self, field.name) for field in dataclasses.fields(self)
-        }
+        _require_multi_period_for_slots(
+            self.periods, advance=self.advance, next_procedure=self.next_procedure
+        )
+        document = self._document()
         try:
             text = json.dumps(
                 document, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False
@@ -352,6 +385,16 @@ class RunConfiguration:
             ) from error
         with open(path, "w", encoding="utf-8", newline="\n") as file:
             file.write(text + "\n")
+
+    def _document(self) -> dict[str, Any]:
+        """The fields as the file holds them: all of them, less the period keys when
+        ``periods`` is 1."""
+        omitted = _PERIOD_KEYS if self.periods == _SINGLE_PERIOD else ()
+        return {
+            field.name: getattr(self, field.name)
+            for field in dataclasses.fields(self)
+            if field.name not in omitted
+        }
 
     @classmethod
     def from_json(cls, path: str | os.PathLike[str]) -> "RunConfiguration":
@@ -365,6 +408,10 @@ class RunConfiguration:
         A ``configuration_version`` above the one this library writes is refused before any of
         that. A newer layout can reuse every key name and still mean something else by them,
         and the key rules alone would load such a document without a word.
+
+        ``periods`` is refused as :func:`run_configuration` refuses it, and so is an
+        ``advance`` or ``next_procedure`` block in a single-period document, the absent
+        ``periods`` of an older document included.
         """
         with open(path, encoding="utf-8") as file:
             document = json.load(file)
@@ -381,6 +428,12 @@ class RunConfiguration:
             raise ConfigurationError(_unknown_keys_message(unknown))
 
         values = dict(document)
+        values["periods"] = _period_count(values.get("periods", _SINGLE_PERIOD))
+        _require_multi_period_for_slots(
+            values["periods"],
+            advance=values.get("advance"),
+            next_procedure=values.get("next_procedure"),
+        )
         absent = values.get("plan_fields_absent")
         if absent is not None:
             values["plan_fields_absent"] = tuple(absent)
@@ -388,7 +441,15 @@ class RunConfiguration:
 
 
 def run_configuration(
-    procedure, economy, seed: int, loader: Mapping[str, Any] | None = None, plan=None
+    procedure,
+    economy,
+    seed: int,
+    loader: Mapping[str, Any] | None = None,
+    plan=None,
+    *,
+    periods: int = _SINGLE_PERIOD,
+    advance=None,
+    next_procedure=None,
 ) -> RunConfiguration:
     """Describe one run: what it ran on, what ran it, and what it was seeded with.
 
@@ -401,8 +462,16 @@ def run_configuration(
     field names the mechanism did not fill in. Pass nothing and the document records null,
     which is the same "not declared" form the loader block uses.
 
-    The procedure is described, never run.
+    ``periods``, ``advance`` and ``next_procedure`` are the arguments of the same names given
+    to :func:`demplan.run_periods`. ``periods`` is refused as ``run_periods`` refuses it:
+    anything but a Python or numpy integer of at least 1, ``bool`` included. ``advance`` and
+    ``next_procedure`` are recorded as origin blocks, as the procedure is, and are refused
+    when ``periods`` is 1, because a single-period run never calls them.
+
+    The procedure, the evolution law and the next-procedure slot are described, never run.
     """
+    period_count = _period_count(periods)
+    _require_multi_period_for_slots(period_count, advance=advance, next_procedure=next_procedure)
     return RunConfiguration(
         configuration_version=CONFIGURATION_VERSION,
         library_version=_library_version(),
@@ -412,7 +481,50 @@ def run_configuration(
         procedure=_origin_block(procedure),
         loader=_loader_block(loader),
         plan_fields_absent=_absent_fields(plan),
+        periods=period_count,
+        advance=_slot_block(advance, "advance"),
+        next_procedure=_slot_block(next_procedure, "next_procedure"),
     )
+
+
+def _period_count(periods) -> int:
+    """``periods`` as a Python ``int``, refused unless it is an integer of at least 1.
+
+    The rule is :func:`demplan.run_periods`'s: Python and numpy integers are accepted,
+    ``bool`` is refused by name since it subclasses ``int``, and ``numpy.bool_`` is not a
+    ``numpy.integer``. A document that accepted a count the run refuses would describe a run
+    that cannot happen.
+    """
+    is_integer = isinstance(periods, (int, np.integer)) and not isinstance(periods, bool)
+    if not is_integer or periods < _SINGLE_PERIOD:
+        raise ConfigurationError(f"periods must be an integer of at least 1, got {periods!r}")
+    return int(periods)
+
+
+def _require_multi_period_for_slots(periods: int, **slots) -> None:
+    """Refuse an evolution law or a next-procedure slot given to a single-period run.
+
+    :func:`demplan.run_periods` calls both only between two periods, so with one period
+    neither runs. A document recording them would claim a setting that had no effect, and one
+    that dropped them would hide that the caller asked for it. ``slots`` maps each slot's name
+    to the object or block given for it, ``None`` when none was.
+    """
+    given = [name for name, value in slots.items() if value is not None]
+    if periods != _SINGLE_PERIOD or not given:
+        return
+    pronoun = "them" if len(given) > 1 else "it"
+    raise ConfigurationError(
+        f"{' and '.join(given)}: a single-period run never calls {pronoun}, since run_periods "
+        "calls the evolution law and the next-procedure slot only between two periods. Pass "
+        f"periods greater than 1, or leave {pronoun} out."
+    )
+
+
+def _slot_block(value, name: str) -> dict[str, Any] | None:
+    """The origin block of a multi-period slot, or null when the run has none."""
+    if value is None:
+        return None
+    return _origin_block(value, f"{name}.parameters")
 
 
 def _require_readable_version(version) -> None:

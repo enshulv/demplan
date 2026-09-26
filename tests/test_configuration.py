@@ -92,6 +92,10 @@ BAG_COLUMNS = (
 
 ALL_COLUMNS = FIELD_COLUMNS + BAG_COLUMNS
 
+SINGLE_PERIOD_OMITTED_KEYS = ("periods", "advance", "next_procedure")
+"""The keys a single-period document leaves out. ``tests/test_configuration_periods.py``
+covers them."""
+
 
 @pytest.fixture
 def economy(synthetic_economy) -> Economy:
@@ -385,6 +389,9 @@ class TestTopLevelKeys:
             "procedure",
             "loader",
             "plan_fields_absent",
+            "periods",
+            "advance",
+            "next_procedure",
         }
 
     def test_the_configuration_version_is_one(self, economy):
@@ -715,9 +722,23 @@ class TestDefaultsBaseline:
         baseline = json.loads(DEFAULTS_BASELINE.read_text(encoding="utf-8"))
         assert written == baseline
 
-    def test_the_baseline_covers_every_key(self):
+    def test_the_baseline_covers_every_key_a_default_document_writes(self):
+        """A default document is a single-period run, which writes no period keys."""
         baseline = json.loads(DEFAULTS_BASELINE.read_text(encoding="utf-8"))
-        assert set(baseline) == {field.name for field in dataclasses.fields(RunConfiguration)}
+        every_field = {field.name for field in dataclasses.fields(RunConfiguration)}
+        assert set(baseline) == every_field - set(SINGLE_PERIOD_OMITTED_KEYS)
+
+    def test_the_keys_a_default_document_omits_default_to_a_single_period_run(self):
+        """The baseline cannot pin these, since the file never holds them; this does."""
+        defaults = RunConfiguration()
+        assert {key: getattr(defaults, key) for key in SINGLE_PERIOD_OMITTED_KEYS} == {
+            "periods": 1,
+            "advance": None,
+            "next_procedure": None,
+        }
+
+    def test_the_baseline_reads_back_as_the_defaults(self):
+        assert RunConfiguration.from_json(DEFAULTS_BASELINE) == RunConfiguration()
 
 
 class TestResearcherParameters:

@@ -80,6 +80,8 @@ The order follows [decisions/scope-and-purpose.md](decisions/scope-and-purpose.m
 
 The last two rows were added 2026-09-05, see [decisions/scope-and-purpose.md](decisions/scope-and-purpose.md), "this library's purpose is to help the field of democratic economic planning develop smoothly." The order follows "which one gets the next person in the field working faster," not the row numbers.
 
+**Next work package: the WIOD loader** (decided by the maintainer on 2026-09-26, ahead of the Stage 2 invariant toolbox). Reason: walking through the library as a researcher, the largest barrier is that dep1ex is the only data source, so a researcher who wants a real input-output table cannot start at all. The installation barrier is removed by the prebuilt wheels of v0.1.0; only a loader removes the data barrier. The starting point is the list of gaps in [research/wiod-field-mapping.md](research/wiod-field-mapping.md).
+
 Stage 1 chose dep1ex over toy data or going straight to EXIOBASE because it satisfies four conditions at once:
 it's real, published data; it's small and already parsed (`research/bench/repro.py`); **it has a known correct answer**;
 and its field shapes are complete (intermediate goods, natural resources, labor, and private and public consumption — five price kinds, see `repro.py:118`).

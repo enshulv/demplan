@@ -6,6 +6,11 @@ contiguous section of commodity ids in the order private good, public good, inte
 natural resource, labor. :class:`Dep1exLayout` records the section base addresses, which the
 differential tests need to slice a unified price vector back into the reference's five
 per-class vectors.
+
+The economy carries the labels the dep1ex loader writes, spelled out here as literals rather
+than taken from the library: ``commodity_extra["hahnel_kind"]`` names each commodity's section,
+and every unit's ``technology_kind`` is ``"hahnel_cobb_douglas_effort"``. Both are handed to
+:class:`Economy` as Python lists of ``str``, the form the Rust binding hands them over in.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ import dataclasses
 
 import numpy as np
 
-from demplan import CommodityKind, Economy, TechnologyKind
+from demplan import Economy
 
 from .paths import import_reference
 
@@ -27,6 +32,20 @@ _CAT_LABOR = 2
 _INDUSTRY_PRIVATE = 0
 _INDUSTRY_INTERMEDIATE = 1
 _INDUSTRY_PUBLIC = 2
+
+KIND_KEY = "hahnel_kind"
+
+SECTION_LABELS = {
+    "priv": "private_good",
+    "pub": "public_good",
+    "inter": "intermediate",
+    "nature": "natural_resource",
+    "labor": "labor",
+}
+"""The ``hahnel_kind`` label the dep1ex loader writes on each of ``repro``'s five sections."""
+
+TECHNOLOGY_LABEL = "hahnel_cobb_douglas_effort"
+"""The ``technology_kind`` the dep1ex loader writes on every producing unit."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -91,12 +110,10 @@ def reference_dims(layout: Dep1exLayout) -> tuple[int, int, int]:
 
 
 def _commodity_table(layout: Dep1exLayout, endowment: float):
-    kind = np.empty(layout.n_commodities, dtype=np.int8)
-    kind[layout.section("priv")] = CommodityKind.PRIVATE_GOOD
-    kind[layout.section("pub")] = CommodityKind.PUBLIC_GOOD
-    kind[layout.section("inter")] = CommodityKind.INTERMEDIATE
-    kind[layout.section("nature")] = CommodityKind.NATURAL_RESOURCE
-    kind[layout.section("labor")] = CommodityKind.LABOR
+    kind = [""] * layout.n_commodities
+    for name, label in SECTION_LABELS.items():
+        section = layout.section(name)
+        kind[section] = [label] * (section.stop - section.start)
 
     supply = np.zeros(layout.n_commodities, dtype=np.float64)
     supply[layout.section("nature")] = endowment
@@ -151,18 +168,18 @@ def economy_from_repro(wc: dict, cc: dict, layout: Dep1exLayout, endowment: floa
     return Economy(
         period=0,
         commodity_id=np.arange(layout.n_commodities, dtype=np.int64),
-        commodity_kind=kind,
         endowment=supply,
+        commodity_extra={KIND_KEY: kind},
         unit_id=np.arange(n_units, dtype=np.int64),
-        unit_group=output_commodity.copy(),
-        output_commodity=output_commodity,
-        technology_kind=np.full(n_units, TechnologyKind.COBB_DOUGLAS, dtype=np.int8),
+        technology_kind=[TECHNOLOGY_LABEL] * n_units,
         technology_scale=wc["a"].astype(np.float64),
         input_offsets=offsets,
         input_commodity=input_commodity,
         input_coefficient=input_coefficient,
+        output_offsets=np.arange(n_units + 1, dtype=np.int64),
+        output_commodity=output_commodity,
+        output_coefficient=np.ones(n_units, dtype=np.float64),
         consumer_id=np.arange(n_consumers, dtype=np.int64),
-        consumer_group=np.zeros(n_consumers, dtype=np.int64),
         unit_extra={
             "effort_c": wc["c"].astype(np.float64),
             "effort_s": wc["s"].astype(np.float64),

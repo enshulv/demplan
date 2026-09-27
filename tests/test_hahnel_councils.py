@@ -18,12 +18,12 @@ import pytest
 
 import demplan.prefabs
 from demplan import (
+    COBB_DOUGLAS,
     CONSUMER_DEMAND,
     EFFORT,
     INDICATIVE_PRICE,
-    CommodityKind,
+    LEONTIEF,
     SchemaError,
-    TechnologyKind,
     check_determinism,
     iterate,
     run,
@@ -221,7 +221,7 @@ def plan_arrays(plan) -> dict:
     """Every array a plan carries, keyed by where it sits, for comparing two runs."""
     arrays = {
         name: np.asarray(getattr(plan, name))
-        for name in ("output", "input_use", "consumption", "consumption_commodity", "provision")
+        for name in ("output", "input_use", "consumption", "consumption_commodity", "shared_use")
     }
     arrays.update({f"valuation.{key}": np.asarray(v) for key, v in plan.valuation.items()})
     arrays.update({f"extra.{key}": np.asarray(v) for key, v in plan.extra.items()})
@@ -315,14 +315,14 @@ class TestSyntheticEconomy:
         result.plan.validate(synthetic_economy)
 
     def test_material_balance_at_the_reported_threshold(self, synthetic_economy):
-        """Public goods sit at zero here by construction; the reference run covers them."""
+        """Consumption and shared use are the whole of the consumer side on this economy."""
         procedure = HahnelBook2021()
         plan = run(procedure, synthetic_economy, seed=0).plan
         supply = plan.total_output(synthetic_economy) + np.asarray(synthetic_economy.endowment)
         demand = (
             plan.total_input_use(synthetic_economy)
             + plan.total_consumption(synthetic_economy)
-            + np.asarray(plan.provision)
+            + np.asarray(plan.shared_use)
         )
         total = supply + demand
         imbalance = np.where(
@@ -332,25 +332,50 @@ class TestSyntheticEconomy:
 
     def test_consumption_columns_are_the_private_goods(self, synthetic_economy):
         plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
-        kinds = np.asarray(synthetic_economy.commodity_kind)
+        kinds = synthetic.kind_labels(synthetic_economy)
         columns = np.asarray(plan.consumption_commodity)
-        assert np.all(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        assert np.all(kinds[columns] == hahnel.PRIVATE_GOOD)
         np.testing.assert_array_equal(
-            columns, synthetic_economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
+            columns, np.flatnonzero(synthetic.kind_labels(synthetic_economy) == hahnel.PRIVATE_GOOD)
         )
         assert plan.consumption.shape == (synthetic_economy.n_consumers, columns.shape[0])
         assert np.all(plan.consumption > 0.0)
 
-    def test_provision_is_confined_to_public_goods(self, synthetic_economy):
+    def test_shared_use_is_confined_to_public_goods(self, synthetic_economy):
         plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
-        kinds = np.asarray(synthetic_economy.commodity_kind)
-        public = kinds == CommodityKind.PUBLIC_GOOD
-        provision = np.asarray(plan.provision)
-        assert np.all(provision[public] > 0.0)
-        assert provision[~public].sum() == 0.0
-        np.testing.assert_allclose(
-            provision[public], plan.total_output(synthetic_economy)[public]
-        )
+        kinds = synthetic.kind_labels(synthetic_economy)
+        public = kinds == hahnel.PUBLIC_GOOD
+        shared_use = np.asarray(plan.shared_use)
+        assert np.all(shared_use[public] > 0.0)
+        np.testing.assert_array_equal(shared_use[~public], np.zeros(int((~public).sum())))
+
+    def test_shared_use_is_the_councils_stated_level_bit_for_bit(self, synthetic_economy):
+        """The same number ``extra["consumer_demand"]`` carries for each public good."""
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
+        public = synthetic.kind_labels(synthetic_economy) == hahnel.PUBLIC_GOOD
+        expected = np.where(public, np.asarray(plan.extra[CONSUMER_DEMAND]), 0.0)
+        assert np.asarray(plan.shared_use).tobytes() == expected.tobytes()
+
+    def test_shared_use_is_a_use_and_not_the_supply(self, synthetic_economy):
+        """Supply and stated use of a public good differ until the run balances them exactly."""
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
+        public = synthetic.kind_labels(synthetic_economy) == hahnel.PUBLIC_GOOD
+        supply = plan.total_output(synthetic_economy)[public]
+        assert not np.array_equal(np.asarray(plan.shared_use)[public], supply)
+
+    def test_shared_use_is_the_sum_of_stated_demands_over_the_consumer_units(
+        self, synthetic_economy
+    ):
+        """Worked from the stated bundle at the plan's own price, not read off the prefab."""
+        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
+        bundle = stated_bundle(synthetic_economy, plan.valuation[INDICATIVE_PRICE])
+        columns = np.asarray(synthetic_economy.consumer_extra["utility_exponent_commodity"])
+        public = synthetic.kind_labels(synthetic_economy) == hahnel.PUBLIC_GOOD
+        expected = np.zeros(synthetic_economy.n_commodities)
+        for column, commodity in enumerate(columns):
+            if public[commodity]:
+                expected[commodity] += bundle[:, column].sum() / synthetic_economy.n_consumers
+        np.testing.assert_allclose(plan.shared_use, expected, rtol=1e-12, atol=0.0)
 
     def test_the_reported_price_is_the_one_the_proposals_used(self, synthetic_economy):
         """The published round count is reached at the price of that round, before adjustment."""
@@ -403,24 +428,111 @@ class TestSyntheticEconomy:
 
 
 class TestTechnologyGuard:
-    """The closed form is Cobb-Douglas; on a Leontief unit it would be a different theory."""
+    """The closed form is the technology labelled ``hahnel.TECHNOLOGY`` and no other."""
 
     def test_an_all_leontief_economy_is_refused(self, synthetic_economy):
         leontief = dataclasses.replace(
-            synthetic_economy,
-            technology_kind=np.full(
-                synthetic_economy.n_units, TechnologyKind.LEONTIEF, dtype=np.int8
-            ),
+            synthetic_economy, technology_kind=[LEONTIEF] * synthetic_economy.n_units
         )
         with pytest.raises(ValueError, match="Cobb-Douglas"):
             run(HahnelBook2021(), leontief, seed=0)
 
+    def test_plain_cobb_douglas_is_not_the_label_either(self, synthetic_economy):
+        """dep1ex's technology carries an effort factor, so ``cobb_douglas`` does not describe it."""
+        plain = dataclasses.replace(
+            synthetic_economy, technology_kind=[COBB_DOUGLAS] * synthetic_economy.n_units
+        )
+        with pytest.raises(ValueError, match="hahnel_cobb_douglas_effort"):
+            run(HahnelBook2021(), plain, seed=0)
+
     def test_one_leontief_unit_is_enough_and_the_message_names_it(self, synthetic_economy):
-        kinds = np.array(synthetic_economy.technology_kind, dtype=np.int8)
-        kinds[2] = TechnologyKind.LEONTIEF
-        mixed = dataclasses.replace(synthetic_economy, technology_kind=kinds)
+        labels = [str(label) for label in synthetic_economy.technology_kind]
+        labels[2] = LEONTIEF
+        mixed = dataclasses.replace(synthetic_economy, technology_kind=labels)
         with pytest.raises(ValueError, match="unit 2"):
             run(HahnelBook2021(), mixed, seed=0)
+
+    def test_the_message_names_the_label_found_and_the_label_wanted(self, synthetic_economy):
+        labels = [str(label) for label in synthetic_economy.technology_kind]
+        labels[5] = "my_own_technology"
+        mixed = dataclasses.replace(synthetic_economy, technology_kind=labels)
+        with pytest.raises(ValueError) as refused:
+            model_of(mixed)
+        message = str(refused.value)
+        assert "unit 5" in message
+        assert "'my_own_technology'" in message
+        assert "'hahnel_cobb_douglas_effort'" in message
+        assert "TECHNOLOGY" in message
+
+    def test_the_label_constant(self):
+        assert hahnel.TECHNOLOGY == "hahnel_cobb_douglas_effort"
+
+
+class TestOneOutputPerUnit:
+    def test_a_unit_with_two_outputs_is_refused_and_named(self):
+        joint = synthetic.build_joint_product_economy()
+        with pytest.raises(ValueError) as refused:
+            model_of(joint)
+        message = str(refused.value)
+        assert "unit 0" in message
+        assert "joint products" in message
+
+    def test_the_prefab_refuses_it_too(self):
+        with pytest.raises(ValueError, match="joint products"):
+            run(HahnelBook2021(), synthetic.build_joint_product_economy(), seed=0)
+
+
+def without_kind_labels(economy):
+    bag = {key: value for key, value in economy.commodity_extra.items() if key != "hahnel_kind"}
+    return dataclasses.replace(economy, commodity_extra=bag)
+
+
+def with_kind_labels(economy, labels):
+    return dataclasses.replace(
+        economy, commodity_extra={**economy.commodity_extra, "hahnel_kind": labels}
+    )
+
+
+class TestKindLabelsAreRequired:
+    """``hahnel_kind`` is what the councils read the five commodity classes from."""
+
+    def test_a_missing_label_column_is_refused_with_a_way_to_fill_it(self, synthetic_economy):
+        with pytest.raises(ValueError) as refused:
+            model_of(without_kind_labels(synthetic_economy))
+        message = str(refused.value)
+        assert "commodity_extra['hahnel_kind']" in message
+        for label in ("private_good", "public_good", "intermediate", "natural_resource", "labor"):
+            assert f"'{label}'" in message
+        assert "load_dep1ex" in message
+
+    def test_the_prefab_refuses_it_before_running(self, synthetic_economy):
+        with pytest.raises(ValueError, match="hahnel_kind"):
+            run(HahnelBook2021(), without_kind_labels(synthetic_economy), seed=0)
+
+    @pytest.mark.parametrize("row", [0, 7, 14])
+    def test_an_unknown_label_is_refused_and_named_with_its_commodity(
+        self, synthetic_economy, row
+    ):
+        labels = [str(label) for label in synthetic.kind_labels(synthetic_economy)]
+        labels[row] = "privte_good"
+        with pytest.raises(ValueError) as refused:
+            model_of(with_kind_labels(synthetic_economy, labels))
+        message = str(refused.value)
+        assert "'privte_good'" in message
+        assert f"commodity {row}" in message
+        assert "'private_good'" in message
+
+    def test_a_numeric_label_column_is_refused(self, synthetic_economy):
+        codes = np.zeros(synthetic_economy.n_commodities, dtype=np.int64)
+        with pytest.raises(ValueError, match="hahnel_kind"):
+            model_of(with_kind_labels(synthetic_economy, codes))
+
+    def test_the_five_label_constants(self):
+        assert hahnel.PRIVATE_GOOD == "private_good"
+        assert hahnel.PUBLIC_GOOD == "public_good"
+        assert hahnel.INTERMEDIATE == "intermediate"
+        assert hahnel.NATURAL_RESOURCE == "natural_resource"
+        assert hahnel.LABOR == "labor"
 
 
 class TestRequiredExtraKeys:
@@ -459,36 +571,38 @@ class TestRequiredExtraKeys:
 
 
 class TestPermutedCommodityOrder:
-    """The private goods are picked by ``commodity_kind``, not by where they sit in the table."""
+    """The private goods are picked by ``hahnel_kind``, not by where they sit in the table."""
 
     def test_the_fixture_does_not_put_the_private_goods_first(self):
         economy = synthetic.build_permuted_economy()
-        kinds = np.asarray(economy.commodity_kind)
-        assert kinds[0] != CommodityKind.PRIVATE_GOOD
+        kinds = synthetic.kind_labels(economy)
+        assert kinds[0] != hahnel.PRIVATE_GOOD
 
         columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-        private_columns = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        private_columns = np.flatnonzero(kinds[columns] == hahnel.PRIVATE_GOOD)
         assert private_columns.tolist() != list(range(private_columns.size))
 
     def test_the_consumption_columns_are_still_the_private_goods(self):
         economy = synthetic.build_permuted_economy()
         plan = run(HahnelBook2021(), economy, seed=0).plan
-        kinds = np.asarray(economy.commodity_kind)
+        kinds = synthetic.kind_labels(economy)
         columns = np.asarray(plan.consumption_commodity)
 
-        assert np.all(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        assert np.all(kinds[columns] == hahnel.PRIVATE_GOOD)
         np.testing.assert_array_equal(
-            columns, economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
+            columns, np.flatnonzero(synthetic.kind_labels(economy) == hahnel.PRIVATE_GOOD)
         )
         plan.validate(economy)
 
-    def test_the_provision_is_still_confined_to_the_public_goods(self):
+    def test_the_shared_use_is_still_confined_to_the_public_goods(self):
         economy = synthetic.build_permuted_economy()
         plan = run(HahnelBook2021(), economy, seed=0).plan
-        public = np.asarray(economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
-        provision = np.asarray(plan.provision)
-        assert np.all(provision[public] > 0.0)
-        assert provision[~public].sum() == 0.0
+        public = synthetic.kind_labels(economy) == hahnel.PUBLIC_GOOD
+        shared_use = np.asarray(plan.shared_use)
+        assert np.all(shared_use[public] > 0.0)
+        assert shared_use[~public].sum() == 0.0
+        expected = np.where(public, np.asarray(plan.extra[CONSUMER_DEMAND]), 0.0)
+        assert shared_use.tobytes() == expected.tobytes()
 
     def test_renumbering_the_commodities_does_not_change_the_round_count(
         self, synthetic_economy
@@ -627,7 +741,7 @@ class TestPlanRecordsWhatTheMechanismChose:
     ):
         rule = RecordingRule()
         result = run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0)
-        public = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
+        public = synthetic.kind_labels(synthetic_economy) == hahnel.PUBLIC_GOOD
 
         rebuilt = imbalance_rebuilt_from(synthetic_economy, result.plan)
         np.testing.assert_allclose(
@@ -651,19 +765,25 @@ class TestPlanRecordsWhatTheMechanismChose:
         assert np.all(stated[named] > 0.0)
         np.testing.assert_array_equal(stated[~named], np.zeros(int((~named).sum())))
 
-    def test_provision_alone_says_nothing_about_the_public_good_balance(
+    def test_shared_use_is_the_demand_side_of_the_public_good_balance(
         self, synthetic_economy
     ):
-        """The gap that ``provision`` produces is identically zero: it is the supply side."""
-        plan = run(HahnelBook2021(), synthetic_economy, seed=0).plan
+        """Supply against input use plus shared use is the imbalance the board measured."""
+        rule = RecordingRule()
+        plan = run(HahnelBook2021(price_rule=rule), synthetic_economy, seed=0).plan
         supply = plan.total_output(synthetic_economy) + np.asarray(synthetic_economy.endowment)
         demand = (
             plan.total_input_use(synthetic_economy)
             + plan.total_consumption(synthetic_economy)
-            + np.asarray(plan.provision)
+            + np.asarray(plan.shared_use)
         )
-        public = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
-        np.testing.assert_array_equal(supply[public], demand[public])
+        public = synthetic.kind_labels(synthetic_economy) == hahnel.PUBLIC_GOOD
+        total = supply + demand
+        imbalance = np.abs(2 * (supply - demand)) / total
+        np.testing.assert_allclose(
+            imbalance[public], rule.imbalance[-1][public], rtol=1e-12, atol=0
+        )
+        assert not np.array_equal(supply[public], demand[public])
 
 
 class TestPriceRuleSeam:
@@ -696,7 +816,7 @@ class TestPriceRuleSeam:
         plan = result.summary.trajectory[0]
         surplus, imbalance = rule.surplus[0], rule.imbalance[0]
 
-        private = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.PRIVATE_GOOD
+        private = synthetic.kind_labels(synthetic_economy) == hahnel.PRIVATE_GOOD
         supply = plan.total_output(synthetic_economy) + np.asarray(synthetic_economy.endowment)
         demand = plan.total_input_use(synthetic_economy) + plan.total_consumption(
             synthetic_economy
@@ -1277,13 +1397,20 @@ class TestDep1ex01:
     ):
         rule = RecordingRule()
         result = run(HahnelBook2021(price_rule=rule), dep1ex01_economy, seed=0)
-        public = np.asarray(dep1ex01_economy.commodity_kind) == CommodityKind.PUBLIC_GOOD
+        public = synthetic.kind_labels(dep1ex01_economy) == hahnel.PUBLIC_GOOD
 
         rebuilt = imbalance_rebuilt_from(dep1ex01_economy, result.plan)
         np.testing.assert_allclose(
             rebuilt[public], rule.imbalance[-1][public], rtol=1e-12, atol=0
         )
         assert rebuilt[public].max() > 0.01
+
+    def test_shared_use_is_the_consumer_demand_of_the_public_goods(self, dep1ex01_economy):
+        plan = run(HahnelBook2021(), dep1ex01_economy, seed=0).plan
+        public = synthetic.kind_labels(dep1ex01_economy) == hahnel.PUBLIC_GOOD
+        assert int(public.sum()) == 100
+        expected = np.where(public, np.asarray(plan.extra[CONSUMER_DEMAND]), 0.0)
+        assert np.asarray(plan.shared_use).tobytes() == expected.tobytes()
 
 
 def uneven_price(economy):
@@ -1309,7 +1436,7 @@ def stated_bundle(economy, price):
     entitlement = np.asarray(economy.consumer_extra["entitlement"])
     exponent = np.asarray(economy.consumer_extra["utility_exponent"])
     columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-    public = np.asarray(economy.commodity_kind)[columns] == CommodityKind.PUBLIC_GOOD
+    public = synthetic.kind_labels(economy)[columns] == hahnel.PUBLIC_GOOD
     listed = np.asarray(price)[columns]
     paid = np.where(public, listed / economy.n_consumers, listed)
     return (entitlement[:, None] * exponent) / (
@@ -1326,7 +1453,7 @@ def stated_bundle_at_a_shared_entitlement(economy, price):
     entitlement = np.asarray(economy.consumer_extra["entitlement"])
     exponent = np.asarray(economy.consumer_extra["utility_exponent"])
     columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-    public = np.asarray(economy.commodity_kind)[columns] == CommodityKind.PUBLIC_GOOD
+    public = synthetic.kind_labels(economy)[columns] == hahnel.PUBLIC_GOOD
     listed = np.asarray(price)[columns]
     paid = np.where(public, listed / economy.n_consumers, listed)
     return (entitlement.mean() * exponent) / (
@@ -1382,7 +1509,7 @@ def commodity_demand_rebuilt_from(economy, plan, price):
     other column is scattered whole, whatever kind its commodity is.
     """
     columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-    public = np.asarray(economy.commodity_kind)[columns] == CommodityKind.PUBLIC_GOOD
+    public = synthetic.kind_labels(economy)[columns] == hahnel.PUBLIC_GOOD
     stated = stated_bundle(economy, price).sum(axis=0)
     shared = np.where(public, stated / economy.n_consumers, stated)
     return plan.total_input_use(economy) + np.bincount(
@@ -1438,7 +1565,7 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
 
     A column on an intermediate good is priced at the listed price and counts into that
     commodity's demand, like a private-good column. It stays out of the plan's consumption
-    block and out of ``provision``, because both are defined by ``commodity_kind``;
+    block and out of ``shared_use``, because both are defined by ``hahnel_kind``;
     ``extra["consumer_demand"]`` is where it reaches the plan.
     """
 
@@ -1451,14 +1578,14 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
         return second_round_of(third_kind_economy)
 
     def test_the_fixture_holds_a_column_of_each_of_the_three_cases(self, third_kind_economy):
-        kinds = np.asarray(third_kind_economy.commodity_kind)
+        kinds = synthetic.kind_labels(third_kind_economy)
         columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
         column_kinds = set(kinds[columns].tolist())
-        assert CommodityKind.PRIVATE_GOOD in column_kinds
-        assert CommodityKind.PUBLIC_GOOD in column_kinds
-        assert column_kinds - {CommodityKind.PRIVATE_GOOD, CommodityKind.PUBLIC_GOOD}
+        assert hahnel.PRIVATE_GOOD in column_kinds
+        assert hahnel.PUBLIC_GOOD in column_kinds
+        assert column_kinds - {hahnel.PRIVATE_GOOD, hahnel.PUBLIC_GOOD}
 
-        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        private = np.flatnonzero(kinds[columns] == hahnel.PRIVATE_GOOD)
         assert private.tolist() != list(range(private.size))
 
     def test_the_surplus_accounts_for_every_column(self, third_kind_economy, second_round):
@@ -1505,9 +1632,9 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
         implementation that divided the wrong ones.
         """
         plan, price, _ = second_round
-        kinds = np.asarray(third_kind_economy.commodity_kind)
+        kinds = synthetic.kind_labels(third_kind_economy)
         columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
-        public = np.flatnonzero(kinds[columns] == CommodityKind.PUBLIC_GOOD)
+        public = np.flatnonzero(kinds[columns] == hahnel.PUBLIC_GOOD)
         stated = stated_bundle(third_kind_economy, price).sum(axis=0)
 
         expected = np.bincount(
@@ -1515,10 +1642,10 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
             weights=stated[public] / third_kind_economy.n_consumers,
             minlength=third_kind_economy.n_commodities,
         )
-        assert expected[kinds == CommodityKind.PUBLIC_GOOD].min() > 0.0
+        assert expected[kinds == hahnel.PUBLIC_GOOD].min() > 0.0
         consumer_demand = np.asarray(plan.extra["consumer_demand"])
         np.testing.assert_array_equal(
-            np.where(kinds == CommodityKind.PUBLIC_GOOD, consumer_demand, 0.0), expected
+            np.where(kinds == hahnel.PUBLIC_GOOD, consumer_demand, 0.0), expected
         )
 
     def test_the_private_columns_reach_consumer_demand_whole(
@@ -1526,9 +1653,9 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
     ):
         """A private-good column contributes its whole total, the one ``consumption`` holds."""
         plan, price, _ = second_round
-        kinds = np.asarray(third_kind_economy.commodity_kind)
+        kinds = synthetic.kind_labels(third_kind_economy)
         columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
-        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        private = np.flatnonzero(kinds[columns] == hahnel.PRIVATE_GOOD)
         stated = stated_bundle(third_kind_economy, price).sum(axis=0)
 
         expected = np.bincount(
@@ -1536,7 +1663,7 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
             weights=stated[private],
             minlength=third_kind_economy.n_commodities,
         )
-        on_private = kinds == CommodityKind.PRIVATE_GOOD
+        on_private = kinds == hahnel.PRIVATE_GOOD
         consumer_demand = np.asarray(plan.extra["consumer_demand"])
         assert expected[on_private].min() > 0.0
         np.testing.assert_allclose(
@@ -1596,26 +1723,27 @@ class TestColumnsThatAreNeitherPrivateNorPublic:
         columns = np.asarray(plan.consumption_commodity)
         assert synthetic.THIRD_KIND_COMMODITY not in columns.tolist()
         np.testing.assert_array_equal(
-            columns, third_kind_economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
+            columns, np.flatnonzero(synthetic.kind_labels(third_kind_economy) == hahnel.PRIVATE_GOOD)
         )
         assert_consumption_columns_are_paired_with_their_labels(
             third_kind_economy, plan, price
         )
         plan.validate(third_kind_economy)
 
-    def test_provision_stays_zero_on_the_third_kind_commodity(
+    def test_shared_use_stays_zero_on_the_third_kind_commodity(
         self, third_kind_economy, second_round
     ):
         plan, _, _ = second_round
-        assert np.asarray(plan.provision)[synthetic.THIRD_KIND_COMMODITY] == 0.0
+        assert np.asarray(plan.shared_use)[synthetic.THIRD_KIND_COMMODITY] == 0.0
+        assert np.asarray(plan.extra[CONSUMER_DEMAND])[synthetic.THIRD_KIND_COMMODITY] > 0.0
 
     def test_the_consumption_block_is_the_private_columns_of_the_stated_bundle(
         self, third_kind_economy, second_round
     ):
         plan, price, _ = second_round
-        kinds = np.asarray(third_kind_economy.commodity_kind)
+        kinds = synthetic.kind_labels(third_kind_economy)
         columns = np.asarray(third_kind_economy.consumer_extra["utility_exponent_commodity"])
-        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        private = np.flatnonzero(kinds[columns] == hahnel.PRIVATE_GOOD)
         np.testing.assert_array_equal(
             np.asarray(plan.consumption),
             stated_bundle(third_kind_economy, price)[:, private],
@@ -1632,8 +1760,8 @@ class TestPrivateColumnsOutOfCommodityOrder:
 
     Column ``j`` of ``Plan.consumption`` holds what the consumer units state for the commodity
     ``consumption_commodity[j]`` names. The other economies here name the private commodities
-    in ascending order, as dep1ex does, which makes the labels equal to
-    ``commodities_of_kind(PRIVATE_GOOD)`` and makes sorting either side a no-op. This economy
+    in ascending order, as dep1ex does, which makes the labels equal to the private goods in
+    ascending order and makes sorting either side a no-op. This economy
     names them 2, 0, 1.
 
     It also entitles each consumer unit to a different amount, so a stated bundle built from
@@ -1652,9 +1780,9 @@ class TestPrivateColumnsOutOfCommodityOrder:
 
     def test_the_fixture_is_out_of_order_and_unevenly_entitled(self, economy, second_round):
         _, price = second_round
-        kinds = np.asarray(economy.commodity_kind)
+        kinds = synthetic.kind_labels(economy)
         columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-        private = columns[kinds[columns] == CommodityKind.PRIVATE_GOOD]
+        private = columns[kinds[columns] == hahnel.PRIVATE_GOOD]
         assert private.tolist() != sorted(private.tolist())
 
         entitlement = np.asarray(economy.consumer_extra["entitlement"])
@@ -1668,12 +1796,12 @@ class TestPrivateColumnsOutOfCommodityOrder:
 
     def test_the_labels_are_the_private_columns_in_column_order(self, economy, second_round):
         plan, _ = second_round
-        kinds = np.asarray(economy.commodity_kind)
+        kinds = synthetic.kind_labels(economy)
         columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-        private = columns[kinds[columns] == CommodityKind.PRIVATE_GOOD]
+        private = columns[kinds[columns] == hahnel.PRIVATE_GOOD]
         np.testing.assert_array_equal(plan.consumption_commodity, private)
         assert np.asarray(plan.consumption_commodity).tolist() != np.asarray(
-            economy.commodities_of_kind(CommodityKind.PRIVATE_GOOD)
+            np.flatnonzero(synthetic.kind_labels(economy) == hahnel.PRIVATE_GOOD)
         ).tolist()
         plan.validate(economy)
 
@@ -1686,9 +1814,9 @@ class TestPrivateColumnsOutOfCommodityOrder:
     def test_consumer_demand_spends_each_unit_own_entitlement(self, economy, second_round):
         """Per commodity, so that the private columns and the rest are both accounted for."""
         plan, price = second_round
-        kinds = np.asarray(economy.commodity_kind)
+        kinds = synthetic.kind_labels(economy)
         columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-        public = kinds[columns] == CommodityKind.PUBLIC_GOOD
+        public = kinds[columns] == hahnel.PUBLIC_GOOD
         stated = stated_bundle(economy, price).sum(axis=0)
         shared = np.where(public, stated / economy.n_consumers, stated)
         expected = np.bincount(columns, weights=shared, minlength=economy.n_commodities)
@@ -1725,16 +1853,16 @@ class TestStatedDemandSplit:
         economy = synthetic.build_economy_with_a_third_kind_column()
         return model_of(economy), economy, uneven_price(economy)
 
-    def test_the_two_blocks_are_the_stated_bundle_split_by_commodity_kind(
+    def test_the_two_blocks_are_the_stated_bundle_split_by_hahnel_kind(
         self, model_and_price
     ):
         model, economy, price = model_and_price
         private_block, other_block = model._demand(price)
 
-        kinds = np.asarray(economy.commodity_kind)
+        kinds = synthetic.kind_labels(economy)
         columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
-        other = np.flatnonzero(kinds[columns] != CommodityKind.PRIVATE_GOOD)
+        private = np.flatnonzero(kinds[columns] == hahnel.PRIVATE_GOOD)
+        other = np.flatnonzero(kinds[columns] != hahnel.PRIVATE_GOOD)
         expected = stated_bundle(economy, price)
 
         np.testing.assert_array_equal(private_block, expected[:, private])
@@ -1746,10 +1874,10 @@ class TestStatedDemandSplit:
         model, economy, price = model_and_price
         _, other_block = model._demand(price)
 
-        kinds = np.asarray(economy.commodity_kind)
+        kinds = synthetic.kind_labels(economy)
         columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-        other = np.flatnonzero(kinds[columns] != CommodityKind.PRIVATE_GOOD)
-        at = int(np.flatnonzero(kinds[columns[other]] == CommodityKind.PUBLIC_GOOD)[0])
+        other = np.flatnonzero(kinds[columns] != hahnel.PRIVATE_GOOD)
+        at = int(np.flatnonzero(kinds[columns[other]] == hahnel.PUBLIC_GOOD)[0])
 
         entitlement = np.asarray(economy.consumer_extra["entitlement"])
         exponent = np.asarray(economy.consumer_extra["utility_exponent"])
@@ -1761,9 +1889,9 @@ class TestStatedDemandSplit:
         model, economy, price = model_and_price
         _, other_block = model._demand(price)
 
-        kinds = np.asarray(economy.commodity_kind)
+        kinds = synthetic.kind_labels(economy)
         columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-        other = np.flatnonzero(kinds[columns] != CommodityKind.PRIVATE_GOOD)
+        other = np.flatnonzero(kinds[columns] != hahnel.PRIVATE_GOOD)
         at = int(np.flatnonzero(columns[other] == synthetic.THIRD_KIND_COMMODITY)[0])
 
         entitlement = np.asarray(economy.consumer_extra["entitlement"])
@@ -1776,9 +1904,9 @@ class TestStatedDemandSplit:
         model, economy, price = model_and_price
         private_block, _ = model._demand(price)
 
-        kinds = np.asarray(economy.commodity_kind)
+        kinds = synthetic.kind_labels(economy)
         columns = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
-        private = np.flatnonzero(kinds[columns] == CommodityKind.PRIVATE_GOOD)
+        private = np.flatnonzero(kinds[columns] == hahnel.PRIVATE_GOOD)
 
         entitlement = np.asarray(economy.consumer_extra["entitlement"])
         exponent = np.asarray(economy.consumer_extra["utility_exponent"])

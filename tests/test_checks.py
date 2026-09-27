@@ -31,13 +31,13 @@ class ScriptedProcedure:
         return plan
 
 
-def make_plan(economy, output=None, provision=None, valuation=None, extra=None) -> Plan:
+def make_plan(economy, output=None, shared_use=None, valuation=None, extra=None) -> Plan:
     return Plan(
         output=np.ones(economy.n_units) if output is None else output,
         input_use=np.ones(economy.n_inputs),
         consumption=np.ones((economy.n_consumers, 3)),
         consumption_commodity=np.array([0, 1, 2], dtype=np.int64),
-        provision=np.zeros(economy.n_commodities) if provision is None else provision,
+        shared_use=np.zeros(economy.n_commodities) if shared_use is None else shared_use,
         valuation={} if valuation is None else valuation,
         extra={} if extra is None else extra,
     )
@@ -92,13 +92,13 @@ class TestDifferingRuns:
         second = make_plan(
             synthetic_economy,
             output=np.full(synthetic_economy.n_units, 2.0),
-            provision=np.full(synthetic_economy.n_commodities, 3.0),
+            shared_use=np.full(synthetic_economy.n_commodities, 3.0),
         )
         report = check_determinism(
             ScriptedProcedure([first, second]), synthetic_economy, seed=0, n=2
         )
         assert report.identical is False
-        assert set(report.differing_fields) == {"output", "provision"}
+        assert set(report.differing_fields) == {"output", "shared_use"}
 
     def test_one_unit_in_the_last_place_is_enough(self, synthetic_economy):
         base = np.ones(synthetic_economy.n_units)
@@ -155,13 +155,13 @@ class TestRejectedArguments:
 
 
 def make_bare_plan(economy, output=None) -> Plan:
-    """A plan that declares the consumption block and provision absent."""
+    """A plan that declares the consumption block and shared_use absent."""
     return Plan(
         output=np.ones(economy.n_units) if output is None else output,
         input_use=np.ones(economy.n_inputs),
         consumption=None,
         consumption_commodity=None,
-        provision=None,
+        shared_use=None,
     )
 
 
@@ -196,7 +196,7 @@ class TestRunsThatDeclareFieldsAbsent:
         assert report.differing_fields == [
             "consumption (absent from one run)",
             "consumption_commodity (absent from one run)",
-            "provision (absent from one run)",
+            "shared_use (absent from one run)",
         ]
 
     def test_the_report_reads_the_same_whichever_run_carries_the_field(
@@ -213,7 +213,7 @@ class TestRunsThatDeclareFieldsAbsent:
         assert report.differing_fields == [
             "consumption (absent from one run)",
             "consumption_commodity (absent from one run)",
-            "provision (absent from one run)",
+            "shared_use (absent from one run)",
         ]
 
     def test_an_absent_field_does_not_hide_a_difference_in_a_field_that_is_present(

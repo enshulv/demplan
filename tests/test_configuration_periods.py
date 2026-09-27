@@ -43,20 +43,18 @@ SINGLE_PERIOD_GOLDEN = (
     '  "configuration_version": 1,\n'
     '  "core_version": "<CORE_VERSION>",\n'
     '  "economy": {\n'
-    '    "algorithm": "sha256-columns-v2",\n'
+    '    "algorithm": "sha256-columns-v3",\n'
     '    "columns": {\n'
+    '      "commodity_extra.hahnel_kind": '
+    '"addfd5030aeaebb9bf2ed1a07220d39fadeed7a434a9d93c4212f2f36f820e69",\n'
     '      "commodity_id": '
     '"28df027aaeddc17d8d0c040002ff412e988a3d2a13e2376a82524245153254c1",\n'
-    '      "commodity_kind": '
-    '"c81cecc64d18883ed31c96bd10cc7058c0bd07d78918f0da0e6875b263d9ae46",\n'
     '      "consumer_extra.entitlement": '
     '"20168ca3260ff438703b640a1c56fda3284c0fa6d92e9e17e43cfeacb251d8fd",\n'
     '      "consumer_extra.utility_exponent": '
     '"14b5ccca1e0776136bf746ff5b52e14f65979305577bd9a2e5d5da2e8e39fdd4",\n'
     '      "consumer_extra.utility_exponent_commodity": '
     '"db3aefa8a65d6627df6b4ef4a5e86f4c63b9eda6897ca35ef7c12c80ce523e16",\n'
-    '      "consumer_group": '
-    '"2c92fccf7240978a5b84e0dc5538f2084689fd1497a57862e9605c9dc381c817",\n'
     '      "consumer_id": '
     '"95eb6a95a0249bc95e630212b969d49a78077641252dafeafa45b2128830a99a",\n'
     '      "endowment": '
@@ -67,12 +65,16 @@ SINGLE_PERIOD_GOLDEN = (
     '"b93195bf87822b49bd88ddea615ac144ea527527dcc418cb8d55eed766f0a77b",\n'
     '      "input_offsets": '
     '"58b2fbd7c650d4fcbce9b1154ff653fedbca00ac224ea64412f2465b3d4709d3",\n'
+    '      "output_coefficient": '
+    '"afe2960d8cd80e52209a246f7a2bd96d568429f9fbfd0aad8f09d6a4f93f92d8",\n'
     '      "output_commodity": '
     '"32b4621330949c8e06a4efca02ec433b7b9095d2e35076469c680b959a034f9d",\n'
+    '      "output_offsets": '
+    '"d6efae4dea966df1c19f61fcfd6696aaa16b6e8026bf3f691cb46bd9c9e99d06",\n'
     '      "period": '
     '"8113d5816eadf76f26daf54aa71f51fb07b8f9cbf01405b462591049c0c68840",\n'
     '      "technology_kind": '
-    '"d59467cfb1ff5b849ed46495fd6f784854f7fff77015b3641e12d56f792f1582",\n'
+    '"486634ad195937699cd5a4185a264c46359fee7dc98a9899335c8573c3aa2860",\n'
     '      "technology_scale": '
     '"431009f8073d3a61dcd12a3087636368bfc55d9ee8e35da292d330cc475d9920",\n'
     '      "unit_extra.effort_c": '
@@ -81,12 +83,10 @@ SINGLE_PERIOD_GOLDEN = (
     '"74f685d2b599c87463b865c22338ce061c6e0741dabe7e51346d97386972a69f",\n'
     '      "unit_extra.effort_s": '
     '"800f44d5db17402ad4bb7efa619936200bab639ac08011ebaf19821802797ae1",\n'
-    '      "unit_group": '
-    '"edc992c1ba2d07cbf308aaaa18c5a91cf44d678b573217651d3f505dedf66a2e",\n'
     '      "unit_id": '
     '"8365b4d9c59b5e49a81e1f389da8763cde16eb282c649b86fad1338f2cf9f476"\n'
     '    },\n'
-    '    "digest": "29361be1cba5b17c755449494aec6551acc5b6de1e39c40fed067e187316d4d0"\n'
+    '    "digest": "e16b62ae9a73ee771edbe54d153de51738bb6a51aead9790eceb7e9c1fd699e3"\n'
     '  },\n'
     '  "library_version": "<LIBRARY_VERSION>",\n'
     '  "loader": {\n'
@@ -96,7 +96,7 @@ SINGLE_PERIOD_GOLDEN = (
     '    }\n'
     '  },\n'
     '  "plan_fields_absent": [\n'
-    '    "provision"\n'
+    '    "shared_use"\n'
     '  ],\n'
     '  "procedure": {\n'
     '    "kind": "library",\n'
@@ -115,11 +115,12 @@ SINGLE_PERIOD_GOLDEN = (
     '  "seed": 17\n'
     '}\n'
 )
-"""The document a library without the period keys writes for :func:`single_period_arguments`,
-captured from such a library.
+"""The document a library without the period keys writes for :func:`single_period_arguments`.
 
 The economy is the synthetic one from ``tests/reference/synthetic.py``, so its digests are
-literal. The three placeholders are filled by :func:`expected_single_period_bytes`.
+literal. They were computed from the ``sha256-columns-v3`` rule text by a script separate from
+the module, and the numeric columns carry the digests a v2 library wrote for the same bytes.
+The three placeholders are filled by :func:`expected_single_period_bytes`.
 """
 
 
@@ -153,7 +154,7 @@ def single_period_arguments(synthetic_economy) -> dict:
         "economy": synthetic_economy,
         "seed": 17,
         "loader": dict(LOADER),
-        "plan": PlanStub(("provision",)),
+        "plan": PlanStub(("shared_use",)),
     }
 
 
@@ -520,7 +521,7 @@ class TestReadingDocuments:
             economy,
             seed=5,
             loader=dict(LOADER),
-            plan=PlanStub(("provision",)),
+            plan=PlanStub(("shared_use",)),
             periods=7,
             advance=LinearGrowth(rate=0.1),
             next_procedure=book_2021_rule,

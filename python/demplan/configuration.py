@@ -50,15 +50,19 @@ what make that report diagnosable, because they say which column moved.
 
 ``algorithm`` names the normalisation, and any change to any step of it takes a new version
 string, so that a document written under an older one can still be read for what it meant.
-Under ``sha256-columns-v2`` each column is made contiguous, cast to little-endian, and fed to
-sha256 behind a header of its name, its dtype string and its shape, the three separated and
-followed by newlines and encoded as UTF-8; the whole-economy digest is sha256 over the column
-digests concatenated in name order. An integer that is not an array is widened to int64
-first, since a scalar carries no dtype of its own and the platform's default width would
-otherwise reach the header. The columns are the fields of the economy: every field that is
-not a mapping is one column, and every key of a field that is a mapping is one column named
-``<field>.<key>``. Nothing here holds a list of column names -- a list would go on producing a
-digest that looked right while leaving a newly added column out of it.
+Under ``sha256-columns-v3`` each numeric column is made contiguous, cast to little-endian, and
+fed to sha256 behind a header of its name, its dtype string and its shape, the three separated
+and followed by newlines and encoded as UTF-8. A text column, a numpy array of dtype kind
+``U``, has the same header with ``text`` in place of the dtype string, followed, for each label
+in row-major order, by the label's UTF-8 byte length as an eight-byte little-endian unsigned
+integer and then those bytes; the width numpy stores the labels at is not part of it. The
+whole-economy digest is sha256 over the column digests concatenated in name order. An integer
+that is not an array is widened to int64 first, since a scalar carries no dtype of its own and
+the platform's default width would otherwise reach the header. The columns are the fields of
+the economy: every field that is not a mapping is one column, and every key of a field that is
+a mapping is one column named ``<field>.<key>``. Nothing here holds a list of column names -- a
+list would go on producing a digest that looked right while leaving a newly added column out
+of it. A numeric column digests under v3 exactly as it did under ``sha256-columns-v2``.
 
 What a matching digest proves is that the arrays are identical, and nothing else. It says
 nothing about the library version, numpy, the platform or the solver. Columns whose bytes are
@@ -90,7 +94,7 @@ from demplan._core import core_version
 CONFIGURATION_VERSION = 1
 """Version of the document layout. A new layout takes a new number."""
 
-ECONOMY_DIGEST_ALGORITHM = "sha256-columns-v2"
+ECONOMY_DIGEST_ALGORITHM = "sha256-columns-v3"
 """Name of the economy normalisation, stored in every document beside the digest."""
 
 LIBRARY_MODULE_PREFIX = "demplan."
@@ -103,6 +107,15 @@ _TWO_64 = 1 << 64
 _JSON_SCALARS = (bool, int, float, str)
 _SIMPLE_DTYPE_KINDS = "biufc"
 """Dtype kinds whose bytes are their values: boolean, integer, unsigned, float, complex."""
+
+_TEXT_DTYPE_KIND = "U"
+"""The dtype kind of a text column, which is digested label by label."""
+
+_TEXT_HEADER_DTYPE = "text"
+"""What a text column's header carries where a numeric column's carries its dtype string."""
+
+_LABEL_LENGTH_BYTES = 8
+"""Width of the little-endian byte count that precedes each label of a text column."""
 
 _DIGEST_BLOCK_KEYS = ("algorithm", "digest", "columns")
 """What :func:`economy_digest` returns, and what :func:`compare_economy_digests` takes."""
@@ -181,11 +194,41 @@ def _column_digest(name: str, value) -> str:
     the header like any other column's.
     """
     array = np.ascontiguousarray(_widened_scalar(value))
+    if array.dtype.kind == _TEXT_DTYPE_KIND:
+        return _text_column_digest(name, array)
     _require_digestible_dtype(name, array.dtype)
     array = array.astype(array.dtype.newbyteorder("<"), copy=False)
-    shape = ",".join(str(length) for length in array.shape)
-    header = f"{name}\n{array.dtype.str}\n{shape}\n".encode("utf-8")
+    header = f"{name}\n{array.dtype.str}\n{_shape_text(array)}\n".encode("utf-8")
     return hashlib.sha256(header + array.tobytes()).hexdigest()
+
+
+def _text_column_digest(name: str, array: np.ndarray) -> str:
+    """sha256 over a text column's header and its labels, each prefixed by its byte length.
+
+    A numpy text array stores every label padded to one width in UTF-32, so its bytes carry the
+    width the array happened to be built at, and the same labels built twice can differ in it.
+    The labels themselves are what the column holds, so they are what is hashed: UTF-8, each
+    behind its byte length, which is what keeps ``["ab", "c"]`` apart from ``["a", "bc"]``.
+    """
+    digest = hashlib.sha256(
+        f"{name}\n{_TEXT_HEADER_DTYPE}\n{_shape_text(array)}\n".encode("utf-8")
+    )
+    for label in array.reshape(-1):
+        try:
+            encoded = str(label).encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise ConfigurationError(
+                f"{name}: a label holds a character UTF-8 cannot encode ({error.reason}), so "
+                "the column has no byte form this digest can claim anything about"
+            ) from error
+        digest.update(len(encoded).to_bytes(_LABEL_LENGTH_BYTES, "little"))
+        digest.update(encoded)
+    return digest.hexdigest()
+
+
+def _shape_text(array: np.ndarray) -> str:
+    """The shape as the header writes it: lengths joined by commas."""
+    return ",".join(str(length) for length in array.shape)
 
 
 def _widened_scalar(value):
@@ -213,7 +256,7 @@ def _require_digestible_dtype(name: str, dtype) -> None:
     answer is to give each field a column. An object column never held values at all, since
     ``tobytes()`` hands back the pointers, so two arrays holding equal labels digest
     differently and one whose label was edited in place digests the same; the answer is to
-    encode the labels as numbers.
+    store the labels as a numpy text array, which is digested label by label.
     """
     if dtype.fields is not None:
         raise ConfigurationError(
@@ -226,8 +269,9 @@ def _require_digestible_dtype(name: str, dtype) -> None:
         raise ConfigurationError(
             f"{name}: a column of dtype {dtype.str!r} has no digest here, because its bytes "
             "are not its values, so equal columns would digest differently and edited ones "
-            "would digest the same. Only boolean, integer, floating point and complex columns "
-            "have a byte form this digest can claim anything about."
+            "would digest the same. Only boolean, integer, floating point and complex columns, "
+            "and text columns of dtype kind 'U', have a byte form this digest can claim "
+            "anything about."
         )
 
 

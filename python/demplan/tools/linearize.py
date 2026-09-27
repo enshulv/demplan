@@ -19,20 +19,25 @@ import dataclasses
 
 import numpy as np
 
-from demplan.economy import Economy, TechnologyKind
+from demplan.economy import LEONTIEF, Economy
 from demplan.plan import Plan
-from demplan.tools import unit_of_input
+from demplan.tools import _require_one_output_per_unit, unit_of_input
 
 UNIT_SCALE = 1.0
 """Every linearised unit has scale one: the coefficients already carry the whole technology."""
+
+UNIT_OUTPUT = 1.0
+"""Every linearised unit's output coefficient: one run of the unit is one unit of its output."""
 
 
 def linearize(economy: Economy, plan: Plan) -> Economy:
     """The same economy with every unit's technology replaced by the plan's input ratios.
 
-    Each coefficient becomes ``input_use / output`` for the unit that owns it, so asking
-    :func:`demplan.tools.leontief.input_requirements_flat` for the plan's own output
-    returns the plan's own input use.
+    Each coefficient becomes ``input_use / output`` for the unit that owns it, every unit's
+    ``technology_kind`` becomes :data:`demplan.LEONTIEF` and its ``output_coefficient`` 1, so
+    asking :func:`demplan.tools.leontief.input_requirements_flat` for the plan's own output
+    returns the plan's own input use. A unit with more than one output entry has no single
+    output to divide by, and is refused.
 
     A unit that produced nothing has no ratios to read, and gets zero coefficients. Read that
     as "this unit needs nothing", not as "this unit is unavailable": in the returned economy an
@@ -40,9 +45,10 @@ def linearize(economy: Economy, plan: Plan) -> Economy:
     over that economy unbounded whenever the commodity carries weight. Drop idle units, or give
     them coefficients of your own, before optimising over the result.
 
-    Everything else -- the commodity table, the endowment, the unit grouping, the input layout,
-    the consumer table and all three ``extra`` bags -- is carried over unchanged.
+    Everything else -- the commodity table, the endowment, the input and output layouts, the
+    consumer table and all three ``extra`` bags -- is carried over unchanged.
     """
+    _require_one_output_per_unit(economy, "linearize")
     plan.validate(economy)
     output = np.asarray(plan.output, dtype=np.float64)
     negative = np.flatnonzero(output < 0.0)
@@ -74,7 +80,8 @@ def linearize(economy: Economy, plan: Plan) -> Economy:
         )
     return dataclasses.replace(
         economy,
-        technology_kind=np.full(economy.n_units, TechnologyKind.LEONTIEF, dtype=np.int8),
+        technology_kind=np.full(economy.n_units, LEONTIEF),
         technology_scale=np.full(economy.n_units, UNIT_SCALE, dtype=np.float64),
         input_coefficient=coefficients,
+        output_coefficient=np.full(economy.n_units, UNIT_OUTPUT, dtype=np.float64),
     )

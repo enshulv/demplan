@@ -24,11 +24,9 @@ from demplan import (
     CONSUMER_DEMAND,
     INDICATIVE_PRICE,
     Advance,
-    CommodityKind,
     Economy,
     NextProcedure,
     StatedPlan,
-    TechnologyKind,
     run,
     run_periods,
     split_seed,
@@ -56,7 +54,7 @@ UTILITY_STEPS = (-0.002, -0.001, 0.0, 0.001, 0.002)
 
 SEEDS = (0, 1, 7, 2**63 + 5)
 
-PHYSICAL_FIELDS = ("output", "input_use", "consumption", "consumption_commodity", "provision")
+PHYSICAL_FIELDS = ("output", "input_use", "consumption", "consumption_commodity", "shared_use")
 
 
 def expected_draws(economy: Economy, seed: int) -> tuple[np.ndarray, np.ndarray]:
@@ -117,11 +115,11 @@ class RecordingRule:
 
 PRIVATE, PUBLIC, INTERMEDIATE, LABOR, NATURE = range(5)
 TINY_KINDS = (
-    CommodityKind.PRIVATE_GOOD,
-    CommodityKind.PUBLIC_GOOD,
-    CommodityKind.INTERMEDIATE,
-    CommodityKind.LABOR,
-    CommodityKind.NATURAL_RESOURCE,
+    hahnel.PRIVATE_GOOD,
+    hahnel.PUBLIC_GOOD,
+    hahnel.INTERMEDIATE,
+    hahnel.LABOR,
+    hahnel.NATURAL_RESOURCE,
 )
 TINY_ENDOWMENT = (7.0, 0.0, 0.0, 50.0, 0.0)
 TINY_OUTPUT_COMMODITY = (PRIVATE, PUBLIC, INTERMEDIATE, PRIVATE)
@@ -135,20 +133,20 @@ def tiny_economy(kinds=TINY_KINDS) -> Economy:
     return Economy(
         period=0,
         commodity_id=np.arange(n_commodities, dtype=np.int64),
-        commodity_kind=np.array([int(kind) for kind in kinds], dtype=np.int8),
+        commodity_extra={"hahnel_kind": list(kinds)},
         endowment=np.array(
             TINY_ENDOWMENT + (0.0,) * (n_commodities - len(TINY_ENDOWMENT)), dtype=np.float64
         ),
         unit_id=np.arange(n_units, dtype=np.int64),
-        unit_group=np.zeros(n_units, dtype=np.int64),
-        output_commodity=np.array(TINY_OUTPUT_COMMODITY, dtype=np.int64),
-        technology_kind=np.full(n_units, TechnologyKind.COBB_DOUGLAS, dtype=np.int8),
+        technology_kind=[hahnel.TECHNOLOGY] * n_units,
         technology_scale=np.ones(n_units, dtype=np.float64),
         input_offsets=np.array(TINY_INPUT_OFFSETS, dtype=np.int64),
         input_commodity=np.array(TINY_INPUT_COMMODITY, dtype=np.int64),
         input_coefficient=np.full(len(TINY_INPUT_COMMODITY), 0.3, dtype=np.float64),
+        output_offsets=np.arange(n_units + 1, dtype=np.int64),
+        output_commodity=np.array(TINY_OUTPUT_COMMODITY, dtype=np.int64),
+        output_coefficient=np.ones(n_units, dtype=np.float64),
         consumer_id=np.arange(1, dtype=np.int64),
-        consumer_group=np.zeros(1, dtype=np.int64),
     )
 
 
@@ -169,7 +167,7 @@ def tiny_plan(economy, output, next_price=None, indicative_price=None, input_use
         input_use=np.array(input_use, dtype=np.float64),
         consumption=None,
         consumption_commodity=None,
-        provision=None,
+        shared_use=None,
         valuation=valuation,
         extra=extra,
     )
@@ -701,19 +699,38 @@ class TestRealGdpGrowth:
 
     def test_a_different_commodity_count_is_refused(self):
         economy_1 = tiny_economy()
-        economy_2 = tiny_economy(TINY_KINDS + (CommodityKind.LABOR,))
+        economy_2 = tiny_economy(TINY_KINDS + (hahnel.LABOR,))
         plan_1 = tiny_plan(economy_1, YEAR_1_OUTPUT, YEAR_1_PRICE)
         plan_2 = tiny_plan(economy_2, YEAR_2_OUTPUT, YEAR_2_PRICE + (1.0,))
         with pytest.raises(ValueError, match="n_commodities"):
             real_gdp_growth(economy_1, plan_1, economy_2, plan_2)
 
-    def test_a_different_commodity_kind_is_refused(self):
+    def test_a_different_kind_label_is_refused(self):
         economy_1 = tiny_economy()
-        economy_2 = tiny_economy(TINY_KINDS[:4] + (CommodityKind.LABOR,))
+        economy_2 = tiny_economy(TINY_KINDS[:4] + (hahnel.LABOR,))
         plan_1 = tiny_plan(economy_1, YEAR_1_OUTPUT, YEAR_1_PRICE)
         plan_2 = tiny_plan(economy_2, YEAR_2_OUTPUT, YEAR_2_PRICE)
-        with pytest.raises(ValueError, match="commodity_kind"):
+        with pytest.raises(ValueError, match="hahnel_kind"):
             real_gdp_growth(economy_1, plan_1, economy_2, plan_2)
+
+    @pytest.mark.parametrize("year", [1, 2])
+    def test_an_economy_without_kind_labels_is_refused(self, year):
+        economies = [tiny_economy(), tiny_economy()]
+        economies[year - 1] = dataclasses.replace(economies[year - 1], commodity_extra={})
+        plan_1 = tiny_plan(economies[0], YEAR_1_OUTPUT, YEAR_1_PRICE)
+        plan_2 = tiny_plan(economies[1], YEAR_2_OUTPUT, YEAR_2_PRICE)
+        with pytest.raises(ValueError, match="hahnel_kind"):
+            real_gdp_growth(economies[0], plan_1, economies[1], plan_2)
+
+    def test_the_goods_are_read_from_the_labels_wherever_they_sit(self):
+        """Relabelling the intermediate as a private good brings it into the growth figure."""
+        relabelled = (hahnel.PRIVATE_GOOD, hahnel.PUBLIC_GOOD, hahnel.PRIVATE_GOOD,
+                      hahnel.LABOR, hahnel.NATURAL_RESOURCE)
+        base = real_gdp_growth(*two_years())
+        economy_1, economy_2 = tiny_economy(relabelled), tiny_economy(relabelled)
+        plan_1 = tiny_plan(economy_1, YEAR_1_OUTPUT, YEAR_1_PRICE)
+        plan_2 = tiny_plan(economy_2, YEAR_2_OUTPUT, YEAR_2_PRICE)
+        assert real_gdp_growth(economy_1, plan_1, economy_2, plan_2) != base
 
     def test_year_one_without_final_goods_is_refused_naming_the_year(self):
         """Year one's goods are worth 0 at either price vector: nothing to grow from."""

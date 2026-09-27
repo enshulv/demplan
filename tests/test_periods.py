@@ -41,7 +41,7 @@ def seeded_plan(economy: Economy, seed: int) -> Plan:
         input_use=np.zeros(economy.n_inputs),
         consumption=np.zeros((economy.n_consumers, 0)),
         consumption_commodity=np.zeros(0, dtype=np.int64),
-        provision=np.zeros(economy.n_commodities),
+        shared_use=np.zeros(economy.n_commodities),
     )
 
 

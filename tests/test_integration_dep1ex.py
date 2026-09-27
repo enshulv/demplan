@@ -34,10 +34,11 @@ def adapter_economy():
 @needs_data
 def test_rust_loader_matches_the_numpy_adapter_bit_for_bit(rust_economy, adapter_economy):
     fixed_columns = [
-        "commodity_id", "commodity_kind", "endowment",
-        "unit_id", "unit_group", "output_commodity", "technology_kind", "technology_scale",
+        "commodity_id", "endowment",
+        "unit_id", "technology_kind", "technology_scale",
         "input_offsets", "input_commodity", "input_coefficient",
-        "consumer_id", "consumer_group",
+        "output_offsets", "output_commodity", "output_coefficient",
+        "consumer_id",
     ]
     assert rust_economy.period == adapter_economy.period
     for name in fixed_columns:

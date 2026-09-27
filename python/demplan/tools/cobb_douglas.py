@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 
 from demplan.economy import Economy
-from demplan.tools import segment_sum, unit_of_input
+from demplan.tools import _require_one_output_per_unit, segment_sum, unit_of_input
 
 
 def cost_minimizing_inputs(
@@ -44,8 +44,11 @@ def cost_minimizing_inputs_flat(
     """:func:`cost_minimizing_inputs` for every producing unit at once.
 
     ``output`` is one quantity per unit and ``input_prices`` one price per commodity. The
-    result lines up with ``Economy.input_commodity``.
+    result lines up with ``Economy.input_commodity``. Raises ``ValueError`` when a unit has
+    more than one output entry, since one quantity per unit does not say which of its outputs
+    it is.
     """
+    _require_one_output_per_unit(economy, "cost_minimizing_inputs_flat")
     exponents = np.asarray(economy.input_coefficient, dtype=np.float64)
     owner = unit_of_input(economy)
     prices = np.asarray(input_prices, dtype=np.float64)[economy.input_commodity]

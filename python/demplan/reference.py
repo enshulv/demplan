@@ -5,19 +5,24 @@ baseline and not a claim about what a planning board could compute; it is the be
 exists under the stated technology and the stated objective, so that the distance between a
 mechanism's plan and this one is measurable in the units the researcher declared.
 
-The program has one variable per producing unit and one per consumable commodity, and one
-constraint per commodity::
+The program has one variable per producing unit, how many times the unit runs, and one per
+commodity the objective declares final consumption of, and one constraint per commodity::
 
     sum of output of c  +  endowment of c  -  input use of c  -  final consumption of c  >= 0
+
+One run of a unit uses ``input_coefficient`` of each input and yields ``output_coefficient`` of
+its one output, so a unit's output in the plan is its runs times its output coefficient. On a
+linearised or dep1ex-derived economy every output coefficient is 1 and runs equal output.
 
 Nothing else is imposed. There is no budget, no price and no behavioural equation, because a
 linear program over a Leontief technology needs none of them; the shadow prices come out of
 the constraints rather than going in.
 
-Leontief technology is required, since the constraint above is linear in output only when the
-input coefficients are constants. Feed a Cobb-Douglas economy through
-:func:`demplan.tools.linearize.linearize` first, and read that tool's docstring for what
-the conversion assumes.
+Leontief technology is required, every unit labelled :data:`demplan.LEONTIEF`, since the
+constraint above is linear in the runs only when the coefficients are constants. Feed a
+Cobb-Douglas economy through :func:`demplan.tools.linearize.linearize` first, and read that
+tool's docstring for what the conversion assumes. Each unit has exactly one output entry: a
+unit with joint products is refused.
 """
 
 from __future__ import annotations
@@ -28,16 +33,17 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.sparse import coo_matrix
 
-from demplan.economy import CommodityKind, Economy, TechnologyKind
+from demplan.economy import LEONTIEF, Economy, _index_array, _require_indices_in_range
 from demplan.objectives import (
     Objective,
-    _require_consumable_support,
     _require_finite_declaration,
     _require_non_negative,
 )
 from demplan.plan import SHADOW_PRICE, AllocatedPlan, Plan
-from demplan.tools import unit_of_input
-from demplan.tools.leontief import input_requirements_flat
+from demplan.tools import _require_one_output_per_unit, unit_of_input
+
+REFERENCE_SOLUTION = "the reference solution"
+"""How refusals of an economy the program cannot read name the program."""
 
 SOLVER_METHOD = "highs"
 
@@ -71,21 +77,21 @@ class ReferenceResult(NamedTuple):
     status: str
 
 
-MINIMISATION_ATTRIBUTES = ("final_demand_lower_bound", "minimize_kind")
+MINIMISATION_ATTRIBUTES = ("final_demand_lower_bound", "counted_commodities")
 """The pair of attributes an objective declares to be read as a minimisation."""
 
 WEIGHTS_ATTRIBUTE = "weights"
 """What a maximisation declares: the coefficient it puts on each commodity."""
 
 
-def _require_the_whole_minimisation_pair(objective, lower_bound, minimize_kind) -> None:
+def _require_the_whole_minimisation_pair(objective, lower_bound, counted) -> None:
     """Refuse an objective that declares one attribute of the minimisation pair and not both.
 
     Half a pair is read as a maximisation of ``weights``, and a minimising objective returns
     zero weights, so the program would maximise nothing: it reports the plan that produces
     nothing as optimal, meets none of the declared floor, and says so nowhere in its result.
     """
-    if (lower_bound is None) == (minimize_kind is None):
+    if (lower_bound is None) == (counted is None):
         return
     if lower_bound is None:
         absent, present = MINIMISATION_ATTRIBUTES
@@ -103,14 +109,13 @@ def _require_a_well_formed_floor(objective, economy: Economy, floor: np.ndarray)
     :class:`demplan.objectives.MinimizeLabor` checks its own targets, but a minimisation is
     recognised here by :data:`MINIMISATION_ATTRIBUTES` and not by type, so an objective a
     researcher wrote reaches the program with those checks unrun. Each malformed floor comes
-    back with status ``"optimal"``: a non-finite entry is no bound at all to the solver, a
+    back with status ``"optimal"``: a non-finite entry is no bound at all to the solver, and a
     negative entry lets the plan cover part of its own input use out of the floor and report a
-    lower cost than any plan meeting the floor as written, and an entry on a commodity no
-    consumer unit can hold makes the program optimise a quantity its own output never records.
+    lower cost than any plan meeting the floor as written.
 
-    The unreadable entry is refused first, because the other two questions are about a number
-    the reader can compare: ``NaN < 0`` is false and ``NaN != 0`` is true, so a NaN floor is a
-    non-negative floor sitting on the commodity it was written on by both of those readings.
+    The unreadable entry is refused first, because the other question is about a number the
+    reader can compare: ``NaN < 0`` is false, so a NaN floor reads as a non-negative floor.
+    Which commodities the floor sits on is the researcher's statement and is not checked.
 
     This checks that the declaration is well formed rather than that the plan satisfies an
     invariant, so it applies whatever the researcher enabled from the invariant toolbox.
@@ -119,7 +124,6 @@ def _require_a_well_formed_floor(objective, economy: Economy, floor: np.ndarray)
     label = f"{objective.name}: {lower_bound_attribute}"
     _require_finite_declaration(floor, label)
     _require_non_negative(floor, label)
-    _require_consumable_support(floor, economy, label)
 
 
 def _require_a_well_formed_weighting(objective, economy: Economy, weights: np.ndarray) -> None:
@@ -128,9 +132,8 @@ def _require_a_well_formed_weighting(objective, economy: Economy, weights: np.nd
     A maximisation is recognised by the absence of the minimisation pair, so the weights of an
     objective a researcher wrote reach the program unchecked as well, and they decide the same
     two things the floor decides: which commodities become final-consumption variables, and
-    what the reported objective value counts. A weight on a commodity no consumer unit can hold
-    makes the program optimise a quantity the plan never records; a non-finite weight is not a
-    declaration anyone can read.
+    what the reported objective value counts. A non-finite weight is not a declaration anyone
+    can read. Which commodities carry weight is the researcher's statement and is not checked.
 
     The sign is left alone. A negative weight is a penalty term, which is a coherent thing for
     a social welfare function to say, and refusing it would put a commitment about what such a
@@ -138,25 +141,20 @@ def _require_a_well_formed_weighting(objective, economy: Economy, weights: np.nd
     """
     label = f"{objective.name}: {WEIGHTS_ATTRIBUTE}"
     _require_finite_declaration(weights, label)
-    _require_consumable_support(weights, economy, label)
 
 
-def _require_a_declared_commodity_kind(objective, minimize_kind) -> None:
-    """Refuse a ``minimize_kind`` that names no class of the commodity table.
+def _counted_commodity_indices(objective, counted, n_commodities: int) -> np.ndarray:
+    """``counted_commodities`` checked as distinct commodity indices, whoever declared it.
 
-    The cost vector counts an input when its commodity carries this kind, so a value outside
-    :class:`demplan.CommodityKind` matches nothing: the program minimises an all-zero cost
-    and reports an objective value of zero for a plan that spends whatever it likes.
+    The cost vector counts an input when its commodity is listed, so an index outside the
+    commodity table matches nothing: a list of them makes the program minimise an all-zero
+    cost and report an objective value of zero for a plan that spends whatever it likes.
     """
-    try:
-        CommodityKind(int(minimize_kind))
-    except (TypeError, ValueError):
-        _, minimize_kind_attribute = MINIMISATION_ATTRIBUTES
-        accepted = ", ".join(f"{kind.name.lower()} ({int(kind)})" for kind in CommodityKind)
-        raise ValueError(
-            f"{objective.name}: {minimize_kind_attribute} is {minimize_kind!r}, which is not a "
-            f"commodity kind; the kinds are {accepted}"
-        ) from None
+    _, counted_attribute = MINIMISATION_ATTRIBUTES
+    label = f"{objective.name}: {counted_attribute}"
+    indices = _index_array(label, counted)
+    _require_indices_in_range(label, indices, n_commodities)
+    return indices
 
 
 class _Program:
@@ -167,12 +165,13 @@ class _Program:
         self.objective = objective
         self.weights = objective.weights(economy)
 
-        self.lower_bound = getattr(objective, "final_demand_lower_bound", None)
-        self.minimize_kind = getattr(objective, "minimize_kind", None)
-        _require_the_whole_minimisation_pair(objective, self.lower_bound, self.minimize_kind)
-        self.minimises = self.lower_bound is not None and self.minimize_kind is not None
+        lower_bound_attribute, counted_attribute = MINIMISATION_ATTRIBUTES
+        self.lower_bound = getattr(objective, lower_bound_attribute, None)
+        counted = getattr(objective, counted_attribute, None)
+        _require_the_whole_minimisation_pair(objective, self.lower_bound, counted)
+        self.minimises = self.lower_bound is not None and counted is not None
         if self.minimises:
-            _require_a_declared_commodity_kind(objective, self.minimize_kind)
+            self.counted = _counted_commodity_indices(objective, counted, economy.n_commodities)
 
         declared = np.asarray(self.lower_bound) if self.minimises else self.weights
         if declared.shape != (economy.n_commodities,):
@@ -186,14 +185,15 @@ class _Program:
             _require_a_well_formed_weighting(objective, economy, declared)
         self.consumable = np.flatnonzero(declared != 0.0).astype(np.int64)
         self.n_variables = economy.n_units + self.consumable.shape[0]
+        self.unit_of_output = np.repeat(
+            np.arange(economy.n_units, dtype=np.int64), np.diff(economy.output_offsets)
+        )
 
     def cost(self) -> np.ndarray:
         """Coefficients of the objective, always written as something to minimise."""
         cost = np.zeros(self.n_variables, dtype=np.float64)
         if self.minimises:
-            counted = np.asarray(self.economy.commodity_kind)[self.economy.input_commodity] == int(
-                self.minimize_kind
-            )
+            counted = np.isin(np.asarray(self.economy.input_commodity), self.counted)
             np.add.at(
                 cost[: self.economy.n_units],
                 unit_of_input(self.economy)[counted],
@@ -204,7 +204,11 @@ class _Program:
         return cost
 
     def constraints(self) -> coo_matrix:
-        """``A_ub`` for ``A_ub x <= endowment``: input use minus output plus final consumption."""
+        """``A_ub`` for ``A_ub x <= endowment``: input use minus output plus final consumption.
+
+        A unit's column holds minus its output coefficient in its output commodity's row and
+        its input coefficients in its inputs' rows, one run of the unit each.
+        """
         n_units = self.economy.n_units
         rows = np.concatenate(
             [
@@ -215,14 +219,14 @@ class _Program:
         )
         columns = np.concatenate(
             [
-                np.arange(n_units, dtype=np.int64),
+                self.unit_of_output,
                 unit_of_input(self.economy),
                 n_units + np.arange(self.consumable.shape[0], dtype=np.int64),
             ]
         )
         values = np.concatenate(
             [
-                np.full(n_units, -1.0),
+                -np.asarray(self.economy.output_coefficient, dtype=np.float64),
                 np.asarray(self.economy.input_coefficient, dtype=np.float64),
                 np.ones(self.consumable.shape[0]),
             ]
@@ -233,7 +237,7 @@ class _Program:
         )
 
     def bounds(self) -> list[tuple[float, None]]:
-        """Output is non-negative; final consumption is non-negative or above its floor."""
+        """Runs are non-negative; final consumption is non-negative or above its floor."""
         floors = np.zeros(self.consumable.shape[0], dtype=np.float64)
         if self.minimises:
             floors = np.asarray(self.lower_bound, dtype=np.float64)[self.consumable]
@@ -251,29 +255,39 @@ class _Program:
         statement of what anyone asked for. The program itself constrains each commodity by
         ``A_ub x <= endowment``, which allows free disposal: a commodity may end the period in
         surplus, so a balance is not what makes this an allocation.
+
+        ``output`` is each unit's runs times its output coefficient, and ``input_use`` each
+        input coefficient times its unit's runs.
         """
-        output = np.ascontiguousarray(solution[: self.economy.n_units], dtype=np.float64)
+        runs = np.ascontiguousarray(solution[: self.economy.n_units], dtype=np.float64)
+        output = runs[self.unit_of_output] * np.asarray(
+            self.economy.output_coefficient, dtype=np.float64
+        )
+        input_use = (
+            np.asarray(self.economy.input_coefficient, dtype=np.float64)
+            * runs[unit_of_input(self.economy)]
+        )
         aggregate = np.zeros(self.economy.n_commodities, dtype=np.float64)
         aggregate[self.consumable] = solution[self.economy.n_units :]
-        consumption, columns, provision = self.objective.allocate(self.economy, aggregate)
+        consumption, columns, shared_use = self.objective.allocate(self.economy, aggregate)
         return AllocatedPlan(
             output=output,
-            input_use=input_requirements_flat(self.economy, output),
+            input_use=input_use,
             consumption=np.ascontiguousarray(consumption, dtype=np.float64),
             consumption_commodity=np.ascontiguousarray(columns, dtype=np.int64),
-            provision=np.ascontiguousarray(provision, dtype=np.float64),
+            shared_use=np.ascontiguousarray(shared_use, dtype=np.float64),
             valuation={SHADOW_PRICE: shadow_price},
         )
 
 
 def _require_leontief(economy: Economy) -> None:
-    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != int(TechnologyKind.LEONTIEF))
+    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != LEONTIEF)
     if wrong.size:
         unit = int(wrong[0])
-        kind = TechnologyKind(int(economy.technology_kind[unit])).name.lower()
         raise ValueError(
-            f"reference_solution needs Leontief technology, but unit {unit} carries "
-            f"technology_kind {kind}; convert the economy with "
+            f"reference_solution needs Leontief technology, every unit labelled "
+            f"{LEONTIEF!r}, but unit {unit} carries technology_kind "
+            f"{str(economy.technology_kind[unit])!r}; convert the economy with "
             "demplan.tools.linearize.linearize first"
         )
 
@@ -300,11 +314,13 @@ def _shadow_prices(result, n_commodities: int) -> np.ndarray:
 def reference_solution(economy: Economy, objective: Objective) -> ReferenceResult:
     """Solve the economy to optimality under ``objective``.
 
-    Raises ``ValueError`` when the economy is not Leontief or the objective does not fit it,
-    and :class:`ReferenceInfeasible` when the program has no optimum. A result is only ever
+    Raises ``ValueError`` when the economy is not Leontief, when a unit has more than one
+    output entry, or when the objective does not fit the economy, and
+    :class:`ReferenceInfeasible` when the program has no optimum. A result is only ever
     returned with status ``"optimal"``.
     """
     _require_leontief(economy)
+    _require_one_output_per_unit(economy, REFERENCE_SOLUTION)
     program = _Program(economy, objective)
     solved = linprog(
         program.cost(),

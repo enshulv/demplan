@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from demplan.economy import Economy
-from demplan.tools import unit_of_input
+from demplan.tools import _require_one_output_per_unit, unit_of_input
 
 
 def input_requirements(coefficients: np.ndarray, output: float) -> np.ndarray:
@@ -21,6 +21,9 @@ def input_requirements_flat(economy: Economy, output: np.ndarray) -> np.ndarray:
     """:func:`input_requirements` for every producing unit at once.
 
     ``output`` is one quantity per unit; the result lines up with ``Economy.input_commodity``.
+    Raises ``ValueError`` when a unit has more than one output entry, since one quantity per
+    unit does not say which of its outputs it is.
     """
+    _require_one_output_per_unit(economy, "input_requirements_flat")
     quantities = np.asarray(output, dtype=np.float64)[unit_of_input(economy)]
     return np.asarray(economy.input_coefficient, dtype=np.float64) * quantities

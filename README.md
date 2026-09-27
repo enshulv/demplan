@@ -183,10 +183,11 @@ Honest status, roughly in the order these will be addressed:
 - **The reference solution states less than it assumes.** Leontief only, constant returns after
   `linearize`, closed economy, non-negativity and free disposal are all built in and none of
   them is reported with the result.
-- **Parts of the data model are still open.** Commodity kinds are a closed list, each producing
-  unit has exactly one output (no joint products, so emissions do not fit), and identifiers are
-  equal to row numbers, so removing a row renumbers the rest. These are breaking changes and
-  will happen before 1.0.
+- **Identifiers are row numbers.** Removing a row renumbers the rest. Stable identifiers are a
+  breaking change and will happen before 1.0.
+- **Joint products are in the data model but not yet in every tool.** A producing unit may list
+  several outputs; the reference solution, `linearize` and the two technology helpers still
+  refuse such units.
 - **One published procedure.** Only the procedure of Hahnel (2021) [3] ships as a prefab. Labour-time planning in the tradition of Cockshott and Cottrell [12] and the
   published algorithms of [7, 8, 9] are candidates.
 - **Installation needs a Rust toolchain.** There are no prebuilt wheels on PyPI yet.
@@ -249,10 +250,11 @@ something about the mechanism, the second about the budget it was given. `diverg
 cases: the procedure never called `iterate`, so the library saw no loop, or it drove one
 without `plan_of`, so the library saw no plan to judge. `rounds` tells those apart.
 
-`plan.provision` is the supply side of a public good, the quantity produced and shared, and it
-is already inside `total_output`. The demand side is `plan.extra["consumer_demand"]`: what the
-consumer councils asked for, one entry per commodity, private goods included. It is the whole
-consumption side of the balance, which is why `total_consumption` is not added to it.
+The demand side here is `plan.extra["consumer_demand"]`: what the consumer councils asked for,
+one entry per commodity, private goods included. It is the whole consumption side of the
+balance. The same numbers are also filed in the physical layer: `plan.consumption` holds each
+council's private goods and `plan.shared_use` the level of each public good used in common,
+so `total_consumption` plus `shared_use` adds up to the same demand.
 
 Nothing in that last calculation is privileged. `Plan` stores the full configuration, so any
 measure of feasibility, cost or fairness you want to argue about is a few lines away from the
@@ -331,73 +333,78 @@ One period of an economy, held as three column tables plus `period` and named `e
 There are no prices here. Valuations belong to whatever mechanism computed them, so they live
 on `Plan`.
 
-**Commodities.** One table, with a class marker per row. A new class is a new marker value,
-not a new column.
+**Commodities.** One table. The library does not classify commodities: whether one is a
+private good, a public good, a resource or labour is a statement of some theory, so a loader or
+a prefab that needs such a label writes it into `commodity_extra` under a key it owns (the
+dep1ex loader writes `commodity_extra["hahnel_kind"]`).
 
 | column | type | meaning |
 |---|---|---|
 | `commodity_id` | int64 | stable identifier, equal to the row number |
-| `commodity_kind` | int8 | 0 private good, 1 public good, 2 intermediate, 3 natural resource, 4 labour |
 | `endowment` | f64 | quantity available this period without producing it; 0 for produced goods |
 
-**Producing units.** Variable-length input lists are stored flat with offsets rather than
-padded into a rectangle. Unit `i` owns `input_commodity[input_offsets[i]:input_offsets[i+1]]`
-and the matching slice of `input_coefficient`; `economy.inputs_of(i)` returns that window. In
-v1 each unit produces exactly one commodity.
+**Producing units.** Variable-length input and output lists are stored flat with offsets
+rather than padded into a rectangle. Unit `i` owns
+`input_commodity[input_offsets[i]:input_offsets[i+1]]` and the matching slice of
+`input_coefficient`; `economy.inputs_of(i)` returns that window. Outputs are laid out the same
+way, so a unit can make several commodities (joint products); every unit has at least one
+output and lists a commodity at most once.
 
 | column | type | meaning |
 |---|---|---|
 | `unit_id` | int64 | stable identifier, equal to the row number |
-| `unit_group` | int64 | which sector the unit belongs to |
-| `output_commodity` | int64 | what it produces |
-| `technology_kind` | int8 | 0 Leontief, 1 Cobb-Douglas |
+| `technology_kind` | text | a label naming the unit's technology, such as `"leontief"` or `"cobb_douglas"` |
 | `technology_scale` | f64 | scale coefficient |
 | `input_offsets` | int64[n_units + 1] | bounds of each unit's window into the flat input arrays |
 | `input_commodity` | int64[n_inputs] | which commodity each input is |
-| `input_coefficient` | f64[n_inputs] | an input coefficient under Leontief, an exponent under Cobb-Douglas |
+| `input_coefficient` | f64[n_inputs] | a number per input whose meaning the technology sets: an input coefficient under Leontief, an exponent under Cobb-Douglas |
+| `output_offsets` | int64[n_units + 1] | bounds of each unit's window into the flat output arrays |
+| `output_commodity` | int64[n_outputs] | which commodity each output is |
+| `output_coefficient` | f64[n_outputs] | a number per output whose meaning the technology sets; 1.0 for a unit whose activity is measured in its output |
 
-**Consumer units.** `consumer_id` (int64, equal to the row number) and `consumer_group`
-(int64).
+`technology_kind` is open: any non-empty label is accepted, and `LEONTIEF` and `COBB_DOUGLAS`
+are exported as constants for the two forms the library's own tools recognise.
+
+**Consumer units.** `consumer_id` (int64, equal to the row number). Groupings such as region or
+household type go into `consumer_extra`.
 
 **`extra` bags.** `commodity_extra`, `unit_extra` and `consumer_extra` hold named arrays whose
-leading dimension is their table's row count. Nothing requires a particular key to be present;
-these names are conventions that loaders write and prefabs read.
+leading dimension is their table's row count: numeric arrays, or one-dimensional arrays of
+non-empty text labels (a list of `str` works too). Nothing requires a particular key to be
+present; these names are conventions that loaders write and prefabs read.
 
 | table | key | shape | meaning |
 |---|---|---|---|
 | consumer | `entitlement` | f64[n_consumers] | consumption entitlement, an exogenous flow |
 | consumer | `utility_exponent` | f64[n_consumers, k] | Cobb-Douglas utility exponents |
 | consumer | `utility_exponent_commodity` | int64[k] | which commodity each of those columns is |
+| commodity | `hahnel_kind` | text[n_commodities] | the dep1ex loader's class label: `private_good`, `public_good`, `intermediate`, `natural_resource` or `labor` |
 | unit | `effort_c`, `effort_s`, `effort_k` | f64[n_units] | behavioural parameters of the dep1ex worker-council closed form |
 
 **Building one by hand.** Seven commodities, three producing units and two consumer units,
-with Leontief technology. Integer columns are int64 and the kind markers int8; `Economy`
-checks that, and the check is the reason a plan built for one economy cannot be quietly
-aggregated against another.
+with Leontief technology. Integer columns are int64; `Economy` checks that, and the check is
+the reason a plan built for one economy cannot be quietly aggregated against another. The
+labels in `commodity_extra` are this example's own; the library reads none of them.
 
 ```python
 import numpy as np
-from demplan import CommodityKind, Economy, TechnologyKind
-
-kinds = [CommodityKind.PRIVATE_GOOD, CommodityKind.PRIVATE_GOOD, CommodityKind.PUBLIC_GOOD,
-         CommodityKind.INTERMEDIATE, CommodityKind.INTERMEDIATE,
-         CommodityKind.NATURAL_RESOURCE, CommodityKind.LABOR]
+from demplan import LEONTIEF, Economy
 
 economy = Economy(
     period=0,
     commodity_id=np.arange(7, dtype=np.int64),
-    commodity_kind=np.array(kinds, dtype=np.int8),
     endowment=np.array([0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 200.0]),
+    commodity_extra={"role": ["food", "clothing", "park", "steel", "cement", "land", "labour"]},
     unit_id=np.arange(3, dtype=np.int64),
-    unit_group=np.array([0, 0, 1], dtype=np.int64),
-    output_commodity=np.array([0, 1, 2], dtype=np.int64),           # two private, one public
-    technology_kind=np.full(3, TechnologyKind.LEONTIEF, dtype=np.int8),
+    technology_kind=[LEONTIEF, LEONTIEF, LEONTIEF],
     technology_scale=np.ones(3),
     input_offsets=np.array([0, 3, 5, 8], dtype=np.int64),           # unit i owns [o[i], o[i+1])
     input_commodity=np.array([3, 5, 6, 4, 6, 3, 4, 6], dtype=np.int64),
     input_coefficient=np.array([0.4, 0.2, 0.5, 0.3, 0.6, 0.1, 0.2, 0.4]),
+    output_offsets=np.array([0, 1, 2, 3], dtype=np.int64),          # one output per unit here
+    output_commodity=np.array([0, 1, 2], dtype=np.int64),
+    output_coefficient=np.ones(3),
     consumer_id=np.arange(2, dtype=np.int64),
-    consumer_group=np.array([0, 1], dtype=np.int64),
     consumer_extra={"entitlement": np.array([1000.0, 1500.0]),
                     "utility_exponent": np.array([[0.5, 0.3, 0.2], [0.4, 0.4, 0.2]]),
                     "utility_exponent_commodity": np.arange(3, dtype=np.int64)},
@@ -417,21 +424,22 @@ One period's plan, in two layers.
 
 | field | type | meaning |
 |---|---|---|
-| `output` | f64[n_units] | what each producing unit makes |
+| `output` | f64[n_outputs] | how much of each output entry each producing unit makes, aligned with `Economy`'s flat output arrays |
 | `input_use` | f64[n_inputs] | what it uses, aligned with `Economy`'s flat input arrays |
-| `consumption` | f64[n_consumers, k] | who gets how much of each private good |
+| `consumption` | f64[n_consumers, k] | how much each consumer unit uses of each commodity it is attributed |
 | `consumption_commodity` | int64[k] | which commodity each consumption column is |
-| `provision` | f64[n_commodities] | shared quantity of each public good; 0 for every other commodity |
+| `shared_use` | f64[n_commodities] | quantity used in common and attributed to no single consumer unit (non-rival use); 0 where nothing is shared |
 
 Input use is stored rather than derived. Where a technology allows substitution, the input mix
 is a decision the mechanism made, and recomputing it afterwards would replace that decision
 with the recomputing tool's own theory. Endowment use is different: it is a plain aggregation
-of input use, so `plan.endowment_use(economy)` derives it.
+of input use on the commodities you name, so `plan.endowment_use(economy, resources)` derives
+it; which commodities count as resources is your statement, not the library's.
 
 **Absent fields.** Not every mechanism has every physical quantity. A mechanism that
 balances totals alone has no consumption per consumer unit, and one whose public supply is
 regional cannot state it as a single society-wide scalar, so `consumption`,
-`consumption_commodity` and `provision` may be declared absent by passing `None`. `output` and
+`consumption_commodity` and `shared_use` may be declared absent by passing `None`. `output` and
 `input_use` are required: every mechanism that plans production has both. The fields carry no
 default, so leaving one out of the call is still a missing argument -- absence is something
 you say, never something that happens to you. `plan.absent_fields` reads the declaration back,

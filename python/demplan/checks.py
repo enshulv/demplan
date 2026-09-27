@@ -16,7 +16,7 @@ from demplan.economy import Economy
 from demplan.plan import Plan
 from demplan.procedure import Procedure
 
-_PHYSICAL_FIELDS = ("output", "input_use", "consumption", "consumption_commodity", "provision")
+_PHYSICAL_FIELDS = ("output", "input_use", "consumption", "consumption_commodity", "shared_use")
 
 
 @dataclasses.dataclass(frozen=True)

@@ -89,3 +89,61 @@ class TestDelegation:
         load_dep1ex(Path("a") / "dep1ex01.clj.gz")
         assert isinstance(seen["path"], str)
         assert seen["path"].endswith("dep1ex01.clj.gz")
+
+
+CORE_KEYS = (
+    "period",
+    "commodity_id",
+    "endowment",
+    "commodity_extra",
+    "unit_id",
+    "technology_kind",
+    "technology_scale",
+    "input_offsets",
+    "input_commodity",
+    "input_coefficient",
+    "output_offsets",
+    "output_commodity",
+    "output_coefficient",
+    "unit_extra",
+    "consumer_id",
+    "consumer_extra",
+)
+"""The keys of the mapping ``_core.load_dep1ex`` returns, as the binding's contract lists them."""
+
+
+def core_mapping_of(economy: Economy) -> dict:
+    """``economy`` in the form the binding hands it over: text columns as lists of ``str``."""
+    mapping = mapping_of(economy)
+    mapping["technology_kind"] = [str(label) for label in economy.technology_kind]
+    mapping["commodity_extra"] = {
+        key: [str(label) for label in value] if value.dtype.kind == "U" else value
+        for key, value in economy.commodity_extra.items()
+    }
+    return mapping
+
+
+class TestTheCoreMapping:
+    def test_the_contract_keys_are_the_economy_fields(self):
+        assert set(CORE_KEYS) == {field.name for field in dataclasses.fields(Economy)}
+
+    def test_text_columns_handed_over_as_lists_become_text_arrays(
+        self, core, monkeypatch, synthetic_economy
+    ):
+        handed = core_mapping_of(synthetic_economy)
+        assert set(handed) == set(CORE_KEYS)
+        assert isinstance(handed["technology_kind"], list)
+        assert isinstance(handed["commodity_extra"]["hahnel_kind"], list)
+        monkeypatch.setattr(
+            core, CORE_LOADER, lambda path, endowment: handed, raising=False
+        )
+        economy = load_dep1ex("dep1ex01.clj.gz")
+        assert economy.technology_kind.dtype.kind == "U"
+        assert list(economy.technology_kind) == handed["technology_kind"]
+        labels = economy.commodity_extra["hahnel_kind"]
+        assert labels.dtype.kind == "U"
+        assert list(labels) == handed["commodity_extra"]["hahnel_kind"]
+        np.testing.assert_array_equal(economy.output_offsets, synthetic_economy.output_offsets)
+        np.testing.assert_array_equal(
+            economy.output_coefficient, synthetic_economy.output_coefficient
+        )

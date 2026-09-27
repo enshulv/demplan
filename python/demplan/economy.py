@@ -3,7 +3,9 @@
 ``Economy`` is the one type in this library that is fixed rather than pluggable. Everything a
 coordination procedure needs about the period is here; anything that carries a commitment to
 one school of economics belongs in an ``extra`` bag or in the procedure's own state. In
-particular there are no prices: valuations live on ``Plan``.
+particular there are no prices, no classes of commodity and no grouping of units: valuations
+live on ``Plan``, and a label a prefab needs lives in an ``extra`` bag under a key the prefab
+owns. The library never reads an ``extra`` key of ``Economy``.
 
 The fields hold read-only views of the arrays passed in. A frozen dataclass stops fields from
 being rebound but does nothing about writing through a numpy array, and a procedure that
@@ -11,16 +13,25 @@ quietly edited its input would break the promise that two runs on the same econo
 comparable. The caller's own arrays stay writeable; the read-only flag is a numpy flag, so a
 caller who kept a handle on the underlying buffer can still write through it. Evolve an
 economy with :func:`dataclasses.replace`, which revalidates the result.
+
+Text columns -- ``technology_kind`` and any text array in an ``extra`` bag -- are numpy arrays
+of dtype kind ``U``, one label per row. A Python list of ``str`` is accepted in their place and
+stored as such an array, which is the form the Rust loaders hand text over in.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from enum import IntEnum
 from types import MappingProxyType
 from typing import Mapping
 
 import numpy as np
+
+LEONTIEF = "leontief"
+"""Technology label: fixed input proportions, ``input_coefficient`` read as input per run."""
+
+COBB_DOUGLAS = "cobb_douglas"
+"""Technology label: ``technology_scale * prod(input ** input_coefficient)``."""
 
 
 class SchemaError(ValueError):
@@ -31,50 +42,40 @@ class SchemaError(ValueError):
     """
 
 
-class CommodityKind(IntEnum):
-    """Class marker on the commodity table. New classes are new values, not new columns."""
-
-    PRIVATE_GOOD = 0
-    PUBLIC_GOOD = 1
-    INTERMEDIATE = 2
-    NATURAL_RESOURCE = 3
-    LABOR = 4
-
-
-class TechnologyKind(IntEnum):
-    """How to read ``input_coefficient`` for a producing unit."""
-
-    LEONTIEF = 0
-    COBB_DOUGLAS = 1
-
+_TEXT = "text"
+"""What a column spec says in place of a dtype when the column holds text labels."""
 
 _COMMODITY_COLUMNS = {
     "commodity_id": np.int64,
-    "commodity_kind": np.int8,
     "endowment": np.float64,
 }
 _UNIT_COLUMNS = {
     "unit_id": np.int64,
-    "unit_group": np.int64,
-    "output_commodity": np.int64,
-    "technology_kind": np.int8,
+    "technology_kind": _TEXT,
     "technology_scale": np.float64,
 }
 _INPUT_COLUMNS = {
     "input_commodity": np.int64,
     "input_coefficient": np.float64,
 }
+_OUTPUT_COLUMNS = {
+    "output_commodity": np.int64,
+    "output_coefficient": np.float64,
+}
 _CONSUMER_COLUMNS = {
     "consumer_id": np.int64,
-    "consumer_group": np.int64,
 }
 _ALL_COLUMNS = {
     **_COMMODITY_COLUMNS,
     **_UNIT_COLUMNS,
     **_INPUT_COLUMNS,
+    **_OUTPUT_COLUMNS,
     **_CONSUMER_COLUMNS,
     "input_offsets": np.int64,
+    "output_offsets": np.int64,
 }
+
+_TEXT_COLUMNS = tuple(name for name, dtype in _ALL_COLUMNS.items() if dtype is _TEXT)
 
 _EXTRA_BAGS = ("commodity_extra", "unit_extra", "consumer_extra")
 
@@ -104,13 +105,63 @@ def _freeze_bag(bag: Mapping[str, np.ndarray]) -> Mapping[str, np.ndarray]:
     return MappingProxyType({key: _freeze_array(value) for key, value in dict(bag).items()})
 
 
+def _text_array_of(name: str, value):
+    """``value`` as a numpy text array when it is a list of ``str``; anything else unchanged.
+
+    A list holding anything but ``str`` is refused here, since no later check could say what
+    was wrong with it. numpy's text dtype drops trailing NUL characters, so a label ending in
+    one is refused rather than stored shorter than it was given.
+    """
+    if not isinstance(value, list):
+        return value
+    wrong = [index for index, label in enumerate(value) if not isinstance(label, str)]
+    if wrong:
+        at = wrong[0]
+        raise SchemaError(
+            f"{name}: a list is accepted as a text column only when it holds str, and "
+            f"position {at} holds a {type(value[at]).__name__}"
+        )
+    array = np.array(value, dtype=str) if value else np.zeros(0, dtype="<U1")
+    shortened = [index for index, label in enumerate(value) if str(array[index]) != label]
+    if shortened:
+        raise SchemaError(
+            f"{name}: the label at row {shortened[0]} ends in a NUL character, which a numpy "
+            "text array cannot hold"
+        )
+    return array
+
+
 def _require_array(name: str, value, dtype) -> np.ndarray:
+    if dtype is _TEXT:
+        return _require_text_column(name, value)
     if not isinstance(value, np.ndarray):
         raise SchemaError(f"{name}: expected a numpy array, got {type(value).__name__}")
     if value.dtype != np.dtype(dtype):
         raise SchemaError(f"{name}: expected dtype {np.dtype(dtype)}, got {value.dtype}")
     if value.ndim != 1:
         raise SchemaError(f"{name}: expected a one-dimensional column, got {value.ndim} dimensions")
+    return value
+
+
+def _require_text_column(name: str, value) -> np.ndarray:
+    """Check a column of text labels: one-dimensional, dtype kind ``U``, no empty label."""
+    if not isinstance(value, np.ndarray):
+        raise SchemaError(
+            f"{name}: expected a numpy text array or a list of str, got {type(value).__name__}"
+        )
+    if value.dtype.kind != "U":
+        raise SchemaError(
+            f"{name}: expected text labels (a numpy array of dtype kind 'U' or a list of "
+            f"str), got dtype {value.dtype}"
+        )
+    if value.ndim != 1:
+        raise SchemaError(
+            f"{name}: a text column is one-dimensional, one label per row; got "
+            f"{value.ndim} dimensions"
+        )
+    empty = np.flatnonzero(value == "")
+    if empty.size:
+        raise SchemaError(f"{name}: the label at row {int(empty[0])} is empty")
     return value
 
 
@@ -125,16 +176,6 @@ def _require_row_numbering(name: str, column: np.ndarray) -> None:
     if wrong.size:
         row = int(wrong[0])
         raise SchemaError(f"{name}: must equal the row number, found {int(column[row])} at row {row}")
-
-
-def _require_known_kind(name: str, column: np.ndarray, kinds: type[IntEnum]) -> None:
-    allowed = np.array([int(k) for k in kinds], dtype=column.dtype)
-    wrong = np.flatnonzero(~np.isin(column, allowed))
-    if wrong.size:
-        row = int(wrong[0])
-        raise SchemaError(
-            f"{name}: {int(column[row])} at row {row} is not a {kinds.__name__} value"
-        )
 
 
 def _require_commodity_index(name: str, column: np.ndarray, n_commodities: int) -> None:
@@ -155,51 +196,121 @@ def _require_finite(name: str, values: np.ndarray) -> None:
         raise SchemaError(f"{name}: row {int(wrong[0])} is not finite")
 
 
+def _require_offsets(name: str, offsets: np.ndarray, n_units: int, n_entries: int, entries: str):
+    """Check one flat layout's offsets: one bound per unit plus one, from 0 to ``n_entries``,
+    never decreasing."""
+    _require_length(name, offsets, n_units + 1, "one bound per unit plus a sentinel")
+    if int(offsets[0]) != 0:
+        raise SchemaError(f"{name}: must start at 0, starts at {int(offsets[0])}")
+    if int(offsets[-1]) != n_entries:
+        raise SchemaError(
+            f"{name}: must end at the {entries} count {n_entries}, ends at {int(offsets[-1])}"
+        )
+    falling = np.flatnonzero(np.diff(offsets) < 0)
+    if falling.size:
+        row = int(falling[0])
+        raise SchemaError(
+            f"{name}: must not decrease, drops from {int(offsets[row])} "
+            f"to {int(offsets[row + 1])} at row {row}"
+        )
+
+
+def _index_array(name: str, indices) -> np.ndarray:
+    """``indices`` checked as a one-dimensional int64 array of distinct entries.
+
+    For declarations that name commodities by index, such as the commodities an accessor or
+    an objective counts. A repeated index says the caller meant something one array of
+    indices cannot hold, so it is refused rather than read as one. Raises ``ValueError``
+    naming ``name``; the range is checked by :func:`_require_indices_in_range` once the
+    commodity count is known.
+    """
+    if not isinstance(indices, np.ndarray) or indices.dtype != np.int64 or indices.ndim != 1:
+        got = (
+            f"dtype {indices.dtype} with {indices.ndim} dimensions"
+            if isinstance(indices, np.ndarray)
+            else f"a {type(indices).__name__}"
+        )
+        raise ValueError(
+            f"{name}: expected a one-dimensional int64 array of commodity indices, got {got}"
+        )
+    values, counts = np.unique(indices, return_counts=True)
+    repeated = values[counts > 1]
+    if repeated.size:
+        raise ValueError(f"{name}: commodity {int(repeated[0])} is listed more than once")
+    return indices
+
+
+def _require_indices_in_range(name: str, indices: np.ndarray, n_commodities: int) -> None:
+    """Refuse an index outside ``[0, n_commodities)``. Raises ``ValueError`` naming ``name``.
+
+    An index outside the table selects nothing, or wraps around to the wrong end of it, so a
+    declaration holding one would be read as a different declaration without a word.
+    """
+    outside = np.flatnonzero((indices < 0) | (indices >= n_commodities))
+    if outside.size:
+        raise ValueError(
+            f"{name}: {int(indices[outside[0]])} is outside the commodity range "
+            f"[0, {n_commodities})"
+        )
+
+
 @dataclasses.dataclass(frozen=True, eq=False)
 class Economy:
     """One period of an economy: a commodity table, a producing-unit table, a consumer table.
 
-    Producing units hold their variable-length input lists in flat arrays: unit ``i`` owns
-    ``input_commodity[input_offsets[i]:input_offsets[i + 1]]`` and the matching slice of
-    ``input_coefficient``. :meth:`inputs_of` returns that window.
+    Producing units hold their variable-length input and output lists in flat arrays laid out
+    the same way: unit ``i`` owns ``input_commodity[input_offsets[i]:input_offsets[i + 1]]``
+    and the matching slice of ``input_coefficient``, and it owns the output entries
+    ``output_offsets[i]`` up to ``output_offsets[i + 1]`` of ``output_commodity`` and
+    ``output_coefficient``. :meth:`inputs_of` returns the input window. Every unit has at least
+    one output entry and lists a commodity at most once among its outputs; a unit with two or
+    more is a unit with joint products. What ``input_coefficient`` and ``output_coefficient``
+    mean is set by the unit's technology, which ``technology_kind`` names with a text label;
+    the data model records no ratio between a unit's outputs and assumes none.
 
     ``commodity_extra``, ``unit_extra`` and ``consumer_extra`` carry named arrays whose leading
-    dimension is the row count of their table. Key names are a library convention that
-    prefabs interpret; nothing here requires any particular key to be present.
+    dimension is the row count of their table, numeric or text. Key names are a convention the
+    prefabs that write them interpret; nothing here requires any key to be present.
 
     Equality is identity: the fields are numpy arrays, which have no scalar ``==``.
     """
 
     period: int
     commodity_id: np.ndarray
-    commodity_kind: np.ndarray
     endowment: np.ndarray
     unit_id: np.ndarray
-    unit_group: np.ndarray
-    output_commodity: np.ndarray
     technology_kind: np.ndarray
     technology_scale: np.ndarray
     input_offsets: np.ndarray
     input_commodity: np.ndarray
     input_coefficient: np.ndarray
+    output_offsets: np.ndarray
+    output_commodity: np.ndarray
+    output_coefficient: np.ndarray
     consumer_id: np.ndarray
-    consumer_group: np.ndarray
     commodity_extra: Mapping[str, np.ndarray] = dataclasses.field(default_factory=dict)
     unit_extra: Mapping[str, np.ndarray] = dataclasses.field(default_factory=dict)
     consumer_extra: Mapping[str, np.ndarray] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        for name in _TEXT_COLUMNS:
+            object.__setattr__(self, name, _text_array_of(name, getattr(self, name)))
         for name in _ALL_COLUMNS:
             object.__setattr__(self, name, _freeze_array(getattr(self, name)))
         for bag in _EXTRA_BAGS:
-            object.__setattr__(self, bag, _freeze_bag(getattr(self, bag)))
+            contents = {
+                key: _text_array_of(f"{bag}[{key!r}]", value)
+                for key, value in dict(getattr(self, bag)).items()
+            }
+            object.__setattr__(self, bag, _freeze_bag(contents))
         self.validate()
 
     @classmethod
     def from_arrays(cls, mapping: Mapping[str, object]) -> "Economy":
         """Build an economy from a mapping whose keys are the field names.
 
-        This is the shape the Rust loaders return. The three ``extra`` bags may be omitted.
+        This is the shape the Rust loaders return, text columns as lists of ``str``. The three
+        ``extra`` bags may be omitted.
         """
         known = {field.name for field in dataclasses.fields(cls)}
         unknown = sorted(set(mapping) - known)
@@ -223,9 +334,10 @@ class Economy:
     def n_inputs(self) -> int:
         return int(self.input_commodity.shape[0])
 
-    def commodities_of_kind(self, kind: CommodityKind | int) -> np.ndarray:
-        """Commodity ids carrying ``kind``, in ascending order."""
-        return np.flatnonzero(self.commodity_kind == int(kind)).astype(np.int64)
+    @property
+    def n_outputs(self) -> int:
+        """Number of output entries over all units; ``n_units`` when every unit has one."""
+        return int(self.output_commodity.shape[0])
 
     def inputs_of(self, unit: int) -> slice:
         """Window of the flat input arrays that belongs to one producing unit."""
@@ -241,8 +353,9 @@ class Economy:
             raise SchemaError(f"period: expected an integer, got {type(self.period).__name__}")
 
         n_commodities = self._validate_commodities(columns)
-        n_units = self._validate_units(columns, n_commodities)
+        n_units = self._validate_units(columns)
         self._validate_inputs(columns, n_units, n_commodities)
+        self._validate_outputs(columns, n_units, n_commodities)
         n_consumers = self._validate_consumers(columns)
         self._validate_extras(n_commodities, n_units, n_consumers)
 
@@ -251,41 +364,64 @@ class Economy:
         for name in _COMMODITY_COLUMNS:
             _require_length(name, columns[name], n_commodities, "one row per commodity")
         _require_row_numbering("commodity_id", columns["commodity_id"])
-        _require_known_kind("commodity_kind", columns["commodity_kind"], CommodityKind)
         _require_finite("endowment", columns["endowment"])
         return n_commodities
 
-    def _validate_units(self, columns, n_commodities: int) -> int:
+    def _validate_units(self, columns) -> int:
         n_units = columns["unit_id"].shape[0]
         for name in _UNIT_COLUMNS:
             _require_length(name, columns[name], n_units, "one row per producing unit")
         _require_row_numbering("unit_id", columns["unit_id"])
-        _require_known_kind("technology_kind", columns["technology_kind"], TechnologyKind)
-        _require_commodity_index("output_commodity", columns["output_commodity"], n_commodities)
         _require_finite("technology_scale", columns["technology_scale"])
         return n_units
 
     def _validate_inputs(self, columns, n_units: int, n_commodities: int) -> None:
-        offsets = columns["input_offsets"]
-        _require_length("input_offsets", offsets, n_units + 1, "one bound per unit plus a sentinel")
         n_inputs = columns["input_commodity"].shape[0]
         for name in _INPUT_COLUMNS:
             _require_length(name, columns[name], n_inputs, "one row per unit input")
-        if int(offsets[0]) != 0:
-            raise SchemaError(f"input_offsets: must start at 0, starts at {int(offsets[0])}")
-        if int(offsets[-1]) != n_inputs:
-            raise SchemaError(
-                f"input_offsets: must end at the input count {n_inputs}, ends at {int(offsets[-1])}"
-            )
-        falling = np.flatnonzero(np.diff(offsets) < 0)
-        if falling.size:
-            row = int(falling[0])
-            raise SchemaError(
-                f"input_offsets: must not decrease, drops from {int(offsets[row])} "
-                f"to {int(offsets[row + 1])} at row {row}"
-            )
+        _require_offsets("input_offsets", columns["input_offsets"], n_units, n_inputs, "input")
         _require_commodity_index("input_commodity", columns["input_commodity"], n_commodities)
         _require_finite("input_coefficient", columns["input_coefficient"])
+
+    def _validate_outputs(self, columns, n_units: int, n_commodities: int) -> None:
+        """Check the flat output layout.
+
+        Beyond what the input layout is held to, every unit owns at least one output entry,
+        and no unit lists one commodity twice among its outputs.
+        """
+        offsets = columns["output_offsets"]
+        commodity = columns["output_commodity"]
+        n_outputs = commodity.shape[0]
+        for name in _OUTPUT_COLUMNS:
+            _require_length(name, columns[name], n_outputs, "one row per output entry")
+        _require_offsets("output_offsets", offsets, n_units, n_outputs, "output entry")
+        without_output = np.flatnonzero(np.diff(offsets) == 0)
+        if without_output.size:
+            raise SchemaError(
+                f"output_offsets: unit {int(without_output[0])} owns no output entry, and every "
+                "producing unit has at least one"
+            )
+        _require_commodity_index("output_commodity", commodity, n_commodities)
+        _require_finite("output_coefficient", columns["output_coefficient"])
+        self._require_distinct_outputs_per_unit(offsets, commodity, n_units)
+
+    @staticmethod
+    def _require_distinct_outputs_per_unit(offsets, commodity, n_units: int) -> None:
+        """Refuse a unit that lists the same commodity twice among its output entries.
+
+        Sorting the entries by owner and then by commodity puts any repeat next to its twin.
+        """
+        owner = np.repeat(np.arange(n_units, dtype=np.int64), np.diff(offsets))
+        order = np.lexsort((commodity, owner))
+        repeated = np.flatnonzero(
+            (np.diff(owner[order]) == 0) & (np.diff(commodity[order]) == 0)
+        )
+        if repeated.size:
+            entry = order[int(repeated[0])]
+            raise SchemaError(
+                f"output_commodity: unit {int(owner[entry])} lists commodity "
+                f"{int(commodity[entry])} more than once among its output entries"
+            )
 
     def _validate_consumers(self, columns) -> int:
         n_consumers = columns["consumer_id"].shape[0]
@@ -305,10 +441,15 @@ class Economy:
             for key, value in getattr(self, bag).items():
                 label = f"{bag}[{key!r}]"
                 if not isinstance(value, np.ndarray):
-                    raise SchemaError(f"{label}: expected a numpy array, got {type(value).__name__}")
+                    raise SchemaError(
+                        f"{label}: expected a numpy array or a list of str, "
+                        f"got {type(value).__name__}"
+                    )
                 if key in mappings:
                     self._validate_column_mapping(bag, key, mappings[key], n_commodities)
                     continue
+                if value.dtype.kind == "U":
+                    _require_text_column(label, value)
                 if value.ndim < 1 or value.shape[0] != rows:
                     raise SchemaError(
                         f"{label}: leading dimension is {value.shape}, expected {rows} rows "

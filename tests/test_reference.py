@@ -9,7 +9,8 @@ rather than a second copy of the assembly code.
 
 The hand-built economy, ``build_bread_economy``:
 
-* commodity 0 is a private good, commodity 1 an intermediate good, commodity 2 labour;
+* commodity 0 is bread, a consumption good; commodity 1 is flour, an intermediate good;
+  commodity 2 is labour;
 * unit 0 makes one commodity 0 from 0.5 commodity 1 and 1.0 labour;
 * unit 1 makes one commodity 1 from 2.0 labour;
 * the only endowment is 12 units of labour.
@@ -25,6 +26,9 @@ With the labour endowment raised to 20 and a lower bound of 6 on final consumpti
 commodity 0, minimising labour gives the same ``q = (6, 3)`` at a cost of 12 labour. A free
 unit of commodity 0 then saves 2 labour, so does a free unit of commodity 1, and labour is
 slack, so its own dual is zero.
+
+The economy carries no class of any commodity. Which commodities a labour count totals and
+which ones are used in common are declared on the objective.
 """
 
 from __future__ import annotations
@@ -38,17 +42,17 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from demplan import (
+    COBB_DOUGLAS,
     INDICATIVE_PRICE,
+    LEONTIEF,
     SHADOW_PRICE,
-    CommodityKind,
     Economy,
     Plan,
-    TechnologyKind,
-    load_dep1ex,
     run,
 )
 from demplan.objectives import MaximizeWeightedConsumption, MinimizeLabor
 from demplan.plan import AllocatedPlan, StatedPlan, require_comparable
+from demplan.prefabs import hahnel
 from demplan.prefabs.hahnel import HahnelBook2021
 from demplan.reference import (
     ReferenceInfeasible,
@@ -57,7 +61,6 @@ from demplan.reference import (
     reference_solution,
 )
 from demplan.tools.linearize import linearize
-from reference.paths import dep1ex_available, dep1ex_path
 
 EXACT = 1e-9
 """Tolerance the hand-built optimum is asserted to, as the construction sheet asks."""
@@ -78,28 +81,34 @@ DEP1EX_SECONDS_ALLOWED = 60.0
 BREAD, FLOUR, WORK = 0, 1, 2
 N_BREAD_COMMODITIES = 3
 
+COUNT_LABOUR = np.array([WORK], dtype=np.int64)
+"""What a labour-minimising objective totals on the bread economy: commodity 2."""
 
-def build_bread_economy(labor_endowment: float = 12.0, n_consumers: int = 2) -> Economy:
+
+def build_bread_economy(
+    labor_endowment: float = 12.0, n_consumers: int = 2, output_coefficient=(1.0, 1.0)
+) -> Economy:
     """The three-commodity economy the module docstring solves by hand."""
     return Economy(
         period=0,
         commodity_id=np.arange(N_BREAD_COMMODITIES, dtype=np.int64),
-        commodity_kind=np.array(
-            [CommodityKind.PRIVATE_GOOD, CommodityKind.INTERMEDIATE, CommodityKind.LABOR],
-            dtype=np.int8,
-        ),
         endowment=np.array([0.0, 0.0, labor_endowment]),
         unit_id=np.arange(2, dtype=np.int64),
-        unit_group=np.zeros(2, dtype=np.int64),
-        output_commodity=np.array([BREAD, FLOUR], dtype=np.int64),
-        technology_kind=np.full(2, TechnologyKind.LEONTIEF, dtype=np.int8),
+        technology_kind=[LEONTIEF, LEONTIEF],
         technology_scale=np.ones(2),
         input_offsets=np.array([0, 2, 3], dtype=np.int64),
         input_commodity=np.array([FLOUR, WORK, WORK], dtype=np.int64),
         input_coefficient=np.array([0.5, 1.0, 2.0]),
+        output_offsets=np.array([0, 1, 2], dtype=np.int64),
+        output_commodity=np.array([BREAD, FLOUR], dtype=np.int64),
+        output_coefficient=np.array(output_coefficient, dtype=np.float64),
         consumer_id=np.arange(n_consumers, dtype=np.int64),
-        consumer_group=np.zeros(n_consumers, dtype=np.int64),
     )
+
+
+def minimize_labour(targets) -> MinimizeLabor:
+    """``MinimizeLabor`` over the bread economy's labour, commodity 2."""
+    return MinimizeLabor(targets, COUNT_LABOUR)
 
 
 def bread_weights() -> np.ndarray:
@@ -112,24 +121,27 @@ def commodity_slack(economy: Economy, output: np.ndarray, final: np.ndarray) -> 
     """``supply + endowment - input use - final use`` per commodity, computed from scratch.
 
     This repeats the balance the linear program constrains rather than calling the tools the
-    implementation uses, so an error shared with the implementation cannot cancel out.
+    implementation uses, so an error shared with the implementation cannot cancel out. Every
+    unit here has one output entry, and ``output`` is that entry's quantity: the unit ran
+    ``output / output_coefficient`` times, and each run draws ``input_coefficient``.
     """
     n_commodities = economy.n_commodities
     owner = np.repeat(np.arange(economy.n_units), np.diff(economy.input_offsets))
+    activity = np.asarray(output) / np.asarray(economy.output_coefficient)
     supply = np.bincount(
         economy.output_commodity, weights=output, minlength=n_commodities
     ) + np.asarray(economy.endowment)
     drawn = np.bincount(
         economy.input_commodity,
-        weights=np.asarray(economy.input_coefficient) * np.asarray(output)[owner],
+        weights=np.asarray(economy.input_coefficient) * activity[owner],
         minlength=n_commodities,
     )
     return supply - drawn - final
 
 
 def final_use_of(economy: Economy, plan: Plan) -> np.ndarray:
-    """Final consumption per commodity: what consumer units get plus what is provided."""
-    return plan.total_consumption(economy) + np.asarray(plan.provision)
+    """Final consumption per commodity: what consumer units get plus what they use in common."""
+    return plan.total_consumption(economy) + np.asarray(plan.shared_use)
 
 
 def scaled_tolerance(magnitude: float) -> float:
@@ -164,7 +176,7 @@ class TestHandSolvedMaximisation:
         )
         np.testing.assert_array_equal(result.plan.consumption_commodity, [BREAD])
         np.testing.assert_allclose(result.plan.consumption, [[3.0], [3.0]], atol=EXACT)
-        np.testing.assert_allclose(result.plan.provision, np.zeros(3), atol=EXACT)
+        np.testing.assert_allclose(result.plan.shared_use, np.zeros(3), atol=EXACT)
 
     def test_input_use_follows_the_leontief_coefficients(self):
         result = reference_solution(
@@ -175,7 +187,9 @@ class TestHandSolvedMaximisation:
     def test_labour_is_used_to_the_last_unit(self):
         economy = build_bread_economy()
         result = reference_solution(economy, MaximizeWeightedConsumption(bread_weights()))
-        np.testing.assert_allclose(result.plan.endowment_use(economy), [0.0, 0.0, 12.0], atol=EXACT)
+        np.testing.assert_allclose(
+            result.plan.endowment_use(economy, COUNT_LABOUR), [0.0, 0.0, 12.0], atol=EXACT
+        )
 
     def test_shadow_prices_match_the_dual_program(self):
         result = reference_solution(
@@ -205,7 +219,7 @@ class TestHandSolvedLabourMinimisation:
 
     def test_it_meets_the_target_at_the_least_labour(self):
         result = reference_solution(
-            build_bread_economy(labor_endowment=20.0), MinimizeLabor(self.targets())
+            build_bread_economy(labor_endowment=20.0), minimize_labour(self.targets())
         )
         assert result.status == "optimal"
         assert result.objective_value == pytest.approx(12.0, abs=EXACT)
@@ -213,59 +227,53 @@ class TestHandSolvedLabourMinimisation:
 
     def test_the_target_is_met_exactly(self):
         economy = build_bread_economy(labor_endowment=20.0)
-        result = reference_solution(economy, MinimizeLabor(self.targets()))
+        result = reference_solution(economy, minimize_labour(self.targets()))
         np.testing.assert_allclose(final_use_of(economy, result.plan), [6.0, 0.0, 0.0], atol=EXACT)
 
     def test_shadow_prices_are_labour_saved_per_free_unit(self):
         result = reference_solution(
-            build_bread_economy(labor_endowment=20.0), MinimizeLabor(self.targets())
+            build_bread_economy(labor_endowment=20.0), minimize_labour(self.targets())
         )
         np.testing.assert_allclose(result.plan.valuation[SHADOW_PRICE], [2.0, 2.0, 0.0], atol=EXACT)
 
     def test_labour_left_over_is_not_used(self):
         economy = build_bread_economy(labor_endowment=20.0)
-        result = reference_solution(economy, MinimizeLabor(self.targets()))
-        np.testing.assert_allclose(result.plan.endowment_use(economy), [0.0, 0.0, 12.0], atol=EXACT)
+        result = reference_solution(economy, minimize_labour(self.targets()))
+        np.testing.assert_allclose(
+            result.plan.endowment_use(economy, COUNT_LABOUR), [0.0, 0.0, 12.0], atol=EXACT
+        )
 
     def test_a_target_beyond_the_endowment_is_infeasible(self):
         targets = np.zeros(N_BREAD_COMMODITIES)
         targets[BREAD] = 100.0
         with pytest.raises(ReferenceInfeasible):
-            reference_solution(build_bread_economy(), MinimizeLabor(targets))
+            reference_solution(build_bread_economy(), minimize_labour(targets))
 
     def test_a_negative_target_is_refused_and_the_message_names_the_commodity(self):
         """A floor of -3 on the flour would report 6 labour where every feasible plan spends 12.
 
         The floor becomes the lower bound on that commodity's final consumption, so a negative
         one lets the program cover the 3 flour six bread draws by consuming -3 of it instead of
-        producing it. Flour is a private good here, since a floor on an intermediate good is
-        already refused for a different reason.
+        producing it.
         """
-        economy = dataclasses.replace(
-            build_bread_economy(labor_endowment=20.0),
-            commodity_kind=np.array(
-                [CommodityKind.PRIVATE_GOOD, CommodityKind.PRIVATE_GOOD, CommodityKind.LABOR],
-                dtype=np.int8,
-            ),
-        )
         targets = self.targets()
         targets[FLOUR] = -3.0
         with pytest.raises(ValueError, match=f"commodity {FLOUR}"):
-            reference_solution(economy, MinimizeLabor(targets))
+            minimize_labour(targets)
 
 
 class TestHandSolvedChoiceBetweenTechniques:
     """Two ways to make the same good, and the objective decides which one runs.
 
-    Commodity 0 is a private good, commodity 1 a natural resource, commodity 2 labour, with
+    Commodity 0 is a consumption good, commodity 1 a natural resource, commodity 2 labour, with
     20 of each endowment. Unit 0 makes one commodity 0 from 3 labour. Unit 1 makes one from
     1 labour and 4 of the natural resource. Requiring 4 of commodity 0 and minimising labour
     runs unit 1 four times for 4 labour, because the natural resource is not a labour cost and
     20 of it is enough for the 16 that takes.
 
-    An objective that totalled natural resources alongside labour would price unit 1 at 5 and
-    unit 0 at 3, run unit 0 instead, and reach 12. That is why this economy is here: the
-    bread economy has no natural resource, so it cannot tell the two objectives apart.
+    An objective that totalled natural resources alongside labour prices unit 1 at 5 and
+    unit 0 at 3, runs unit 0 instead, and reaches 12. That is why this economy is here: the
+    bread economy has no natural resource, so it cannot tell the two declarations apart.
     """
 
     N_COMMODITIES = 3
@@ -275,25 +283,17 @@ class TestHandSolvedChoiceBetweenTechniques:
         return Economy(
             period=0,
             commodity_id=np.arange(self.N_COMMODITIES, dtype=np.int64),
-            commodity_kind=np.array(
-                [
-                    CommodityKind.PRIVATE_GOOD,
-                    CommodityKind.NATURAL_RESOURCE,
-                    CommodityKind.LABOR,
-                ],
-                dtype=np.int8,
-            ),
             endowment=np.array([0.0, 20.0, 20.0]),
             unit_id=np.arange(2, dtype=np.int64),
-            unit_group=np.zeros(2, dtype=np.int64),
-            output_commodity=np.array([self.GOOD, self.GOOD], dtype=np.int64),
-            technology_kind=np.full(2, TechnologyKind.LEONTIEF, dtype=np.int8),
+            technology_kind=[LEONTIEF, LEONTIEF],
             technology_scale=np.ones(2),
             input_offsets=np.array([0, 1, 3], dtype=np.int64),
             input_commodity=np.array([self.WORK, self.NATURE, self.WORK], dtype=np.int64),
             input_coefficient=np.array([3.0, 4.0, 1.0]),
+            output_offsets=np.array([0, 1, 2], dtype=np.int64),
+            output_commodity=np.array([self.GOOD, self.GOOD], dtype=np.int64),
+            output_coefficient=np.ones(2),
             consumer_id=np.arange(2, dtype=np.int64),
-            consumer_group=np.zeros(2, dtype=np.int64),
         )
 
     def targets(self) -> np.ndarray:
@@ -301,8 +301,10 @@ class TestHandSolvedChoiceBetweenTechniques:
         targets[self.GOOD] = 4.0
         return targets
 
-    def solved(self) -> ReferenceResult:
-        return reference_solution(self.build(), MinimizeLabor(self.targets()))
+    def solved(self, counted=None) -> ReferenceResult:
+        if counted is None:
+            counted = np.array([self.WORK], dtype=np.int64)
+        return reference_solution(self.build(), MinimizeLabor(self.targets(), counted))
 
     def test_it_runs_the_technique_that_spends_the_least_labour(self):
         np.testing.assert_allclose(self.solved().plan.output, [0.0, 4.0], atol=EXACT)
@@ -323,6 +325,19 @@ class TestHandSolvedChoiceBetweenTechniques:
             self.solved().plan.valuation[SHADOW_PRICE], [1.0, 0.0, 0.0], atol=EXACT
         )
 
+    def test_counting_the_natural_resource_too_runs_the_other_technique(self):
+        """The declaration decides the answer: ``counted`` is what the objective totals."""
+        both = np.array([self.NATURE, self.WORK], dtype=np.int64)
+        result = self.solved(counted=both)
+        assert result.objective_value == pytest.approx(12.0, abs=EXACT)
+        np.testing.assert_allclose(result.plan.output, [4.0, 0.0], atol=EXACT)
+
+    def test_the_order_of_the_counted_commodities_does_not_matter(self):
+        reversed_order = np.array([self.WORK, self.NATURE], dtype=np.int64)
+        assert self.solved(counted=reversed_order).objective_value == pytest.approx(
+            12.0, abs=EXACT
+        )
+
 
 class PairDeclaredObjective:
     """A researcher's own labour-minimising objective, declared by attribute rather than type.
@@ -330,22 +345,23 @@ class PairDeclaredObjective:
     ``weights`` returns zeros, as a labour-minimising objective does, so an assembly that reads
     this objective as a maximisation maximises nothing. Either attribute is left off entirely
     when it is not supplied, which is what an objective that declares half the pair looks like.
+    ``allocate`` splits every commodity the floor sits on evenly, as the shipped objectives do.
     """
 
     name = "pair_declared"
 
-    def __init__(self, lower_bound=None, minimize_kind=None):
+    def __init__(self, lower_bound=None, counted_commodities=None):
         if lower_bound is not None:
             self.final_demand_lower_bound = np.asarray(lower_bound, dtype=np.float64)
-        if minimize_kind is not None:
-            self.minimize_kind = minimize_kind
+        if counted_commodities is not None:
+            self.counted_commodities = counted_commodities
 
     def weights(self, economy: Economy) -> np.ndarray:
         return np.zeros(economy.n_commodities, dtype=np.float64)
 
     def allocate(self, economy: Economy, aggregate: np.ndarray):
-        zero_weights = np.zeros(economy.n_commodities, dtype=np.float64)
-        return MaximizeWeightedConsumption(zero_weights).allocate(economy, aggregate)
+        floor = getattr(self, "final_demand_lower_bound", np.zeros(economy.n_commodities))
+        return MaximizeWeightedConsumption(floor).allocate(economy, aggregate)
 
 
 class TestMinimisationDeclaredByAttribute:
@@ -358,20 +374,20 @@ class TestMinimisationDeclaredByAttribute:
 
     def test_both_attributes_together_minimise_like_the_built_in_objective(self):
         objective = PairDeclaredObjective(
-            lower_bound=self.targets(), minimize_kind=CommodityKind.LABOR
+            lower_bound=self.targets(), counted_commodities=COUNT_LABOUR
         )
         result = reference_solution(build_bread_economy(labor_endowment=20.0), objective)
         assert result.objective_value == pytest.approx(12.0, abs=EXACT)
         np.testing.assert_allclose(result.plan.output, [6.0, 3.0], atol=EXACT)
 
-    def test_a_lower_bound_without_a_minimised_kind_is_refused(self):
+    def test_a_lower_bound_without_counted_commodities_is_refused(self):
         """Read as a maximisation, this objective maximises zero and reports an empty plan."""
         objective = PairDeclaredObjective(lower_bound=self.targets())
-        with pytest.raises(ValueError, match="minimize_kind"):
+        with pytest.raises(ValueError, match="counted_commodities"):
             reference_solution(build_bread_economy(labor_endowment=20.0), objective)
 
-    def test_a_minimised_kind_without_a_lower_bound_is_refused(self):
-        objective = PairDeclaredObjective(minimize_kind=CommodityKind.LABOR)
+    def test_counted_commodities_without_a_lower_bound_is_refused(self):
+        objective = PairDeclaredObjective(counted_commodities=COUNT_LABOUR)
         with pytest.raises(ValueError, match="final_demand_lower_bound"):
             reference_solution(build_bread_economy(labor_endowment=20.0), objective)
 
@@ -384,18 +400,14 @@ class TestMinimisationDeclaredByAttribute:
 class TestTheDeclaredFloorIsCheckedWhereTheProgramReadsIt:
     """A floor is checked at the program, not only in the objective that happens to ship here.
 
-    ``MinimizeLabor`` refuses a negative floor and a floor on a commodity nobody can consume,
-    but ``reference_solution`` recognises a minimisation by its two attributes, so an objective
-    a researcher wrote reaches the program with neither check applied. What came out was an
-    optimum in name only. On this economy, at a labour endowment of 20:
+    ``MinimizeLabor`` refuses a negative floor, but ``reference_solution`` recognises a
+    minimisation by its two attributes, so an objective a researcher wrote reaches the program
+    with that check unrun. Floor ``[6, -3, 0]`` on this economy, at a labour endowment of 20,
+    reports an ``objective_value`` of 6 where the sound floor reports 12, on output ``[6, 0]``
+    that draws 3 of commodity 1 while producing none of it, with status ``"optimal"``.
 
-    * floor ``[6, -3, 0]`` reported an ``objective_value`` of 6 where the sound floor reports
-      12, on output ``[6, 0]`` that draws 3 of commodity 1 while producing none of it;
-    * floor ``[6, 3, 0]`` reported 18, spending 6 extra labour on 6 units of an intermediate
-      good that the plan's own final use records as 0.
-
-    Both came back with status ``"optimal"``. The reference solution is what every mechanism is
-    scored against, so a wrong one is wrong everywhere at once and nothing downstream can see it.
+    Which commodities a floor sits on is the researcher's statement. A floor on flour, an
+    intermediate good, is a floor like any other, and the plan records it as final use.
     """
 
     def floor(self, commodity: int, value: float) -> np.ndarray:
@@ -405,9 +417,7 @@ class TestTheDeclaredFloorIsCheckedWhereTheProgramReadsIt:
         return targets
 
     def solve_with(self, targets: np.ndarray) -> ReferenceResult:
-        objective = PairDeclaredObjective(
-            lower_bound=targets, minimize_kind=CommodityKind.LABOR
-        )
+        objective = PairDeclaredObjective(lower_bound=targets, counted_commodities=COUNT_LABOUR)
         return reference_solution(build_bread_economy(labor_endowment=20.0), objective)
 
     def test_a_well_formed_floor_still_reaches_the_optimum(self):
@@ -425,21 +435,23 @@ class TestTheDeclaredFloorIsCheckedWhereTheProgramReadsIt:
         with pytest.raises(ValueError, match=r"pair_declared.*commodity 1 carries -3\.0"):
             self.solve_with(self.floor(FLOUR, -3.0))
 
-    def test_a_floor_on_an_intermediate_good_is_refused(self):
-        with pytest.raises(ValueError, match="neither a private good nor a public good"):
-            self.solve_with(self.floor(FLOUR, 3.0))
+    def test_a_floor_on_an_intermediate_good_is_met_and_recorded_as_final_use(self):
+        """Six bread and three flour for final use: 6 flour made, 12 + 6 labour spent."""
+        result = self.solve_with(self.floor(FLOUR, 3.0))
+        assert result.objective_value == pytest.approx(18.0, abs=EXACT)
+        np.testing.assert_allclose(result.plan.output, [6.0, 6.0], atol=EXACT)
+        economy = build_bread_economy(labor_endowment=20.0)
+        np.testing.assert_allclose(
+            final_use_of(economy, result.plan), [6.0, 3.0, 0.0], atol=EXACT
+        )
 
-    def test_a_floor_on_labour_is_refused(self):
-        with pytest.raises(ValueError, match="neither a private good nor a public good"):
-            self.solve_with(self.floor(WORK, 2.0))
+    def test_the_built_in_objective_meets_a_floor_on_an_intermediate_good_too(self):
+        economy = build_bread_economy(labor_endowment=20.0)
+        result = reference_solution(economy, minimize_labour(self.floor(FLOUR, 3.0)))
+        assert result.objective_value == pytest.approx(18.0, abs=EXACT)
+        np.testing.assert_array_equal(result.plan.consumption_commodity, [BREAD, FLOUR])
 
-    def test_the_unconsumable_floor_message_names_the_objective_and_the_commodity(self):
-        with pytest.raises(ValueError, match=r"pair_declared.*commodity 1 is intermediate"):
-            self.solve_with(self.floor(FLOUR, 3.0))
-
-    @pytest.mark.parametrize(
-        "targets", [(6.0, -3.0, 0.0), (6.0, 3.0, 0.0), (6.0, 0.0, 2.0)]
-    )
+    @pytest.mark.parametrize("targets", [(6.0, -3.0, 0.0), (6.0, np.nan, 0.0)])
     def test_no_malformed_floor_reaches_the_solver(self, targets):
         """Whatever the number would have been, a malformed floor never produces a result."""
         with pytest.raises(ValueError):
@@ -448,14 +460,7 @@ class TestTheDeclaredFloorIsCheckedWhereTheProgramReadsIt:
     def test_minimize_labor_still_refuses_a_negative_floor_at_construction(self):
         """The earlier check stays: it fails nearer to where the researcher wrote the floor."""
         with pytest.raises(ValueError, match="cannot be negative"):
-            MinimizeLabor(self.floor(FLOUR, -3.0))
-
-    def test_minimize_labor_still_refuses_an_unconsumable_floor(self):
-        with pytest.raises(ValueError, match="neither a private good nor a public good"):
-            reference_solution(
-                build_bread_economy(labor_endowment=20.0),
-                MinimizeLabor(self.floor(FLOUR, 3.0)),
-            )
+            minimize_labour(self.floor(FLOUR, -3.0))
 
     def test_a_maximising_objective_is_not_put_through_the_floor_check(self):
         """The check reads ``final_demand_lower_bound``, which a maximisation does not carry."""
@@ -469,9 +474,9 @@ class TestTheDeclaredFloorMustBeReadable:
     """A non-finite floor is the one malformed floor the other two checks read as well formed.
 
     ``NaN < 0`` is false, so the non-negative check finds nothing; ``NaN != 0`` is true, so the
-    consumable-support check reads the entry as a floor sitting on the commodity it was written
-    on, which may be a private good. HiGHS takes a NaN bound as no bound at all, so the program
-    would report an optimum that meets none of the declared floor and says so nowhere.
+    entry reads as a floor sitting on the commodity it was written on. HiGHS takes a NaN bound
+    as no bound at all, so the program would report an optimum that meets none of the declared
+    floor and says so nowhere.
     """
 
     def floor(self, commodity: int, value: float) -> np.ndarray:
@@ -481,9 +486,7 @@ class TestTheDeclaredFloorMustBeReadable:
         return targets
 
     def solve_with(self, targets: np.ndarray) -> ReferenceResult:
-        objective = PairDeclaredObjective(
-            lower_bound=targets, minimize_kind=CommodityKind.LABOR
-        )
+        objective = PairDeclaredObjective(lower_bound=targets, counted_commodities=COUNT_LABOUR)
         return reference_solution(build_bread_economy(labor_endowment=20.0), objective)
 
     @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
@@ -508,15 +511,15 @@ class TestTheDeclaredFloorMustBeReadable:
     def test_minimize_labor_refuses_a_non_finite_floor_at_construction(self):
         """The earlier check stays: it fails nearer to where the researcher wrote the floor."""
         with pytest.raises(ValueError, match="finite"):
-            MinimizeLabor(self.floor(BREAD, np.nan))
+            minimize_labour(self.floor(BREAD, np.nan))
 
 
-class TestTheMinimisedKindMustBeACommodityKind:
-    """``minimize_kind`` names the commodity class the objective totals up.
+class TestTheCountedCommoditiesAreCommodityIndices:
+    """``counted_commodities`` names the commodities whose input use the objective totals.
 
-    The cost vector counts an input when its commodity carries that kind. A value outside
-    :class:`CommodityKind` matches no commodity, so every coefficient is zero and the program
-    reports an objective value of zero for a plan that spends whatever it likes.
+    The cost vector counts an input when its commodity is listed. An index outside the
+    commodity table matches no input, so a list of them makes every coefficient zero and the
+    program reports an objective value of zero for a plan that spends whatever it likes.
     """
 
     def targets(self) -> np.ndarray:
@@ -524,44 +527,39 @@ class TestTheMinimisedKindMustBeACommodityKind:
         targets[BREAD] = 6.0
         return targets
 
-    def solve_with(self, minimize_kind) -> ReferenceResult:
-        objective = PairDeclaredObjective(
-            lower_bound=self.targets(), minimize_kind=minimize_kind
-        )
+    def solve_with(self, counted) -> ReferenceResult:
+        objective = PairDeclaredObjective(lower_bound=self.targets(), counted_commodities=counted)
         return reference_solution(build_bread_economy(labor_endowment=20.0), objective)
 
-    @pytest.mark.parametrize("minimize_kind", [99, -1, 5])
-    def test_a_value_outside_the_commodity_kinds_is_refused(self, minimize_kind):
-        with pytest.raises(ValueError, match="minimize_kind"):
-            self.solve_with(minimize_kind)
+    @pytest.mark.parametrize("index", [99, -1, 3])
+    def test_an_index_outside_the_commodity_table_is_refused(self, index):
+        with pytest.raises(ValueError, match="counted_commodities"):
+            self.solve_with(np.array([WORK, index], dtype=np.int64))
 
-    def test_the_message_carries_the_value_it_was_given(self):
+    def test_the_message_carries_the_index_it_was_given(self):
         with pytest.raises(ValueError, match="99"):
-            self.solve_with(99)
+            self.solve_with(np.array([99], dtype=np.int64))
 
-    def test_the_message_lists_the_kinds_that_are_accepted(self):
-        with pytest.raises(ValueError, match="labor"):
-            self.solve_with(99)
-
-    def test_a_value_that_is_not_a_number_is_refused(self):
-        with pytest.raises(ValueError, match="minimize_kind"):
+    def test_a_label_instead_of_indices_is_refused(self):
+        with pytest.raises(ValueError, match="counted_commodities"):
             self.solve_with("labor")
 
-    def test_the_kind_the_built_in_objective_declares_is_accepted(self):
-        result = self.solve_with(CommodityKind.LABOR)
+    def test_a_float_array_is_refused(self):
+        with pytest.raises(ValueError, match="counted_commodities"):
+            self.solve_with(np.array([2.0]))
+
+    def test_a_duplicate_index_is_refused(self):
+        with pytest.raises(ValueError, match="counted_commodities"):
+            self.solve_with(np.array([WORK, WORK], dtype=np.int64))
+
+    def test_the_labour_the_built_in_objective_declares_is_accepted(self):
+        result = self.solve_with(COUNT_LABOUR)
         assert result.objective_value == pytest.approx(12.0, abs=EXACT)
 
-    def test_the_same_kind_written_as_a_plain_integer_is_accepted(self):
-        result = self.solve_with(int(CommodityKind.LABOR))
-        assert result.objective_value == pytest.approx(12.0, abs=EXACT)
-
-    def test_any_declared_commodity_kind_is_accepted(self):
-        """The check is membership of :class:`CommodityKind`, not agreement with labour.
-
-        Totalling up the intermediate good is a different objective, not a malformed one: this
-        economy draws 3 of it to meet the floor of 6 on bread.
-        """
-        result = self.solve_with(CommodityKind.INTERMEDIATE)
+    def test_any_declared_commodity_is_accepted(self):
+        """Totalling up the intermediate good is a different objective, not a malformed one:
+        this economy draws 3 of it to meet the floor of 6 on bread."""
+        result = self.solve_with(np.array([FLOUR], dtype=np.int64))
         assert result.objective_value == pytest.approx(3.0, abs=EXACT)
 
 
@@ -582,18 +580,16 @@ class DeclaredWeightingObjective:
         return self.declared
 
     def allocate(self, economy: Economy, aggregate: np.ndarray):
-        zero_weights = np.zeros(economy.n_commodities, dtype=np.float64)
-        return MaximizeWeightedConsumption(zero_weights).allocate(economy, aggregate)
+        return MaximizeWeightedConsumption(self.declared).allocate(economy, aggregate)
 
 
 class TestTheDeclaredWeightsAreCheckedWhereTheProgramReadsThem:
     """The weights of a maximisation are a declaration the program reads, so it checks them.
 
     They decide the same two things the floor of a minimisation decides: which commodities
-    become final-consumption variables, and what the reported objective value counts. A weight
-    on a commodity no consumer unit can hold makes the program optimise a quantity its own plan
-    never records -- on this economy, a weight of 1 on labour would report an objective value of
-    12 on output ``[0, 0]``, an optimum in name only.
+    become final-consumption variables, and what the reported objective value counts. A
+    non-finite weight is not a declaration anyone can read. Which commodities carry weight is
+    the researcher's statement, and each one comes back as a consumption column of the plan.
     """
 
     def weights(self, commodity: int, value: float) -> np.ndarray:
@@ -604,17 +600,27 @@ class TestTheDeclaredWeightsAreCheckedWhereTheProgramReadsThem:
     def solve_with(self, weights: np.ndarray) -> ReferenceResult:
         return reference_solution(build_bread_economy(), DeclaredWeightingObjective(weights))
 
-    def test_a_weight_on_labour_is_refused(self):
-        with pytest.raises(ValueError, match="neither a private good nor a public good"):
-            self.solve_with(self.weights(WORK, 1.0))
+    def test_a_weight_on_labour_is_optimised_and_recorded(self):
+        """Labour consumed directly: all 12 of it, and the plan says so."""
+        result = self.solve_with(self.weights(WORK, 1.0))
+        assert result.objective_value == pytest.approx(12.0, abs=EXACT)
+        np.testing.assert_allclose(result.plan.output, [0.0, 0.0], atol=EXACT)
+        np.testing.assert_array_equal(result.plan.consumption_commodity, [WORK])
+        np.testing.assert_allclose(
+            final_use_of(build_bread_economy(), result.plan), [0.0, 0.0, 12.0], atol=EXACT
+        )
 
-    def test_a_weight_on_an_intermediate_good_is_refused(self):
-        with pytest.raises(ValueError, match="neither a private good nor a public good"):
-            self.solve_with(self.weights(FLOUR, 1.0))
+    def test_a_weight_on_an_intermediate_good_is_optimised_and_recorded(self):
+        """Flour for final use: 2 labour each, so 6 of it from 12 labour."""
+        result = self.solve_with(self.weights(FLOUR, 1.0))
+        assert result.objective_value == pytest.approx(6.0, abs=EXACT)
+        np.testing.assert_allclose(
+            final_use_of(build_bread_economy(), result.plan), [0.0, 6.0, 0.0], atol=EXACT
+        )
 
     def test_the_message_names_the_objective_and_the_attribute(self):
         with pytest.raises(ValueError, match=r"declared_weighting: weights"):
-            self.solve_with(self.weights(WORK, 1.0))
+            self.solve_with(self.weights(WORK, np.nan))
 
     @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
     def test_a_non_finite_weight_is_refused(self, value):
@@ -649,30 +655,54 @@ class TestTheDeclaredWeightsAreCheckedWhereTheProgramReadsThem:
 class TestRefusedInputs:
     def test_a_cobb_douglas_economy_is_refused_and_points_at_the_linearising_tool(self):
         cobb_douglas = dataclasses.replace(
-            build_bread_economy(),
-            technology_kind=np.full(2, TechnologyKind.COBB_DOUGLAS, dtype=np.int8),
+            build_bread_economy(), technology_kind=[COBB_DOUGLAS, COBB_DOUGLAS]
         )
         with pytest.raises(ValueError, match="demplan.tools.linearize"):
             reference_solution(cobb_douglas, MaximizeWeightedConsumption(bread_weights()))
+
+    def test_one_unit_under_another_label_is_refused_and_named(self):
+        mixed = dataclasses.replace(
+            build_bread_economy(), technology_kind=[LEONTIEF, "my_own_technology"]
+        )
+        with pytest.raises(ValueError, match=r"unit 1.*my_own_technology"):
+            reference_solution(mixed, MaximizeWeightedConsumption(bread_weights()))
+
+    def test_the_hahnel_label_is_not_leontief(self):
+        relabelled = dataclasses.replace(
+            build_bread_economy(), technology_kind=[hahnel.TECHNOLOGY, LEONTIEF]
+        )
+        with pytest.raises(ValueError, match="unit 0"):
+            reference_solution(relabelled, MaximizeWeightedConsumption(bread_weights()))
+
+    def test_a_unit_with_two_outputs_is_refused(self):
+        """Unit 0 bakes bread and makes flour as a by-product: a joint product."""
+        joint = dataclasses.replace(
+            build_bread_economy(),
+            output_offsets=np.array([0, 2, 3], dtype=np.int64),
+            output_commodity=np.array([BREAD, FLOUR, FLOUR], dtype=np.int64),
+            output_coefficient=np.array([1.0, 0.25, 1.0]),
+        )
+        with pytest.raises(ValueError) as refused:
+            reference_solution(joint, MaximizeWeightedConsumption(bread_weights()))
+        message = str(refused.value)
+        assert "unit 0" in message
+        assert "joint products are not supported by the reference solution yet" in message
 
     def test_a_commodity_produced_from_nothing_makes_the_program_unbounded(self):
         economy = Economy(
             period=0,
             commodity_id=np.arange(2, dtype=np.int64),
-            commodity_kind=np.array(
-                [CommodityKind.PRIVATE_GOOD, CommodityKind.LABOR], dtype=np.int8
-            ),
             endowment=np.array([0.0, 10.0]),
             unit_id=np.arange(1, dtype=np.int64),
-            unit_group=np.zeros(1, dtype=np.int64),
-            output_commodity=np.array([0], dtype=np.int64),
-            technology_kind=np.zeros(1, dtype=np.int8),
+            technology_kind=[LEONTIEF],
             technology_scale=np.ones(1),
             input_offsets=np.array([0, 0], dtype=np.int64),
             input_commodity=np.zeros(0, dtype=np.int64),
             input_coefficient=np.zeros(0),
+            output_offsets=np.array([0, 1], dtype=np.int64),
+            output_commodity=np.array([0], dtype=np.int64),
+            output_coefficient=np.ones(1),
             consumer_id=np.arange(1, dtype=np.int64),
-            consumer_group=np.zeros(1, dtype=np.int64),
         )
         weights = np.array([1.0, 0.0])
         with pytest.raises(ReferenceInfeasible):
@@ -717,8 +747,13 @@ ENDOWMENT = st.floats(min_value=1.0, max_value=100.0, allow_nan=False, allow_inf
 WEIGHT = st.floats(min_value=0.1, max_value=10.0, allow_nan=False, allow_infinity=False)
 
 
+OUTPUT_COEFFICIENT = st.floats(
+    min_value=0.5, max_value=2.0, allow_nan=False, allow_infinity=False
+)
+
+
 @st.composite
-def leontief_economy(draw):
+def leontief_economy(draw, scaled_outputs: bool = False):
     """A random Leontief economy with a bounded, feasible maximisation on it.
 
     The layout is private goods, then public goods, then intermediate goods, then one natural
@@ -726,6 +761,9 @@ def leontief_economy(draw):
     built in so that the optimum exists and the tests below can say something sharp about it:
     every unit draws labour, which bounds output, and unit 0 turns labour straight into private
     good 0, which is why labour is fully used at every optimum.
+
+    Every unit's output coefficient is 1 unless ``scaled_outputs`` is set, in which case each
+    is drawn from :data:`OUTPUT_COEFFICIENT` after every other draw.
     """
     n_private = draw(st.integers(min_value=1, max_value=2))
     n_public = draw(st.integers(min_value=0, max_value=2))
@@ -733,13 +771,6 @@ def leontief_economy(draw):
     natural = n_private + n_public + n_intermediate
     labor = natural + 1
     n_commodities = labor + 1
-
-    kind = np.empty(n_commodities, dtype=np.int8)
-    kind[:n_private] = CommodityKind.PRIVATE_GOOD
-    kind[n_private : n_private + n_public] = CommodityKind.PUBLIC_GOOD
-    kind[n_private + n_public : natural] = CommodityKind.INTERMEDIATE
-    kind[natural] = CommodityKind.NATURAL_RESOURCE
-    kind[labor] = CommodityKind.LABOR
 
     endowment = np.zeros(n_commodities)
     endowment[natural] = draw(ENDOWMENT)
@@ -762,28 +793,30 @@ def leontief_economy(draw):
     offsets = np.zeros(n_units + 1, dtype=np.int64)
     np.cumsum([len(row) for row in rows], out=offsets[1:])
     n_consumers = draw(st.integers(min_value=1, max_value=3))
+    weights = np.zeros(n_commodities)
+    for commodity in range(n_private + n_public):
+        weights[commodity] = draw(WEIGHT)
+    output_coefficient = np.ones(n_units)
+    if scaled_outputs:
+        output_coefficient = np.array([draw(OUTPUT_COEFFICIENT) for _ in range(n_units)])
 
     economy = Economy(
         period=0,
         commodity_id=np.arange(n_commodities, dtype=np.int64),
-        commodity_kind=kind,
         endowment=endowment,
         unit_id=np.arange(n_units, dtype=np.int64),
-        unit_group=np.zeros(n_units, dtype=np.int64),
-        output_commodity=np.array(outputs, dtype=np.int64),
-        technology_kind=np.full(n_units, TechnologyKind.LEONTIEF, dtype=np.int8),
+        technology_kind=[LEONTIEF] * n_units,
         technology_scale=np.ones(n_units),
         input_offsets=offsets,
         input_commodity=np.array(
             [commodity for row in rows for commodity, _ in row], dtype=np.int64
         ),
         input_coefficient=np.array([value for row in rows for _, value in row]),
+        output_offsets=np.arange(n_units + 1, dtype=np.int64),
+        output_commodity=np.array(outputs, dtype=np.int64),
+        output_coefficient=output_coefficient,
         consumer_id=np.arange(n_consumers, dtype=np.int64),
-        consumer_group=np.zeros(n_consumers, dtype=np.int64),
     )
-    weights = np.zeros(n_commodities)
-    for commodity in range(n_private + n_public):
-        weights[commodity] = draw(WEIGHT)
     return economy, weights, labor
 
 
@@ -803,7 +836,7 @@ class TestGeneratedEconomies:
             + np.asarray(economy.endowment)
             - result.plan.total_input_use(economy)
             - result.plan.total_consumption(economy)
-            - np.asarray(result.plan.provision)
+            - np.asarray(result.plan.shared_use)
         )
         assert balance.min() >= -EXACT
 
@@ -840,7 +873,9 @@ class TestGeneratedEconomies:
                     shadow[np.asarray(economy.input_commodity)[window]],
                 )
             )
-            revenue = float(shadow[economy.output_commodity[unit]])
+            revenue = float(
+                economy.output_coefficient[unit] * shadow[economy.output_commodity[unit]]
+            )
             assert cost - revenue >= -scaled_tolerance(max(cost, revenue))
             if result.plan.output[unit] > 1e-6:
                 assert cost == pytest.approx(revenue, abs=scaled_tolerance(max(cost, revenue)))
@@ -891,7 +926,7 @@ class TestGeneratedEconomies:
         for unit in range(economy.n_units):
             window = economy.inputs_of(unit)
             drawn = coefficients[window][commodities[window] == labor].sum()
-            extra_labor = 0.01 * output[unit] * drawn
+            extra_labor = 0.01 * output[unit] / economy.output_coefficient[unit] * drawn
             if extra_labor <= PERTURBATION_FLOOR:
                 continue
             raised = output.copy()
@@ -904,7 +939,9 @@ class TestGeneratedEconomies:
         economy, weights, labor = case
         best = reference_solution(economy, MaximizeWeightedConsumption(weights))
         targets = np.where(weights != 0.0, 0.5 * final_use_of(economy, best.plan), 0.0)
-        cheapest = reference_solution(economy, MinimizeLabor(targets))
+        cheapest = reference_solution(
+            economy, MinimizeLabor(targets, np.array([labor], dtype=np.int64))
+        )
         spent = float(best.plan.total_input_use(economy)[labor])
         assert cheapest.objective_value <= 0.5 * spent + scaled_tolerance(spent)
         assert cheapest.objective_value == pytest.approx(
@@ -914,28 +951,36 @@ class TestGeneratedEconomies:
 
 
 @pytest.fixture(scope="module")
-def dep1ex01():
-    if not dep1ex_available(1):
-        pytest.skip(f"dep1ex01 archive not found at {dep1ex_path(1)}")
-    return load_dep1ex(dep1ex_path(1))
-
-
-@pytest.fixture(scope="module")
-def comparison(dep1ex01):
+def comparison(dep1ex01_economy):
     """``(economy, linearised, participatory plan, reference plan, weights, seconds)``."""
+    dep1ex01 = dep1ex01_economy
     participatory = run(HahnelBook2021(), dep1ex01, seed=0).plan
     linearised = linearize(dep1ex01, participatory)
 
-    kinds = np.asarray(dep1ex01.commodity_kind)
-    consumable = np.isin(kinds, [int(CommodityKind.PRIVATE_GOOD), int(CommodityKind.PUBLIC_GOOD)])
+    kinds = np.asarray(dep1ex01.commodity_extra["hahnel_kind"])
+    consumable = np.isin(kinds, ["private_good", "public_good"])
     weights = np.where(consumable, participatory.valuation[INDICATIVE_PRICE], 0.0)
+    shared = np.flatnonzero(kinds == "public_good").astype(np.int64)
 
     started = time.perf_counter()
     reference = run(
-        ReferenceProcedure(MaximizeWeightedConsumption(weights)), linearised, seed=0
+        ReferenceProcedure(MaximizeWeightedConsumption(weights, shared=shared)),
+        linearised,
+        seed=0,
     ).plan
     seconds = time.perf_counter() - started
     return dep1ex01, linearised, participatory, reference, weights, seconds
+
+
+def participatory_final_use(economy: Economy, plan: Plan) -> np.ndarray:
+    """The councils' plan read as final use: stated private consumption, public supply.
+
+    A public good's final use here is what the worker councils produced of it, the quantity
+    the reference program is also constrained by. ``plan.shared_use`` holds the councils'
+    stated level instead, which the plan does not have to supply.
+    """
+    public = np.asarray(economy.commodity_extra["hahnel_kind"]) == "public_good"
+    return plan.total_consumption(economy) + np.where(public, plan.total_output(economy), 0.0)
 
 
 @pytest.mark.slow
@@ -959,12 +1004,19 @@ class TestAgainstDep1ex:
         for plan in (participatory, reference):
             assert plan.total_output(linearised).shape == (linearised.n_commodities,)
             assert np.all(np.isfinite(plan.total_output(linearised)))
-            assert plan.endowment_use(linearised).shape == (linearised.n_commodities,)
-            assert np.all(np.isfinite(plan.endowment_use(linearised)))
+            resources = np.flatnonzero(
+                np.isin(
+                    np.asarray(linearised.commodity_extra["hahnel_kind"]),
+                    ["natural_resource", "labor"],
+                )
+            ).astype(np.int64)
+            used = plan.endowment_use(linearised, resources)
+            assert used.shape == (linearised.n_commodities,)
+            assert np.all(np.isfinite(used))
 
     def test_the_reference_scores_at_least_as_high_on_the_declared_weights(self, comparison):
         economy, linearised, participatory, reference, weights, _ = comparison
-        by_participation = float(np.dot(weights, final_use_of(economy, participatory)))
+        by_participation = float(np.dot(weights, participatory_final_use(economy, participatory)))
         by_reference = float(np.dot(weights, final_use_of(linearised, reference)))
         assert by_reference >= by_participation
 
@@ -1009,3 +1061,114 @@ class TestThePlanIsAnAllocatedPlan:
         allocated = self.solved().plan
         with pytest.raises(ValueError, match="AllocatedPlan"):
             require_comparable(stated, allocated)
+
+
+class TestHandSolvedOutputCoefficient:
+    """The bread economy with unit 0 baking two loaves per run.
+
+    The program's variable is how many times each unit runs, and ``output_coefficient`` is the
+    output of one run. Maximising bread on 12 labour: unit 0 runs ``a`` times on ``0.5 a`` flour
+    and ``a`` labour, unit 1 runs ``0.5 a`` times on ``a`` labour, so ``2 a = 12`` and ``a = 6``.
+    Bread is ``2 a = 12``, flour ``3``, input use ``(3, 6, 6)``. The duals: bread is worth 1, so
+    unit 0 breaks even at ``2 = 0.5 y_1 + y_2``, and unit 1 at ``y_1 = 2 y_2``, giving
+    ``y = (1, 2, 1)``, and ``12 y_2 = 12`` is the optimum.
+    """
+
+    def solved(self) -> ReferenceResult:
+        economy = build_bread_economy(output_coefficient=(2.0, 1.0))
+        return reference_solution(economy, MaximizeWeightedConsumption(bread_weights()))
+
+    def test_the_optimum(self):
+        assert self.solved().objective_value == pytest.approx(12.0, abs=EXACT)
+
+    def test_output_is_the_quantity_of_each_output_entry(self):
+        np.testing.assert_allclose(self.solved().plan.output, [12.0, 3.0], atol=EXACT)
+
+    def test_input_use_follows_the_runs_not_the_output(self):
+        np.testing.assert_allclose(self.solved().plan.input_use, [3.0, 6.0, 6.0], atol=EXACT)
+
+    def test_shadow_prices(self):
+        np.testing.assert_allclose(
+            self.solved().plan.valuation[SHADOW_PRICE], [1.0, 2.0, 1.0], atol=EXACT
+        )
+
+    def test_the_plan_balances(self):
+        economy = build_bread_economy(output_coefficient=(2.0, 1.0))
+        plan = self.solved().plan
+        balance = (
+            plan.total_output(economy)
+            + np.asarray(economy.endowment)
+            - plan.total_input_use(economy)
+            - final_use_of(economy, plan)
+        )
+        np.testing.assert_allclose(balance, np.zeros(3), atol=EXACT)
+
+    def test_labour_minimisation_reads_the_coefficient_too(self):
+        """Six bread take three runs of unit 0: 1.5 flour, 3 labour there and 3 at the mill."""
+        economy = build_bread_economy(labor_endowment=20.0, output_coefficient=(2.0, 1.0))
+        targets = np.zeros(N_BREAD_COMMODITIES)
+        targets[BREAD] = 6.0
+        result = reference_solution(economy, minimize_labour(targets))
+        assert result.objective_value == pytest.approx(6.0, abs=EXACT)
+        np.testing.assert_allclose(result.plan.output, [6.0, 1.5], atol=EXACT)
+
+
+class TestGeneratedEconomiesWithScaledOutputs:
+    """The optimality conditions again, with every unit's output coefficient drawn."""
+
+    @given(leontief_economy(scaled_outputs=True))
+    @GENERATED
+    def test_the_plan_balances_every_commodity(self, case):
+        economy, weights, _ = case
+        result = reference_solution(economy, MaximizeWeightedConsumption(weights))
+        slack = commodity_slack(
+            economy, np.asarray(result.plan.output), final_use_of(economy, result.plan)
+        )
+        assert slack.min() >= -scaled_tolerance(float(np.abs(slack).max()))
+
+    @given(leontief_economy(scaled_outputs=True))
+    @GENERATED
+    def test_the_optimum_equals_the_endowment_valued_at_its_shadow_prices(self, case):
+        economy, weights, _ = case
+        result = reference_solution(economy, MaximizeWeightedConsumption(weights))
+        valued = float(
+            np.dot(result.plan.valuation[SHADOW_PRICE], np.asarray(economy.endowment))
+        )
+        assert valued == pytest.approx(
+            result.objective_value, abs=scaled_tolerance(result.objective_value)
+        )
+
+    @given(leontief_economy(scaled_outputs=True))
+    @GENERATED
+    def test_a_running_unit_breaks_even_at_the_shadow_prices(self, case):
+        economy, weights, _ = case
+        result = reference_solution(economy, MaximizeWeightedConsumption(weights))
+        shadow = result.plan.valuation[SHADOW_PRICE]
+        for unit in range(economy.n_units):
+            window = economy.inputs_of(unit)
+            cost = float(
+                np.dot(
+                    np.asarray(economy.input_coefficient)[window],
+                    shadow[np.asarray(economy.input_commodity)[window]],
+                )
+            )
+            revenue = float(
+                economy.output_coefficient[unit] * shadow[economy.output_commodity[unit]]
+            )
+            assert cost - revenue >= -scaled_tolerance(max(cost, revenue))
+            if result.plan.output[unit] > 1e-6:
+                assert cost == pytest.approx(revenue, abs=scaled_tolerance(max(cost, revenue)))
+
+    @given(leontief_economy(scaled_outputs=True))
+    @GENERATED
+    def test_input_use_is_the_coefficients_times_the_runs(self, case):
+        economy, weights, _ = case
+        result = reference_solution(economy, MaximizeWeightedConsumption(weights))
+        runs = np.asarray(result.plan.output) / np.asarray(economy.output_coefficient)
+        owner = np.repeat(np.arange(economy.n_units), np.diff(economy.input_offsets))
+        np.testing.assert_allclose(
+            result.plan.input_use,
+            np.asarray(economy.input_coefficient) * runs[owner],
+            rtol=1e-12,
+            atol=0.0,
+        )

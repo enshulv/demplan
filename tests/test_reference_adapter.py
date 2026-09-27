@@ -10,7 +10,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from demplan import CommodityKind, TechnologyKind
 from reference import dep1ex_numpy, synthetic
 
 SAMPLE_UNITS = (0, 1, 7, 1234, 15000, 29999)
@@ -44,13 +43,13 @@ class TestCommodityTable:
 
     def test_kinds_follow_the_section_order(self, dep1ex01_parsed, dep1ex01_economy):
         _, _, layout = dep1ex01_parsed
-        kinds = np.asarray(dep1ex01_economy.commodity_kind)
+        kinds = np.asarray(dep1ex01_economy.commodity_extra["hahnel_kind"])
         expected = {
-            "priv": CommodityKind.PRIVATE_GOOD,
-            "pub": CommodityKind.PUBLIC_GOOD,
-            "inter": CommodityKind.INTERMEDIATE,
-            "nature": CommodityKind.NATURAL_RESOURCE,
-            "labor": CommodityKind.LABOR,
+            "priv": "private_good",
+            "pub": "public_good",
+            "inter": "intermediate",
+            "nature": "natural_resource",
+            "labor": "labor",
         }
         for name, kind in expected.items():
             assert np.all(kinds[layout.section(name)] == kind)
@@ -77,14 +76,18 @@ class TestProducingUnits:
             expected = base_of_industry[int(wc["industry"][unit])] + int(wc["product"][unit])
             assert int(dep1ex01_economy.output_commodity[unit]) == expected
 
-    def test_unit_group_equals_output_commodity_on_dep1ex(self, dep1ex01_economy):
+    def test_every_unit_has_one_output_entry_of_coefficient_one(self, dep1ex01_economy):
+        economy = dep1ex01_economy
         np.testing.assert_array_equal(
-            dep1ex01_economy.unit_group, dep1ex01_economy.output_commodity
+            economy.output_offsets, np.arange(economy.n_units + 1, dtype=np.int64)
         )
+        np.testing.assert_array_equal(economy.output_coefficient, np.ones(economy.n_units))
 
     def test_technology(self, dep1ex01_parsed, dep1ex01_economy):
         wc, _, _ = dep1ex01_parsed
-        assert np.all(np.asarray(dep1ex01_economy.technology_kind) == TechnologyKind.COBB_DOUGLAS)
+        assert np.all(
+            np.asarray(dep1ex01_economy.technology_kind) == "hahnel_cobb_douglas_effort"
+        )
         np.testing.assert_array_equal(dep1ex01_economy.technology_scale, wc["a"])
 
     def test_effort_parameters_are_carried_in_unit_extra(self, dep1ex01_parsed, dep1ex01_economy):
@@ -152,9 +155,9 @@ class TestConsumerUnits:
     ):
         _, _, layout = dep1ex01_parsed
         columns = np.asarray(dep1ex01_economy.consumer_extra["utility_exponent_commodity"])
-        kinds = np.asarray(dep1ex01_economy.commodity_kind)[columns]
-        assert np.all(kinds[: layout.n_priv] == CommodityKind.PRIVATE_GOOD)
-        assert np.all(kinds[layout.n_priv :] == CommodityKind.PUBLIC_GOOD)
+        kinds = np.asarray(dep1ex01_economy.commodity_extra["hahnel_kind"])[columns]
+        assert np.all(kinds[: layout.n_priv] == "private_good")
+        assert np.all(kinds[layout.n_priv :] == "public_good")
 
 
 @pytest.mark.slow
@@ -228,7 +231,34 @@ class TestSyntheticBuildersAgree:
         assert np.all(endowed == endowment)
         assert np.asarray(synthetic_economy.endowment)[: synthetic.NATURE_BASE].sum() == 0.0
 
-    def test_unit_group_is_deliberately_not_the_output_commodity(self, synthetic_economy):
-        assert not np.array_equal(
-            synthetic_economy.unit_group, synthetic_economy.output_commodity
-        )
+    def test_the_kind_labels_follow_the_section_bases(self, synthetic_economy):
+        kinds = synthetic.kind_labels(synthetic_economy)
+        for base, label in (
+            (synthetic.PRIV_BASE, "private_good"),
+            (synthetic.PUB_BASE, "public_good"),
+            (synthetic.INTER_BASE, "intermediate"),
+            (synthetic.NATURE_BASE, "natural_resource"),
+            (synthetic.LABOR_BASE, "labor"),
+        ):
+            assert np.all(kinds[base : base + synthetic.N_PER_CLASS] == label)
+
+
+class TestTheJointProductEconomy:
+    """The one synthetic economy whose output entries do not line up with its units."""
+
+    def test_entries_and_units_part_after_the_first_joint_unit(self):
+        joint = synthetic.build_joint_product_economy()
+        base = synthetic.build_economy()
+        assert joint.n_outputs > joint.n_units
+        owner = np.repeat(np.arange(joint.n_units), np.diff(joint.output_offsets))
+        assert not np.array_equal(owner[: joint.n_units], np.arange(joint.n_units))
+        for unit in range(joint.n_units):
+            window = slice(int(joint.output_offsets[unit]), int(joint.output_offsets[unit + 1]))
+            assert int(base.output_commodity[unit]) in joint.output_commodity[window]
+
+    def test_everything_but_the_outputs_is_the_base_economy(self):
+        joint = synthetic.build_joint_product_economy()
+        base = synthetic.build_economy()
+        for name in ("commodity_id", "endowment", "technology_kind", "input_offsets",
+                     "input_commodity", "input_coefficient", "consumer_id"):
+            np.testing.assert_array_equal(getattr(joint, name), getattr(base, name))

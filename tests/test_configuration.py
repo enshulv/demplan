@@ -58,18 +58,17 @@ PREFAB_MODULE = "demplan.prefabs.hahnel.book_2021"
 FIELD_COLUMNS = (
     "period",
     "commodity_id",
-    "commodity_kind",
     "endowment",
     "unit_id",
-    "unit_group",
-    "output_commodity",
     "technology_kind",
     "technology_scale",
     "input_offsets",
     "input_commodity",
     "input_coefficient",
+    "output_offsets",
+    "output_commodity",
+    "output_coefficient",
     "consumer_id",
-    "consumer_group",
 )
 """Every field of ``Economy`` that is not one of the three ``extra`` bags.
 
@@ -80,6 +79,7 @@ whether the digest algorithm's version number has to move.
 """
 
 BAG_COLUMNS = (
+    "commodity_extra.hahnel_kind",
     "commodity_extra.scarcity",
     "unit_extra.effort_c",
     "unit_extra.effort_k",
@@ -99,13 +99,16 @@ covers them."""
 
 @pytest.fixture
 def economy(synthetic_economy) -> Economy:
-    """The synthetic economy with one key in every bag, ``commodity_extra`` included.
+    """The synthetic economy with a numeric key beside the text key in ``commodity_extra``.
 
-    The synthetic economy leaves ``commodity_extra`` empty, and an empty bag cannot show
-    whether the digest reads that bag at all.
+    Each bag then holds at least one numeric key, and ``commodity_extra`` holds a text key and
+    a numeric key side by side.
     """
     scarcity = np.linspace(0.5, 2.0, synthetic_economy.n_commodities)
-    return dataclasses.replace(synthetic_economy, commodity_extra={"scarcity": scarcity})
+    return dataclasses.replace(
+        synthetic_economy,
+        commodity_extra={**synthetic_economy.commodity_extra, "scarcity": scarcity},
+    )
 
 
 def with_column(subject, name: str, value):
@@ -122,7 +125,15 @@ def with_column(subject, name: str, value):
 
 
 def bumped(value):
-    """``value`` with its first entry moved, keeping dtype, shape and length."""
+    """``value`` with its first entry moved, keeping dtype kind, shape and length.
+
+    A text column's first label gets one more character; a numeric column's first entry one
+    more unit.
+    """
+    if isinstance(value, np.ndarray) and value.dtype.kind == "U":
+        labels = [str(label) for label in value.reshape(-1)]
+        labels[0] += "x"
+        return np.array(labels).reshape(value.shape)
     if isinstance(value, np.ndarray):
         changed = np.array(value, copy=True)
         changed.reshape(-1)[0] += 1
@@ -256,8 +267,8 @@ class TestEconomyDigestShape:
         assert set(block) == {"algorithm", "digest", "columns"}
 
     def test_the_algorithm_is_named_and_versioned(self, economy):
-        assert economy_digest(economy)["algorithm"] == "sha256-columns-v2"
-        assert ECONOMY_DIGEST_ALGORITHM == "sha256-columns-v2"
+        assert economy_digest(economy)["algorithm"] == "sha256-columns-v3"
+        assert ECONOMY_DIGEST_ALGORITHM == "sha256-columns-v3"
 
     def test_every_digest_is_sha256_in_lower_case_hex(self, economy):
         block = economy_digest(economy)
@@ -272,6 +283,11 @@ class TestEconomyDigestShape:
         columns = economy_digest(economy)["columns"]
         assert "commodity_extra.scarcity" in columns
         assert "scarcity" not in columns
+        assert "commodity_extra.hahnel_kind" in columns
+
+    @pytest.mark.parametrize("removed", ["commodity_kind", "unit_group", "consumer_group"])
+    def test_a_removed_column_has_no_digest(self, economy, removed):
+        assert removed not in economy_digest(economy)["columns"]
 
     def test_the_column_list_follows_the_dataclass_rather_than_a_fixed_list(self):
         """A column ``Economy`` does not have still gets a digest.
@@ -571,9 +587,9 @@ class TestPlanFieldsAbsent:
         assert config.plan_fields_absent is None
 
     def test_the_absent_fields_are_taken_off_the_plan(self, economy):
-        plan = PlanStub(absent_fields=("consumption", "provision"))
+        plan = PlanStub(absent_fields=("consumption", "shared_use"))
         config = run_configuration(ResearcherProcedure(), economy, seed=0, plan=plan)
-        assert config.plan_fields_absent == ("consumption", "provision")
+        assert config.plan_fields_absent == ("consumption", "shared_use")
 
     def test_an_empty_tuple_is_kept_apart_from_no_plan_at_all(self, economy):
         plan = PlanStub(absent_fields=())
@@ -604,7 +620,7 @@ class TestJsonFile:
             economy,
             seed=17,
             loader={"name": "load_dep1ex", "parameters": {"endowment": 1000.0}},
-            plan=PlanStub(absent_fields=("provision",)),
+            plan=PlanStub(absent_fields=("shared_use",)),
         )
 
     def test_a_document_reads_back_as_what_was_written(self, config, tmp_path):
@@ -628,9 +644,9 @@ class TestJsonFile:
         path = tmp_path / "configuration.json"
         config.to_json(path)
         assert json.loads(path.read_text(encoding="utf-8"))["plan_fields_absent"] == [
-            "provision"
+            "shared_use"
         ]
-        assert RunConfiguration.from_json(path).plan_fields_absent == ("provision",)
+        assert RunConfiguration.from_json(path).plan_fields_absent == ("shared_use",)
 
     def test_a_document_that_is_not_an_object_is_refused(self, tmp_path):
         path = tmp_path / "configuration.json"
@@ -885,12 +901,12 @@ class TestDigestComparison:
     def test_two_digests_under_different_algorithms_are_refused(self, economy):
         """Not a judgement to hand back: two normalisations produce incomparable figures."""
         recorded = economy_digest(economy)
-        current = dict(economy_digest(economy), algorithm="sha256-columns-v1")
+        current = dict(economy_digest(economy), algorithm="sha256-columns-v2")
         with pytest.raises(ConfigurationError) as raised:
             compare_economy_digests(recorded, current)
         message = str(raised.value)
-        assert "sha256-columns-v1" in message
         assert "sha256-columns-v2" in message
+        assert "sha256-columns-v3" in message
 
     def test_a_whole_digest_that_contradicts_its_columns_is_reported(self, economy):
         recorded = economy_digest(economy)
@@ -1113,6 +1129,28 @@ PERIOD_ZERO_DIGEST = "8113d5816eadf76f26daf54aa71f51fb07b8f9cbf01405b462591049c0
 BOOLEAN_COLUMN_DIGEST = "25cb94084fa0961e60f619fbb4e94f3a96270983f958a69b764873178103ea87"
 """sha256 over ``b"alpha\\n|b1\\n1\\n\\x01"``: a true column keeps the boolean dtype string."""
 
+TEXT_PREIMAGE = (
+    b"alpha\ntext\n2\n"
+    b"\x01\x00\x00\x00\x00\x00\x00\x00" b"a"
+    b"\x03\x00\x00\x00\x00\x00\x00\x00" b"\xcf\x80r"
+)
+"""The bytes a text column ``["a", "πr"]`` named ``alpha`` is hashed over under v3.
+
+The header carries ``text`` where a numeric column carries its dtype string. Each label is its
+UTF-8 byte length as eight little-endian bytes, then its UTF-8 bytes: ``π`` is two bytes, so
+the second label is three.
+"""
+
+TEXT_DIGEST = "ec201afe696cbb803475fffce1ecb98f4703318cf72931d4f50f181a715eb0dc"
+"""sha256 of :data:`TEXT_PREIMAGE`."""
+
+EMPTY_TEXT_DIGEST = "aeca4a40e8bf0d7fa731c489e309c2052289de0e8ae1f558ddeda6cb77c23470"
+"""sha256 over ``b"alpha\ntext\n0\n"``: a text column of no labels is its header alone."""
+
+BAG_TEXT_DIGEST = "6162c1020bf03c04116af9dd81f1e891b41510c24a85d893c45d328d64ef904b"
+"""sha256 over ``b"bag.label\ntext\n1\n"``, the length 8 as eight little-endian bytes, and
+``b"leontief"``."""
+
 NORMALISED_SOURCE_DIGEST = "a57d7057293d0884af041598b2fdf66fe281746e1cf34253633f57b65381ee2e"
 """sha256 over ``b"ALPHA = 1\\nBETA = 2\\n"``, the line-ending-normalised form of a module."""
 
@@ -1124,7 +1162,7 @@ DEFAULTS_DOCUMENT_BYTES = (
     b'  "library_version": null,\n'
     b'  "loader": null,\n'
     b'  "plan_fields_absent": [\n'
-    b'    "provision"\n'
+    b'    "shared_use"\n'
     b'  ],\n'
     b'  "procedure": null,\n'
     b'  "seed": 7\n'
@@ -1192,7 +1230,7 @@ class ContainerProcedure:
 class TestTheColumnPreimage:
     """What exactly goes into a column's sha256, byte for byte.
 
-    ``sha256-columns-v2`` is a promise that another implementation, in another language, can
+    ``sha256-columns-v3`` is a promise that another implementation, in another language, can
     read the specification and arrive at the same hex string. Nothing keeps that promise
     except a test that writes the preimage out by hand: every inequality assertion in this
     file passes just as happily under a different separator, a different field order, a
@@ -1349,9 +1387,10 @@ class TestColumnsThatCannotBeDigestedFaithfully:
         assert "bytes are not its values" in str(objects.value)
         assert "bytes are not its values" not in str(structured.value)
 
-    def test_a_text_column_is_refused(self):
+    def test_a_bytes_column_is_refused(self):
+        """Text is a numpy ``U`` column. A ``bytes`` column holds no declared encoding."""
         with pytest.raises(ConfigurationError):
-            economy_digest(SpecColumns(alpha=np.array(["a", "b"]), beta=SPEC_BETA))
+            economy_digest(SpecColumns(alpha=np.array([b"a", b"b"]), beta=SPEC_BETA))
 
     @pytest.mark.parametrize(
         "dtype", ["|b1", "<i2", "<u4", "<f4", "<f8", "<c16"]
@@ -1359,6 +1398,72 @@ class TestColumnsThatCannotBeDigestedFaithfully:
     def test_the_dtypes_a_digest_can_carry_are_still_carried(self, dtype):
         block = economy_digest(SpecColumns(alpha=np.zeros(2, dtype=dtype), beta=SPEC_BETA))
         assert len(block["columns"]["alpha"]) == 64
+
+
+class TestTextColumns:
+    """A text column's preimage: the header with ``text``, then each label length-prefixed."""
+
+    def test_the_written_preimage_matches_the_written_digest(self):
+        typo = "the written preimage and the written digest disagree: one has a typo"
+        assert hashlib.sha256(TEXT_PREIMAGE).hexdigest() == TEXT_DIGEST, typo
+        assert hashlib.sha256(b"alpha\ntext\n0\n").hexdigest() == EMPTY_TEXT_DIGEST, typo
+
+    def test_a_text_column_digests_over_the_hand_written_preimage(self):
+        columns = economy_digest(SpecColumns(alpha=np.array(["a", "πr"]), beta=SPEC_BETA))[
+            "columns"
+        ]
+        assert columns["alpha"] == TEXT_DIGEST, PINNED_DIGEST_INSTRUCTION
+        assert columns["beta"] == BETA_DIGEST, PINNED_DIGEST_INSTRUCTION
+
+    def test_the_width_of_the_numpy_dtype_does_not_reach_the_digest(self):
+        """``<U2`` and ``<U10`` hold the same labels; the width is storage, not content."""
+        wide = np.array(["a", "πr"], dtype="<U10")
+        columns = economy_digest(SpecColumns(alpha=wide, beta=SPEC_BETA))["columns"]
+        assert columns["alpha"] == TEXT_DIGEST, PINNED_DIGEST_INSTRUCTION
+
+    def test_a_text_column_of_no_labels_is_its_header(self):
+        empty = np.array([], dtype=str)
+        columns = economy_digest(SpecColumns(alpha=empty, beta=SPEC_BETA))["columns"]
+        assert columns["alpha"] == EMPTY_TEXT_DIGEST, PINNED_DIGEST_INSTRUCTION
+
+    def test_a_text_key_in_a_bag_digests_under_its_prefixed_name(self):
+        digest = economy_digest(OneBag(bag={"label": np.array(["leontief"])}))
+        assert digest["columns"]["bag.label"] == BAG_TEXT_DIGEST, PINNED_DIGEST_INSTRUCTION
+
+    def test_the_length_prefix_tells_two_splits_of_the_same_characters_apart(self):
+        one = economy_digest(SpecColumns(alpha=np.array(["ab", "c"]), beta=SPEC_BETA))
+        other = economy_digest(SpecColumns(alpha=np.array(["a", "bc"]), beta=SPEC_BETA))
+        assert one["columns"]["alpha"] != other["columns"]["alpha"]
+
+    def test_an_edited_label_moves_the_digest(self, economy):
+        labels = [str(label) for label in economy.technology_kind]
+        labels[3] = "leontief"
+        edited = dataclasses.replace(economy, technology_kind=labels)
+        before = economy_digest(economy)["columns"]
+        after = economy_digest(edited)["columns"]
+        assert before["technology_kind"] != after["technology_kind"]
+
+    def test_the_same_labels_in_two_arrays_digest_the_same(self, economy):
+        rebuilt = dataclasses.replace(
+            economy, technology_kind=[str(label) for label in economy.technology_kind]
+        )
+        assert economy_digest(rebuilt) == economy_digest(economy)
+
+    def test_the_economy_text_columns_digest_by_the_rule(self, economy):
+        """The technology label column, recomputed here from the stated preimage."""
+        preimage = f"technology_kind\ntext\n{economy.n_units}\n".encode("utf-8")
+        for label in economy.technology_kind:
+            encoded = str(label).encode("utf-8")
+            preimage += len(encoded).to_bytes(8, "little") + encoded
+        assert (
+            economy_digest(economy)["columns"]["technology_kind"]
+            == hashlib.sha256(preimage).hexdigest()
+        )
+
+    def test_a_numeric_column_digests_as_it_did_under_v2(self):
+        """Only text columns have a new rule; the pinned v2 preimages still hold."""
+        columns = economy_digest(SpecColumns(alpha=SPEC_ALPHA, beta=SPEC_BETA))["columns"]
+        assert columns["alpha"] == ALPHA_DIGEST, PINNED_DIGEST_INSTRUCTION
 
 
 class TestSourceDigestLineEndings:
@@ -1525,7 +1630,7 @@ class TestTheDocumentAsBytes:
 
     def test_the_file_holds_exactly_these_bytes(self, tmp_path):
         path = tmp_path / "configuration.json"
-        RunConfiguration(seed=7, plan_fields_absent=("provision",)).to_json(path)
+        RunConfiguration(seed=7, plan_fields_absent=("shared_use",)).to_json(path)
         assert path.read_bytes() == DEFAULTS_DOCUMENT_BYTES
 
     def test_no_carriage_return_reaches_the_file(self, tmp_path):
@@ -1587,18 +1692,18 @@ class TestAbsentFieldsThatAreNotFieldNames:
     """What ``absent_fields`` is read as when it is not a sequence of field names."""
 
     def test_a_bare_string_is_refused_rather_than_split_into_characters(self, economy):
-        """``tuple("provision")`` is eleven one-character field names, and each of them is a
+        """``tuple("shared_use")`` is ten one-character field names, and each of them is a
         string, so a per-element type check passes on every one of them."""
         with pytest.raises(ConfigurationError) as raised:
             run_configuration(
                 ResearcherProcedure(),
                 economy,
                 seed=0,
-                plan=PlanStub(absent_fields="provision"),
+                plan=PlanStub(absent_fields="shared_use"),
             )
         message = str(raised.value)
         assert "absent_fields" in message
-        assert "provision" in message
+        assert "shared_use" in message
 
     def test_a_value_that_cannot_be_iterated_is_refused_as_a_configuration_error(
         self, economy
@@ -1616,9 +1721,9 @@ class TestAbsentFieldsThatAreNotFieldNames:
             ResearcherProcedure(),
             economy,
             seed=0,
-            plan=PlanStub(absent_fields=["provision", "consumption"]),
+            plan=PlanStub(absent_fields=["shared_use", "consumption"]),
         )
-        assert config.plan_fields_absent == ("provision", "consumption")
+        assert config.plan_fields_absent == ("shared_use", "consumption")
 
 
 class TestEveryUnknownKeyIsNamed:

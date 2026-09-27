@@ -10,9 +10,10 @@ Three commodities per class keeps the reference usable: ``endowment.proposals`` 
 three of its output price vectors with the same ``product`` column, so the private, public and
 intermediate sections have to be equally long.
 
-``unit_group`` is deliberately not equal to ``output_commodity`` here. On dep1ex the two
-coincide, so an implementation that aggregates supply by the wrong column still passes on the
-real data; this economy separates them.
+Commodities carry the Hahnel prefab's class label in ``commodity_extra["hahnel_kind"]`` and
+every unit carries the prefab's technology label, as the dep1ex loader writes them. Every unit
+has one output entry, so output entries and units line up here;
+:func:`build_joint_product_economy` is the economy where they do not.
 """
 
 from __future__ import annotations
@@ -21,7 +22,8 @@ import dataclasses
 
 import numpy as np
 
-from demplan import CommodityKind, Economy, TechnologyKind
+from demplan import Economy
+from demplan.prefabs import hahnel
 
 N_PER_CLASS = 3
 N_CONSUMERS = 4
@@ -39,17 +41,17 @@ ENDOWMENT = 5.0
 ENTITLEMENT = 10000.0
 """Consumption entitlement of every consumer unit."""
 
-# (output commodity, unit group, [(input commodity, Cobb-Douglas exponent), ...])
+# (output commodity, [(input commodity, Cobb-Douglas exponent), ...])
 UNITS = (
-    (0, 0, ((6, 0.16), (7, 0.15), (9, 0.14), (12, 0.16), (13, 0.15))),
-    (1, 0, ((6, 0.17), (10, 0.15), (12, 0.16), (14, 0.14))),
-    (2, 0, ((7, 0.15), (9, 0.16), (11, 0.14), (13, 0.17))),
-    (3, 1, ((6, 0.15), (8, 0.16), (9, 0.15), (12, 0.16))),
-    (4, 1, ((7, 0.18), (10, 0.16), (13, 0.17))),
-    (5, 1, ((8, 0.16), (11, 0.15), (14, 0.16), (12, 0.13))),
-    (6, 2, ((9, 0.15), (10, 0.14), (12, 0.16), (13, 0.15))),
-    (7, 2, ((10, 0.17), (13, 0.16), (14, 0.15))),
-    (8, 2, ((11, 0.16), (9, 0.13), (14, 0.17), (12, 0.14))),
+    (0, ((6, 0.16), (7, 0.15), (9, 0.14), (12, 0.16), (13, 0.15))),
+    (1, ((6, 0.17), (10, 0.15), (12, 0.16), (14, 0.14))),
+    (2, ((7, 0.15), (9, 0.16), (11, 0.14), (13, 0.17))),
+    (3, ((6, 0.15), (8, 0.16), (9, 0.15), (12, 0.16))),
+    (4, ((7, 0.18), (10, 0.16), (13, 0.17))),
+    (5, ((8, 0.16), (11, 0.15), (14, 0.16), (12, 0.13))),
+    (6, ((9, 0.15), (10, 0.14), (12, 0.16), (13, 0.15))),
+    (7, ((10, 0.17), (13, 0.16), (14, 0.15))),
+    (8, ((11, 0.16), (9, 0.13), (14, 0.17), (12, 0.14))),
 )
 
 TECHNOLOGY_SCALE = (5.0, 4.6, 5.4, 4.8, 5.2, 5.0, 4.9, 5.1, 4.7)
@@ -66,46 +68,57 @@ UTILITY_EXPONENT = (
     (0.18, 0.11, 0.19, 0.22, 0.30, 0.11),
     (0.14, 0.17, 0.13, 0.31, 0.25, 0.13),
 )
-CONSUMER_GROUP = (0, 0, 1, 1)
+
+KIND_KEY = "hahnel_kind"
+"""The ``commodity_extra`` key under which the Hahnel prefab reads each commodity's class."""
+
+KIND_LABELS = (
+    ("private_good",) * N_PER_CLASS
+    + ("public_good",) * N_PER_CLASS
+    + ("intermediate",) * N_PER_CLASS
+    + ("natural_resource",) * N_PER_CLASS
+    + ("labor",) * N_PER_CLASS
+)
+"""The class label of each commodity, written out as the five literal values."""
+
+
+def kind_labels(economy: Economy) -> np.ndarray:
+    """The ``hahnel_kind`` column of ``economy``, read straight off the bag."""
+    return np.asarray(economy.commodity_extra[KIND_KEY])
 
 
 def build_economy() -> Economy:
     """The synthetic economy as the library sees it."""
-    kind = np.empty(N_COMMODITIES, dtype=np.int8)
-    kind[PRIV_BASE:PUB_BASE] = CommodityKind.PRIVATE_GOOD
-    kind[PUB_BASE:INTER_BASE] = CommodityKind.PUBLIC_GOOD
-    kind[INTER_BASE:NATURE_BASE] = CommodityKind.INTERMEDIATE
-    kind[NATURE_BASE:LABOR_BASE] = CommodityKind.NATURAL_RESOURCE
-    kind[LABOR_BASE:N_COMMODITIES] = CommodityKind.LABOR
+    kind = np.array(KIND_LABELS)
 
     endowment = np.zeros(N_COMMODITIES, dtype=np.float64)
     endowment[NATURE_BASE:N_COMMODITIES] = ENDOWMENT
 
-    counts = [len(inputs) for _, _, inputs in UNITS]
+    counts = [len(inputs) for _, inputs in UNITS]
     offsets = np.zeros(len(UNITS) + 1, dtype=np.int64)
     np.cumsum(counts, out=offsets[1:])
     input_commodity = np.array(
-        [commodity for _, _, inputs in UNITS for commodity, _ in inputs], dtype=np.int64
+        [commodity for _, inputs in UNITS for commodity, _ in inputs], dtype=np.int64
     )
     input_coefficient = np.array(
-        [coefficient for _, _, inputs in UNITS for _, coefficient in inputs], dtype=np.float64
+        [coefficient for _, inputs in UNITS for _, coefficient in inputs], dtype=np.float64
     )
 
     return Economy(
         period=0,
         commodity_id=np.arange(N_COMMODITIES, dtype=np.int64),
-        commodity_kind=kind,
         endowment=endowment,
         unit_id=np.arange(len(UNITS), dtype=np.int64),
-        unit_group=np.array([group for _, group, _ in UNITS], dtype=np.int64),
-        output_commodity=np.array([output for output, _, _ in UNITS], dtype=np.int64),
-        technology_kind=np.full(len(UNITS), TechnologyKind.COBB_DOUGLAS, dtype=np.int8),
+        technology_kind=np.array([hahnel.TECHNOLOGY] * len(UNITS)),
         technology_scale=np.array(TECHNOLOGY_SCALE, dtype=np.float64),
         input_offsets=offsets,
         input_commodity=input_commodity,
         input_coefficient=input_coefficient,
+        output_offsets=np.arange(len(UNITS) + 1, dtype=np.int64),
+        output_commodity=np.array([output for output, _ in UNITS], dtype=np.int64),
+        output_coefficient=np.ones(len(UNITS), dtype=np.float64),
         consumer_id=np.arange(N_CONSUMERS, dtype=np.int64),
-        consumer_group=np.array(CONSUMER_GROUP, dtype=np.int64),
+        commodity_extra={KIND_KEY: kind},
         unit_extra={
             "effort_c": np.array(EFFORT_C, dtype=np.float64),
             "effort_s": np.array(EFFORT_S, dtype=np.float64),
@@ -134,22 +147,22 @@ def build_permuted_economy() -> Economy:
 
     Same economy, different identifiers. On dep1ex, and on :func:`build_economy`, the private
     goods hold the lowest commodity identifiers and the first utility-exponent columns, so
-    code that picks the private goods by position rather than by ``commodity_kind`` passes
+    code that picks the private goods by position rather than by ``hahnel_kind`` passes
     there. Here it does not.
     """
     base = build_economy()
     new_of_old = NEW_COMMODITY_OF_OLD
     order = np.argsort(new_of_old[np.arange(2 * N_PER_CLASS)])
 
-    kind = np.empty(N_COMMODITIES, dtype=np.int8)
-    kind[new_of_old] = np.asarray(base.commodity_kind)
+    kind = np.empty(N_COMMODITIES, dtype=kind_labels(base).dtype)
+    kind[new_of_old] = kind_labels(base)
     endowment = np.empty(N_COMMODITIES, dtype=np.float64)
     endowment[new_of_old] = np.asarray(base.endowment)
 
     exponents = np.asarray(base.consumer_extra["utility_exponent"])[:, order]
     return dataclasses.replace(
         base,
-        commodity_kind=kind,
+        commodity_extra={KIND_KEY: kind},
         endowment=endowment,
         output_commodity=new_of_old[np.asarray(base.output_commodity)],
         input_commodity=new_of_old[np.asarray(base.input_commodity)],
@@ -176,7 +189,7 @@ def _section_base(commodity: int) -> int:
 
 def build_reference_inputs() -> tuple[dict, dict, tuple[int, int, int], float]:
     """The same economy in the shape ``endowment.run`` expects: ``(wc, cc, dims, S)``."""
-    width = max(len(inputs) for _, _, inputs in UNITS)
+    width = max(len(inputs) for _, inputs in UNITS)
     n_units = len(UNITS)
     coef = np.zeros((n_units, width), dtype=np.int64)
     b = np.zeros((n_units, width), dtype=np.float64)
@@ -184,7 +197,7 @@ def build_reference_inputs() -> tuple[dict, dict, tuple[int, int, int], float]:
     industry = np.empty(n_units, dtype=np.int64)
     product = np.empty(n_units, dtype=np.int64)
 
-    for row, (output, _, inputs) in enumerate(UNITS):
+    for row, (output, inputs) in enumerate(UNITS):
         out_base = _section_base(output)
         industry[row] = _INDUSTRY_OF_SECTION[out_base]
         product[row] = output - out_base
@@ -227,7 +240,7 @@ THIRD_KIND_COLUMN = 1
 """Where that exponent sits among the utility-exponent columns.
 
 Between two private-good columns, so that neither the private-good columns nor the rest form a
-contiguous run. Code that splits the columns by position rather than by ``commodity_kind``
+contiguous run. Code that splits the columns by position rather than by ``hahnel_kind``
 fails here.
 """
 
@@ -238,7 +251,7 @@ THIRD_KIND_EXPONENT = (0.16, 0.13, 0.17, 0.14)
 def build_economy_with_a_third_kind_column() -> Economy:
     """:func:`build_economy` with one more utility-exponent column, on an intermediate good.
 
-    A utility-exponent column names a commodity of any kind, and the commodity table has five.
+    A utility-exponent column names a commodity of any class, and ``hahnel_kind`` has five.
     This economy holds three of them at once: private-good columns, public-good columns, and
     one column whose commodity is neither. That third column is priced like a private-good
     column and reported like neither, so code that reads the columns as two cases drops it.
@@ -270,8 +283,8 @@ UNORDERED_COLUMN_COMMODITY = np.array([4, 2, 0, 5, 1, 3], dtype=np.int64)
 :func:`build_economy_with_unordered_private_columns`.
 
 The private-good columns sit at positions 1, 2 and 4 and name commodities 2, 0 and 1 in that
-order. The plan's ``consumption_commodity`` is therefore neither ascending nor equal to
-``commodities_of_kind(PRIVATE_GOOD)``, so code that sorts the labels without reordering the
+order. The plan's ``consumption_commodity`` is therefore neither ascending nor equal to the
+private goods in ascending order, so code that sorts the labels without reordering the
 consumption block alongside them pairs every column with the wrong commodity.
 """
 
@@ -307,4 +320,41 @@ def build_economy_with_unordered_private_columns() -> Economy:
             "utility_exponent": exponent,
             "utility_exponent_commodity": columns.copy(),
         },
+    )
+
+
+JOINT_OUTPUTS = (
+    (0, ((0, 1.0), (7, 0.5))),
+    (4, ((8, 0.25), (4, 1.0))),
+)
+"""Units of :func:`build_joint_product_economy` that list a second output entry.
+
+``(unit, ((commodity, output_coefficient), ...))``, entries in storage order. Unit 4 lists its
+by-product first, so within that unit the output commodities do not ascend either.
+"""
+
+
+def build_joint_product_economy() -> Economy:
+    """:func:`build_economy` where units 0 and 4 each list two output entries.
+
+    Eleven output entries over nine units, so an entry index is not a unit index from unit 1
+    onwards. Code that reads ``output_commodity`` or a plan's ``output`` one entry per unit
+    lines up on every other economy here and on dep1ex, and misfiles every entry after the
+    first joint product here.
+    """
+    base = build_economy()
+    extra = dict(JOINT_OUTPUTS)
+    commodity, coefficient, counts = [], [], []
+    for unit, (output, _) in enumerate(UNITS):
+        entries = extra.get(unit, ((output, 1.0),))
+        commodity.extend(entry for entry, _ in entries)
+        coefficient.extend(value for _, value in entries)
+        counts.append(len(entries))
+    offsets = np.zeros(len(UNITS) + 1, dtype=np.int64)
+    np.cumsum(counts, out=offsets[1:])
+    return dataclasses.replace(
+        base,
+        output_offsets=offsets,
+        output_commodity=np.array(commodity, dtype=np.int64),
+        output_coefficient=np.array(coefficient, dtype=np.float64),
     )

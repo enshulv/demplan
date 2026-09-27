@@ -11,7 +11,8 @@ the fields carry no default value, so leaving one out of the call is still a mis
 Input use is stored, not derived. Where technology allows substitution the input mix is a
 decision the mechanism made, and recomputing it afterwards would silently replace that
 decision with the recomputing tool's own theory. Endowment use, by contrast, is a pure
-aggregation of input use and is derived by :meth:`Plan.endowment_use`.
+aggregation of input use over the commodities the caller names, and is derived by
+:meth:`Plan.endowment_use`.
 """
 
 from __future__ import annotations
@@ -22,12 +23,13 @@ from typing import Mapping
 import numpy as np
 
 from demplan.economy import (
-    CommodityKind,
     Economy,
     SchemaError,
     _freeze_array,
     _freeze_bag,
+    _index_array,
     _require_finite,
+    _require_indices_in_range,
 )
 
 INDICATIVE_PRICE = "indicative_price"
@@ -61,22 +63,20 @@ single length. A key outside this table means something the library cannot read,
 length is checked the way ``extra`` is instead.
 """
 
-_PHYSICAL_ARRAYS = ("output", "input_use", "consumption", "provision")
+_PHYSICAL_ARRAYS = ("output", "input_use", "consumption", "shared_use")
 
 _REQUIRED_ARRAYS = ("output", "input_use")
 """Fixed fields no mechanism may declare absent, in the order :class:`Plan` declares them."""
 
-_OPTIONAL_ARRAYS = ("consumption", "consumption_commodity", "provision")
+_OPTIONAL_ARRAYS = ("consumption", "consumption_commodity", "shared_use")
 """Fixed fields a mechanism may declare absent, in the order :class:`Plan` declares them."""
 
 _PHYSICAL_VECTORS = (
-    ("output", "n_units", "units"),
+    ("output", "n_outputs", "output entries"),
     ("input_use", "n_inputs", "unit inputs"),
-    ("provision", "n_commodities", "commodities"),
+    ("shared_use", "n_commodities", "commodities"),
 )
 """Field, the ``Economy`` count it is as long as, and what that count counts."""
-
-_ENDOWED_KINDS = (CommodityKind.NATURAL_RESOURCE, CommodityKind.LABOR)
 
 
 class PlanFieldAbsent(SchemaError):
@@ -92,14 +92,20 @@ class PlanFieldAbsent(SchemaError):
 class Plan:
     """One period's plan.
 
-    ``consumption`` is who gets how much of each private good: row per consumer unit, column
-    per entry of ``consumption_commodity``. ``provision`` is the shared quantity of each public
-    good, zero for every other commodity.
+    ``output`` is one quantity per output entry of the economy, in the order of
+    ``economy.output_commodity``: where every unit has one output entry, one per unit.
+    ``input_use`` is one quantity per unit input, in the order of ``economy.input_commodity``.
 
-    ``consumption``, ``consumption_commodity`` and ``provision`` may be ``None``, which says
+    ``consumption`` is who gets how much of what: row per consumer unit, column per entry of
+    ``consumption_commodity``. ``shared_use`` is, per commodity, the quantity the consumer units
+    use in common and that is attributed to no single one of them: one party using it does not
+    reduce what another can use. It is a use, not a supply; zero where nothing is used in
+    common.
+
+    ``consumption``, ``consumption_commodity`` and ``shared_use`` may be ``None``, which says
     the mechanism has no such quantity: a mechanism that balances totals alone has no
-    consumption per consumer unit, and one whose public supply is regional cannot state it as
-    a single society-wide scalar. ``None`` is the whole declaration, and :attr:`absent_fields`
+    consumption per consumer unit, and one whose common use is regional cannot state it as a
+    single society-wide quantity. ``None`` is the whole declaration, and :attr:`absent_fields`
     reads it back. ``consumption`` and ``consumption_commodity`` describe one quantity between
     them, so they are absent together or present together. ``output`` and ``input_use`` are
     required: every mechanism that plans production has both, and ``None`` in either is
@@ -121,9 +127,9 @@ class Plan:
         ``consumption`` holds, a public good carries the quantity shared once over the whole
         society, and a commodity that is neither carries the councils' whole stated total.
         Zero where no council asked for the commodity. ``consumption`` covers the private
-        goods alone and ``provision`` is a public good's supply side, so without this key the
-        demand side of every other commodity is missing and the material balance cannot be
-        rebuilt from the plan.
+        goods alone and ``shared_use`` the public goods alone, so without this key the demand
+        side of every other commodity is missing and the material balance cannot be rebuilt
+        from the plan.
 
     Both carry a constant, :data:`EFFORT` and :data:`CONSUMER_DEMAND`, because a reader needs
     them to take a plan apart: two researchers comparing their runs have to spell such a key
@@ -138,7 +144,7 @@ class Plan:
     input_use: np.ndarray
     consumption: np.ndarray | None
     consumption_commodity: np.ndarray | None
-    provision: np.ndarray | None
+    shared_use: np.ndarray | None
     valuation: Mapping[str, np.ndarray] = dataclasses.field(default_factory=dict)
     extra: Mapping[str, np.ndarray] = dataclasses.field(default_factory=dict)
 
@@ -172,7 +178,11 @@ class Plan:
         self._require_extra_rows(economy)
 
     def total_output(self, economy: Economy) -> np.ndarray:
-        """Production per commodity, aggregated over the units that produce it."""
+        """Production per commodity: ``output`` summed by ``economy.output_commodity``.
+
+        Every output entry counts under its own commodity, so a unit with joint products
+        contributes to each commodity it lists.
+        """
         self._require_conformable(economy)
         return np.bincount(
             economy.output_commodity, weights=self.output, minlength=economy.n_commodities
@@ -186,7 +196,7 @@ class Plan:
         )
 
     def total_consumption(self, economy: Economy) -> np.ndarray:
-        """Private-good consumption per commodity, aggregated over consumer units.
+        """Consumption per commodity, aggregated over consumer units.
 
         The result covers all ``n_commodities``; every commodity outside
         ``consumption_commodity`` is zero. Raises :class:`PlanFieldAbsent` when the plan
@@ -205,16 +215,23 @@ class Plan:
             minlength=economy.n_commodities,
         )
 
-    def endowment_use(self, economy: Economy) -> np.ndarray:
-        """How much of each natural resource and each kind of labour the plan draws on.
+    def endowment_use(self, economy: Economy, resources: np.ndarray) -> np.ndarray:
+        """Input use of the commodities in ``resources``, zero for every other commodity.
 
-        Other commodities are zero: they are produced within the period, so their use is not
-        a draw on the endowment.
+        ``resources`` is a one-dimensional int64 array of commodity indices, each at most once:
+        the commodities the caller counts as drawn from the endowment rather than produced
+        within the period. Which those are is the caller's statement; the economy does not
+        say. Raises ``ValueError`` when ``resources`` is not such an array or names a
+        commodity outside the table, and :class:`SchemaError` when the plan is not shaped for
+        ``economy``.
         """
         self._require_conformable(economy)
+        listed = _index_array("resources", resources)
+        _require_indices_in_range("resources", listed, economy.n_commodities)
         drawn = self.total_input_use(economy)
-        endowed = np.isin(economy.commodity_kind, [int(kind) for kind in _ENDOWED_KINDS])
-        return np.where(endowed, drawn, 0.0)
+        counted = np.zeros(economy.n_commodities, dtype=bool)
+        counted[listed] = True
+        return np.where(counted, drawn, 0.0)
 
     def _require_present(self, names: tuple[str, ...], accessor: str, needs: str) -> None:
         """Raise :class:`PlanFieldAbsent` for the first of ``names`` this plan declares absent.

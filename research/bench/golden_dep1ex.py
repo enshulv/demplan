@@ -35,7 +35,7 @@ def digest(array) -> str:
 def fingerprint(plan) -> dict:
     fields = {
         name: digest(getattr(plan, name))
-        for name in ("output", "input_use", "consumption", "consumption_commodity", "provision")
+        for name in ("output", "input_use", "consumption", "consumption_commodity", "shared_use")
     }
     fields.update({f"valuation.{k}": digest(v) for k, v in sorted(plan.valuation.items())})
     fields.update({f"extra.{k}": digest(v) for k, v in sorted(plan.extra.items())})

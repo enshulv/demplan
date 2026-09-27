@@ -14,7 +14,6 @@ import json
 import numpy as np
 import pytest
 
-import demplan
 from demplan import (
     AllocatedPlan,
     Plan,
@@ -34,26 +33,24 @@ def economy():
 
 def _full_plan(economy, cls=Plan):
     """A plan carrying every field, shaped for ``economy``."""
-    private = np.flatnonzero(
-        np.asarray(economy.commodity_kind) == int(demplan.CommodityKind.PRIVATE_GOOD)
-    ).astype(np.int64)
+    private = np.flatnonzero(synthetic.kind_labels(economy) == "private_good").astype(np.int64)
     return cls(
-        output=np.zeros(economy.n_units, dtype=np.float64),
+        output=np.zeros(economy.n_outputs, dtype=np.float64),
         input_use=np.zeros(economy.n_inputs, dtype=np.float64),
         consumption=np.zeros((economy.n_consumers, private.size), dtype=np.float64),
         consumption_commodity=private,
-        provision=np.zeros(economy.n_commodities, dtype=np.float64),
+        shared_use=np.zeros(economy.n_commodities, dtype=np.float64),
     )
 
 
 def _sparse_plan(economy, cls=Plan):
-    """A plan whose mechanism has no consumption block and no public provision."""
+    """A plan whose mechanism has no consumption block and no shared use."""
     return cls(
-        output=np.zeros(economy.n_units, dtype=np.float64),
+        output=np.zeros(economy.n_outputs, dtype=np.float64),
         input_use=np.zeros(economy.n_inputs, dtype=np.float64),
         consumption=None,
         consumption_commodity=None,
-        provision=None,
+        shared_use=None,
     )
 
 
@@ -73,7 +70,7 @@ class TestARealPlanReachesTheDocument:
         assert document.plan_fields_absent == (
             "consumption",
             "consumption_commodity",
-            "provision",
+            "shared_use",
         )
 
     def test_absent_fields_is_read_as_a_property_not_called(self, economy):
@@ -92,7 +89,7 @@ class TestARealPlanReachesTheDocument:
         assert document.plan_fields_absent == (
             "consumption",
             "consumption_commodity",
-            "provision",
+            "shared_use",
         )
 
 
@@ -154,7 +151,7 @@ class TestTheDocumentSurvivesARoundTrip:
         path = tmp_path / "configuration.json"
         run_configuration(HahnelBook2021(), economy, seed=7).to_json(path)
         parsed = json.loads(path.read_text(encoding="utf-8"))
-        assert parsed["economy"]["algorithm"] == "sha256-columns-v2"
+        assert parsed["economy"]["algorithm"] == "sha256-columns-v3"
 
 
 class TestTheDocumentTracksTheEconomyItWasGiven:

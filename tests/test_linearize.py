@@ -12,12 +12,14 @@ it needs the same as before.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from demplan import CommodityKind, Economy, Plan, TechnologyKind, run
+from demplan import COBB_DOUGLAS, LEONTIEF, Economy, Plan, run
 from demplan.prefabs.hahnel import HahnelBook2021
 from demplan.tools.leontief import input_requirements_flat
 from demplan.tools.linearize import linearize
@@ -28,32 +30,26 @@ N_COMMODITIES = 4
 PRIVATE, INTERMEDIATE, NATURAL, LABOR = range(N_COMMODITIES)
 
 
-def build_two_unit_economy() -> Economy:
-    """Two Cobb-Douglas units, one extra key in each ``extra`` bag to watch it survive."""
+def build_two_unit_economy(output_coefficient=(1.0, 1.0)) -> Economy:
+    """Two Cobb-Douglas units, extra keys in each ``extra`` bag to watch them survive."""
     return Economy(
         period=7,
         commodity_id=np.arange(N_COMMODITIES, dtype=np.int64),
-        commodity_kind=np.array(
-            [
-                CommodityKind.PRIVATE_GOOD,
-                CommodityKind.INTERMEDIATE,
-                CommodityKind.NATURAL_RESOURCE,
-                CommodityKind.LABOR,
-            ],
-            dtype=np.int8,
-        ),
         endowment=np.array([0.0, 0.0, 8.0, 9.0]),
         unit_id=np.arange(2, dtype=np.int64),
-        unit_group=np.array([3, 5], dtype=np.int64),
-        output_commodity=np.array([PRIVATE, INTERMEDIATE], dtype=np.int64),
-        technology_kind=np.full(2, TechnologyKind.COBB_DOUGLAS, dtype=np.int8),
+        technology_kind=[COBB_DOUGLAS, COBB_DOUGLAS],
         technology_scale=np.array([2.5, 4.0]),
         input_offsets=np.array([0, 3, 5], dtype=np.int64),
         input_commodity=np.array([INTERMEDIATE, NATURAL, LABOR, NATURAL, LABOR], dtype=np.int64),
         input_coefficient=np.array([0.3, 0.2, 0.4, 0.5, 0.5]),
+        output_offsets=np.array([0, 1, 2], dtype=np.int64),
+        output_commodity=np.array([PRIVATE, INTERMEDIATE], dtype=np.int64),
+        output_coefficient=np.array(output_coefficient, dtype=np.float64),
         consumer_id=np.arange(2, dtype=np.int64),
-        consumer_group=np.array([1, 1], dtype=np.int64),
-        commodity_extra={"tag": np.arange(N_COMMODITIES, dtype=np.int64)},
+        commodity_extra={
+            "tag": np.arange(N_COMMODITIES, dtype=np.int64),
+            "name": ["bread", "flour", "land", "work"],
+        },
         unit_extra={"effort_c": np.array([0.08, 0.09])},
         consumer_extra={"entitlement": np.array([100.0, 200.0])},
     )
@@ -65,7 +61,7 @@ def build_plan(economy: Economy, output: np.ndarray, input_use: np.ndarray) -> P
         input_use=np.asarray(input_use, dtype=np.float64),
         consumption=np.zeros((economy.n_consumers, 0)),
         consumption_commodity=np.zeros(0, dtype=np.int64),
-        provision=np.zeros(economy.n_commodities),
+        shared_use=np.zeros(economy.n_commodities),
     )
 
 
@@ -82,10 +78,19 @@ class TestCoefficients:
         economy = build_two_unit_economy()
         plan = build_plan(economy, [4.0, 10.0], [1.2, 0.8, 2.0, 5.0, 2.5])
         linearised = linearize(economy, plan)
-        np.testing.assert_array_equal(
-            linearised.technology_kind, np.zeros(2, dtype=np.int8)
-        )
+        assert list(linearised.technology_kind) == ["leontief", "leontief"]
+        assert LEONTIEF == "leontief"
         np.testing.assert_array_equal(linearised.technology_scale, np.ones(2))
+
+    def test_every_output_coefficient_becomes_one(self):
+        """The coefficients read ``input_use / output``, so one run is one unit of output."""
+        economy = build_two_unit_economy(output_coefficient=(2.0, 0.5))
+        plan = build_plan(economy, [4.0, 10.0], [1.2, 0.8, 2.0, 5.0, 2.5])
+        linearised = linearize(economy, plan)
+        np.testing.assert_array_equal(linearised.output_coefficient, [1.0, 1.0])
+        np.testing.assert_allclose(
+            linearised.input_coefficient, [0.3, 0.2, 0.5, 0.5, 0.25], atol=EXACT
+        )
 
     def test_an_idle_unit_gets_zero_coefficients(self):
         economy = build_two_unit_economy()
@@ -101,15 +106,13 @@ class TestCoefficients:
         assert linearised.period == economy.period
         for column in (
             "commodity_id",
-            "commodity_kind",
             "endowment",
             "unit_id",
-            "unit_group",
-            "output_commodity",
             "input_offsets",
             "input_commodity",
+            "output_offsets",
+            "output_commodity",
             "consumer_id",
-            "consumer_group",
         ):
             np.testing.assert_array_equal(
                 getattr(linearised, column), getattr(economy, column), err_msg=column
@@ -131,9 +134,7 @@ class TestCoefficients:
         before = np.array(economy.input_coefficient, copy=True)
         linearize(economy, plan)
         np.testing.assert_array_equal(economy.input_coefficient, before)
-        np.testing.assert_array_equal(
-            economy.technology_kind, np.full(2, TechnologyKind.COBB_DOUGLAS, dtype=np.int8)
-        )
+        assert list(economy.technology_kind) == [COBB_DOUGLAS, COBB_DOUGLAS]
 
 
 class TestTheIdentityItGuarantees:
@@ -201,7 +202,7 @@ class TestRefusedInputs:
             input_use=np.array([1.2, 0.8, 2.0, 5.0, 2.5]),
             consumption=np.zeros((2, 0)),
             consumption_commodity=np.zeros(0, dtype=np.int64),
-            provision=np.zeros(N_COMMODITIES),
+            shared_use=np.zeros(N_COMMODITIES),
         )
         with pytest.raises(ValueError):
             linearize(economy, plan)
@@ -222,3 +223,19 @@ class TestRefusedInputs:
         plan = build_plan(economy, [5e-320, 10.0], [1.0, 0.0, 0.0, 5.0, 2.5])
         with pytest.raises(ValueError, match="unit 0"):
             linearize(economy, plan)
+
+    def test_a_unit_with_two_outputs_is_refused(self):
+        """Unit 1 makes flour and, as a by-product, bread: input ratios per output are not
+        defined for it, and the message says so rather than dividing by one of the two."""
+        economy = dataclasses.replace(
+            build_two_unit_economy(),
+            output_offsets=np.array([0, 1, 3], dtype=np.int64),
+            output_commodity=np.array([PRIVATE, INTERMEDIATE, PRIVATE], dtype=np.int64),
+            output_coefficient=np.array([1.0, 1.0, 0.1]),
+        )
+        plan = build_plan(economy, [4.0, 10.0, 1.0], [1.2, 0.8, 2.0, 5.0, 2.5])
+        with pytest.raises(ValueError) as refused:
+            linearize(economy, plan)
+        message = str(refused.value)
+        assert "unit 1" in message
+        assert "joint products are not supported by linearize yet" in message

@@ -28,10 +28,10 @@ from demplan import (
     INDICATIVE_PRICE,
     LABOR_VALUE,
     SHADOW_PRICE,
-    CommodityKind,
     Plan,
     SchemaError,
 )
+from reference import synthetic
 
 
 CONSUMPTION_COMMODITY = (2, 0, 1)
@@ -46,6 +46,18 @@ would pass on code that never reads the mapping.
 REQUIRED_FIELDS = ("output", "input_use")
 """The fixed fields no mechanism may declare absent."""
 
+RESOURCES = np.arange(synthetic.NATURE_BASE, synthetic.N_COMMODITIES, dtype=np.int64)
+"""The natural resources and the kinds of labour of ``synthetic_economy``, the commodities its
+endowment holds. :meth:`Plan.endowment_use` is told which commodities to count, and these are
+the ones a reader of this economy would name."""
+
+
+def call_accessor(plan, accessor: str, economy):
+    """Call one of the four derived accessors, passing ``resources`` to the one that takes it."""
+    if accessor == "endowment_use":
+        return plan.endowment_use(economy, RESOURCES)
+    return getattr(plan, accessor)(economy)
+
 
 @pytest.fixture
 def plan(synthetic_economy):
@@ -57,7 +69,7 @@ def plan(synthetic_economy):
             [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]]
         ),
         consumption_commodity=np.array(CONSUMPTION_COMMODITY, dtype=np.int64),
-        provision=np.array([0.0] * 3 + [11.0, 12.0, 13.0] + [0.0] * 9),
+        shared_use=np.array([0.0] * 3 + [11.0, 12.0, 13.0] + [0.0] * 9),
         valuation={INDICATIVE_PRICE: np.full(economy.n_commodities, 700.0)},
     )
 
@@ -113,7 +125,7 @@ class TestImmutability:
             plan.output = np.zeros(1)
 
     @pytest.mark.parametrize(
-        "field", ["output", "input_use", "consumption", "consumption_commodity", "provision"]
+        "field", ["output", "input_use", "consumption", "consumption_commodity", "shared_use"]
     )
     def test_arrays_are_read_only(self, plan, field):
         array = getattr(plan, field)
@@ -128,7 +140,7 @@ class TestImmutability:
             input_use=np.ones(synthetic_economy.n_inputs),
             consumption=np.ones((synthetic_economy.n_consumers, 0)),
             consumption_commodity=np.zeros(0, dtype=np.int64),
-            provision=np.zeros(synthetic_economy.n_commodities),
+            shared_use=np.zeros(synthetic_economy.n_commodities),
             valuation={INDICATIVE_PRICE: price},
         )
         assert output.flags.writeable is True
@@ -145,7 +157,7 @@ class TestImmutability:
             input_use=np.zeros(synthetic_economy.n_inputs),
             consumption=np.zeros((synthetic_economy.n_consumers, 0)),
             consumption_commodity=np.zeros(0, dtype=np.int64),
-            provision=np.zeros(synthetic_economy.n_commodities),
+            shared_use=np.zeros(synthetic_economy.n_commodities),
         )
         assert dict(bare.valuation) == {}
 
@@ -164,9 +176,9 @@ class TestValidate:
         with pytest.raises(SchemaError, match="input_use"):
             broken.validate(synthetic_economy)
 
-    def test_provision_length(self, plan, synthetic_economy):
-        broken = dataclasses.replace(plan, provision=plan.provision[:-1])
-        with pytest.raises(SchemaError, match="provision"):
+    def test_shared_use_length(self, plan, synthetic_economy):
+        broken = dataclasses.replace(plan, shared_use=plan.shared_use[:-1])
+        with pytest.raises(SchemaError, match="shared_use"):
             broken.validate(synthetic_economy)
 
     def test_consumption_row_count(self, plan, synthetic_economy):
@@ -187,7 +199,7 @@ class TestValidate:
         with pytest.raises(SchemaError, match="consumption_commodity"):
             broken.validate(synthetic_economy)
 
-    @pytest.mark.parametrize("field", ["output", "input_use", "consumption", "provision"])
+    @pytest.mark.parametrize("field", ["output", "input_use", "consumption", "shared_use"])
     @pytest.mark.parametrize("bad", [np.nan, np.inf])
     def test_physical_layer_must_be_finite(self, plan, synthetic_economy, field, bad):
         array = getattr(plan, field).copy()
@@ -357,7 +369,7 @@ class TestAccessorsRejectMisshapenPlans:
     def test_a_short_output_column_is_named(self, plan, synthetic_economy, accessor):
         broken = dataclasses.replace(plan, output=np.zeros(5))
         with pytest.raises(SchemaError) as excinfo:
-            getattr(broken, accessor)(synthetic_economy)
+            call_accessor(broken, accessor, synthetic_economy)
         message = str(excinfo.value)
         assert "Plan.output" in message
         assert "5" in message
@@ -367,13 +379,13 @@ class TestAccessorsRejectMisshapenPlans:
     def test_a_short_input_use_column_is_named(self, plan, synthetic_economy, accessor):
         broken = dataclasses.replace(plan, input_use=np.zeros(2))
         with pytest.raises(SchemaError, match=r"Plan\.input_use"):
-            getattr(broken, accessor)(synthetic_economy)
+            call_accessor(broken, accessor, synthetic_economy)
 
     @pytest.mark.parametrize("accessor", ACCESSORS)
-    def test_a_short_provision_column_is_named(self, plan, synthetic_economy, accessor):
-        broken = dataclasses.replace(plan, provision=np.zeros(2))
-        with pytest.raises(SchemaError, match=r"Plan\.provision"):
-            getattr(broken, accessor)(synthetic_economy)
+    def test_a_short_shared_use_column_is_named(self, plan, synthetic_economy, accessor):
+        broken = dataclasses.replace(plan, shared_use=np.zeros(2))
+        with pytest.raises(SchemaError, match=r"Plan\.shared_use"):
+            call_accessor(broken, accessor, synthetic_economy)
 
     @pytest.mark.parametrize("accessor", ACCESSORS)
     def test_a_consumption_block_with_the_wrong_row_count_is_named(
@@ -381,7 +393,7 @@ class TestAccessorsRejectMisshapenPlans:
     ):
         broken = dataclasses.replace(plan, consumption=plan.consumption[:-1])
         with pytest.raises(SchemaError, match=r"Plan\.consumption"):
-            getattr(broken, accessor)(synthetic_economy)
+            call_accessor(broken, accessor, synthetic_economy)
 
     @pytest.mark.parametrize("accessor", ACCESSORS)
     def test_a_consumption_commodity_outside_the_commodity_range_is_named(
@@ -391,7 +403,7 @@ class TestAccessorsRejectMisshapenPlans:
         columns[0] = synthetic_economy.n_commodities
         broken = dataclasses.replace(plan, consumption_commodity=columns)
         with pytest.raises(SchemaError, match=r"Plan\.consumption_commodity"):
-            getattr(broken, accessor)(synthetic_economy)
+            call_accessor(broken, accessor, synthetic_economy)
 
     def test_total_consumption_does_not_answer_for_a_plan_of_another_size(
         self, plan, synthetic_economy
@@ -413,11 +425,6 @@ class TestDerivedAccessors:
         )
         np.testing.assert_array_equal(plan.total_output(synthetic_economy), expected)
 
-    def test_total_output_ignores_unit_group(self, plan, synthetic_economy):
-        by_group = expected_scatter(
-            synthetic_economy.unit_group, plan.output, synthetic_economy.n_commodities
-        )
-        assert not np.array_equal(plan.total_output(synthetic_economy), by_group)
 
     def test_total_input_use(self, plan, synthetic_economy):
         expected = expected_scatter(
@@ -444,30 +451,31 @@ class TestDerivedAccessors:
             plan.total_consumption(synthetic_economy), ignoring_the_mapping
         )
 
-    def test_endowment_use_covers_only_natural_resources_and_labor(self, plan, synthetic_economy):
-        used = plan.endowment_use(synthetic_economy)
+    def test_endowment_use_covers_only_the_listed_commodities(self, plan, synthetic_economy):
+        used = plan.endowment_use(synthetic_economy, RESOURCES)
         total = plan.total_input_use(synthetic_economy)
-        kinds = np.asarray(synthetic_economy.commodity_kind)
-        endowed = (kinds == CommodityKind.NATURAL_RESOURCE) | (kinds == CommodityKind.LABOR)
-        np.testing.assert_array_equal(used[endowed], total[endowed])
-        np.testing.assert_array_equal(used[~endowed], np.zeros(int((~endowed).sum())))
+        listed = np.zeros(synthetic_economy.n_commodities, dtype=bool)
+        listed[RESOURCES] = True
+        np.testing.assert_array_equal(used[listed], total[listed])
+        np.testing.assert_array_equal(used[~listed], np.zeros(int((~listed).sum())))
 
-    def test_endowment_use_excludes_intermediates(self, plan, synthetic_economy):
-        used = plan.endowment_use(synthetic_economy)
+    def test_endowment_use_leaves_out_an_input_nobody_listed(self, plan, synthetic_economy):
+        """The intermediate goods are drawn on as inputs and are not in ``RESOURCES``."""
+        used = plan.endowment_use(synthetic_economy, RESOURCES)
         total = plan.total_input_use(synthetic_economy)
-        intermediates = np.asarray(synthetic_economy.commodity_kind) == CommodityKind.INTERMEDIATE
+        intermediates = slice(synthetic.INTER_BASE, synthetic.NATURE_BASE)
         assert total[intermediates].sum() > 0.0
         assert used[intermediates].sum() == 0.0
 
     def test_accessors_return_commodity_length_vectors(self, plan, synthetic_economy):
-        for accessor in (plan.total_output, plan.total_input_use, plan.total_consumption,
-                         plan.endowment_use):
-            result = accessor(synthetic_economy)
+        for accessor in ("total_output", "total_input_use", "total_consumption",
+                         "endowment_use"):
+            result = call_accessor(plan, accessor, synthetic_economy)
             assert result.shape == (synthetic_economy.n_commodities,)
             assert result.dtype == np.float64
 
 
-OPTIONAL_FIELDS = ("consumption", "consumption_commodity", "provision")
+OPTIONAL_FIELDS = ("consumption", "consumption_commodity", "shared_use")
 """The fixed fields a mechanism may declare absent, in the order :class:`Plan` declares them."""
 
 
@@ -475,7 +483,7 @@ OPTIONAL_FIELDS = ("consumption", "consumption_commodity", "provision")
 def bare_plan(plan):
     """``plan`` with every optional fixed field declared absent."""
     return dataclasses.replace(
-        plan, consumption=None, consumption_commodity=None, provision=None
+        plan, consumption=None, consumption_commodity=None, shared_use=None
     )
 
 
@@ -492,16 +500,16 @@ class TestAbsenceIsDeclaredNotDefaulted:
         with pytest.raises(TypeError, match=field):
             Plan(**arguments)
 
-    def test_a_plan_may_declare_the_consumption_pair_and_provision_absent(
+    def test_a_plan_may_declare_the_consumption_pair_and_shared_use_absent(
         self, bare_plan, synthetic_economy
     ):
         bare_plan.validate(synthetic_economy)
         assert bare_plan.consumption is None
         assert bare_plan.consumption_commodity is None
-        assert bare_plan.provision is None
+        assert bare_plan.shared_use is None
 
-    def test_provision_alone_may_be_absent(self, plan, synthetic_economy):
-        dataclasses.replace(plan, provision=None).validate(synthetic_economy)
+    def test_shared_use_alone_may_be_absent(self, plan, synthetic_economy):
+        dataclasses.replace(plan, shared_use=None).validate(synthetic_economy)
 
     def test_the_consumption_pair_alone_may_be_absent(self, plan, synthetic_economy):
         dataclasses.replace(
@@ -552,7 +560,7 @@ class TestTheRequiredArraysAreRefusedAtConstruction:
                 input_use=plan.input_use,
                 consumption=None,
                 consumption_commodity=None,
-                provision=None,
+                shared_use=None,
             )
 
     def test_it_answers_before_the_consumption_pairing_check(self, plan):
@@ -563,7 +571,7 @@ class TestTheRequiredArraysAreRefusedAtConstruction:
                 input_use=None,
                 consumption=None,
                 consumption_commodity=plan.consumption_commodity,
-                provision=None,
+                shared_use=None,
             )
         assert "Plan.output" in str(excinfo.value)
 
@@ -571,7 +579,7 @@ class TestTheRequiredArraysAreRefusedAtConstruction:
         """What the divergence watch and the determinism comparison are left to read."""
         carried = [
             name
-            for name in ("output", "input_use", "consumption", "provision")
+            for name in ("output", "input_use", "consumption", "shared_use")
             if getattr(bare_plan, name) is not None
         ]
         assert carried == ["output", "input_use"]
@@ -611,11 +619,11 @@ class TestAbsentFields:
         assert bare_plan.absent_fields == (
             "consumption",
             "consumption_commodity",
-            "provision",
+            "shared_use",
         )
 
     def test_one_absent_field_is_listed_alone(self, plan):
-        assert dataclasses.replace(plan, provision=None).absent_fields == ("provision",)
+        assert dataclasses.replace(plan, shared_use=None).absent_fields == ("shared_use",)
 
     def test_the_order_is_the_order_the_fields_are_declared_in(self, bare_plan):
         declared = [field.name for field in dataclasses.fields(Plan)]
@@ -641,8 +649,8 @@ class TestAccessorsOnAPlanWithAbsentFields:
         self, plan, bare_plan, synthetic_economy, accessor
     ):
         np.testing.assert_array_equal(
-            getattr(bare_plan, accessor)(synthetic_economy),
-            getattr(plan, accessor)(synthetic_economy),
+            call_accessor(bare_plan, accessor, synthetic_economy),
+            call_accessor(plan, accessor, synthetic_economy),
         )
 
     @pytest.mark.parametrize("accessor", UNAFFECTED)
@@ -655,8 +663,8 @@ class TestAccessorsOnAPlanWithAbsentFields:
             fields = {"consumption": None, "consumption_commodity": None}
         partial = dataclasses.replace(plan, **fields)
         np.testing.assert_array_equal(
-            getattr(partial, accessor)(synthetic_economy),
-            getattr(plan, accessor)(synthetic_economy),
+            call_accessor(partial, accessor, synthetic_economy),
+            call_accessor(plan, accessor, synthetic_economy),
         )
 
     def test_total_consumption_refuses_instead_of_answering_zero(
@@ -819,14 +827,14 @@ class TestPlanSubclasses:
             input_use=plan.input_use,
             consumption=plan.consumption,
             consumption_commodity=plan.consumption_commodity,
-            provision=plan.provision,
+            shared_use=plan.shared_use,
             valuation=dict(plan.valuation),
         )
         typed.validate(synthetic_economy)
         for accessor in ("total_output", "total_input_use", "total_consumption", "endowment_use"):
             np.testing.assert_array_equal(
-                getattr(typed, accessor)(synthetic_economy),
-                getattr(plan, accessor)(synthetic_economy),
+                call_accessor(typed, accessor, synthetic_economy),
+                call_accessor(plan, accessor, synthetic_economy),
             )
 
     @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
@@ -836,10 +844,10 @@ class TestPlanSubclasses:
             input_use=plan.input_use,
             consumption=None,
             consumption_commodity=None,
-            provision=None,
+            shared_use=None,
         )
         typed.validate(synthetic_economy)
-        assert typed.absent_fields == ("consumption", "consumption_commodity", "provision")
+        assert typed.absent_fields == ("consumption", "consumption_commodity", "shared_use")
 
     @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
     def test_replacing_a_field_keeps_the_identity(self, plan, subclass):
@@ -849,9 +857,9 @@ class TestPlanSubclasses:
                 input_use=plan.input_use,
                 consumption=plan.consumption,
                 consumption_commodity=plan.consumption_commodity,
-                provision=plan.provision,
+                shared_use=plan.shared_use,
             ),
-            provision=None,
+            shared_use=None,
         )
         assert isinstance(typed, subclass)
 
@@ -869,7 +877,7 @@ class TestRequireComparable:
             input_use=plan.input_use,
             consumption=plan.consumption,
             consumption_commodity=plan.consumption_commodity,
-            provision=plan.provision,
+            shared_use=plan.shared_use,
         )
 
     @pytest.mark.parametrize("subclass", [StatedPlan, AllocatedPlan])
@@ -1080,3 +1088,159 @@ class TestTheValuationRegistryIsComplete:
             "Extra key:"
         )
         assert published_key_constants() == roles
+
+
+@pytest.fixture
+def joint_economy():
+    return synthetic.build_joint_product_economy()
+
+
+@pytest.fixture
+def joint_plan(joint_economy):
+    """A plan of the joint-product economy: one output quantity per output entry."""
+    economy = joint_economy
+    return Plan(
+        output=np.arange(1, economy.n_outputs + 1, dtype=np.float64),
+        input_use=np.arange(1, economy.n_inputs + 1, dtype=np.float64),
+        consumption=None,
+        consumption_commodity=None,
+        shared_use=None,
+    )
+
+
+class TestOutputIsOnePerOutputEntry:
+    """``output`` lines up with ``economy.output_commodity``, not with the units."""
+
+    def test_a_plan_with_one_quantity_per_output_entry_validates(
+        self, joint_plan, joint_economy
+    ):
+        joint_plan.validate(joint_economy)
+
+    def test_one_quantity_per_unit_is_refused_when_a_unit_has_two_outputs(
+        self, joint_plan, joint_economy
+    ):
+        per_unit = dataclasses.replace(joint_plan, output=np.ones(joint_economy.n_units))
+        with pytest.raises(SchemaError) as excinfo:
+            per_unit.validate(joint_economy)
+        message = str(excinfo.value)
+        assert "Plan.output" in message
+        assert str(joint_economy.n_outputs) in message
+        assert "output entries" in message
+
+    def test_total_output_refuses_one_quantity_per_unit(self, joint_plan, joint_economy):
+        per_unit = dataclasses.replace(joint_plan, output=np.ones(joint_economy.n_units))
+        with pytest.raises(SchemaError, match=r"Plan\.output"):
+            per_unit.total_output(joint_economy)
+
+    def test_total_output_sums_every_output_entry_by_its_commodity(
+        self, joint_plan, joint_economy
+    ):
+        expected = expected_scatter(
+            joint_economy.output_commodity, joint_plan.output, joint_economy.n_commodities
+        )
+        np.testing.assert_array_equal(joint_plan.total_output(joint_economy), expected)
+
+    def test_total_output_worked_by_hand(self, joint_plan, joint_economy):
+        """Entries 1..11 over commodities ``[0, 7, 1, 2, 3, 8, 4, 5, 6, 7, 8]``."""
+        expected = np.zeros(joint_economy.n_commodities)
+        expected[[0, 1, 2, 3, 4, 5, 6]] = [1.0, 3.0, 4.0, 5.0, 7.0, 8.0, 9.0]
+        expected[7] = 2.0 + 10.0
+        expected[8] = 6.0 + 11.0
+        np.testing.assert_array_equal(joint_plan.total_output(joint_economy), expected)
+
+    def test_reading_the_entries_one_per_unit_would_file_them_elsewhere(
+        self, joint_plan, joint_economy
+    ):
+        """Without this the worked total above would hold for a reading that ignored the layout."""
+        first_entry_per_unit = np.asarray(joint_economy.output_commodity)[
+            np.asarray(joint_economy.output_offsets)[:-1]
+        ]
+        per_unit = expected_scatter(
+            first_entry_per_unit, joint_plan.output[: joint_economy.n_units],
+            joint_economy.n_commodities,
+        )
+        assert not np.array_equal(joint_plan.total_output(joint_economy), per_unit)
+
+
+class TestEndowmentUseTakesTheCommoditiesToCount:
+    """``endowment_use`` counts the commodities it is told to, and has no default list."""
+
+    def test_calling_it_without_resources_is_a_missing_argument(self, plan, synthetic_economy):
+        with pytest.raises(TypeError, match="resources"):
+            plan.endowment_use(synthetic_economy)
+
+    def test_the_listed_commodities_carry_their_input_use(self, plan, synthetic_economy):
+        listed = np.array([13, 6], dtype=np.int64)
+        used = plan.endowment_use(synthetic_economy, listed)
+        expected = np.zeros(synthetic_economy.n_commodities)
+        total = expected_scatter(
+            synthetic_economy.input_commodity, plan.input_use, synthetic_economy.n_commodities
+        )
+        expected[13] = total[13]
+        expected[6] = total[6]
+        np.testing.assert_array_equal(used, expected)
+        assert expected[6] > 0.0 and expected[13] > 0.0
+
+    def test_an_empty_list_counts_nothing(self, plan, synthetic_economy):
+        used = plan.endowment_use(synthetic_economy, np.zeros(0, dtype=np.int64))
+        np.testing.assert_array_equal(used, np.zeros(synthetic_economy.n_commodities))
+
+    def test_a_listed_commodity_nobody_draws_on_is_zero(self, plan, synthetic_economy):
+        """Commodity 0 is a private good no unit takes as an input."""
+        used = plan.endowment_use(synthetic_economy, np.array([0], dtype=np.int64))
+        np.testing.assert_array_equal(used, np.zeros(synthetic_economy.n_commodities))
+
+    @pytest.mark.parametrize("bad", [-1, 15])
+    def test_an_index_outside_the_commodity_range_is_refused(self, plan, synthetic_economy, bad):
+        with pytest.raises(ValueError, match=str(bad)):
+            plan.endowment_use(synthetic_economy, np.array([9, bad], dtype=np.int64))
+
+    def test_a_duplicate_index_is_refused(self, plan, synthetic_economy):
+        with pytest.raises(ValueError, match="12"):
+            plan.endowment_use(synthetic_economy, np.array([12, 9, 12], dtype=np.int64))
+
+    def test_a_two_dimensional_array_is_refused(self, plan, synthetic_economy):
+        with pytest.raises(ValueError, match="resources"):
+            plan.endowment_use(synthetic_economy, RESOURCES.reshape(2, 3))
+
+    def test_a_float_array_is_refused(self, plan, synthetic_economy):
+        with pytest.raises(ValueError, match="resources"):
+            plan.endowment_use(synthetic_economy, RESOURCES.astype(np.float64))
+
+    def test_a_plan_of_another_size_is_still_refused_first(self, plan, synthetic_economy):
+        broken = dataclasses.replace(plan, input_use=np.zeros(2))
+        with pytest.raises(SchemaError, match=r"Plan\.input_use"):
+            broken.endowment_use(synthetic_economy, RESOURCES)
+
+
+class TestSharedUse:
+    """``shared_use`` is a use per commodity, shared by consumers; ``provision`` is gone."""
+
+    def test_provision_is_not_a_field(self):
+        assert "provision" not in {field.name for field in dataclasses.fields(Plan)}
+        assert "shared_use" in {field.name for field in dataclasses.fields(Plan)}
+
+    def test_passing_provision_is_an_unexpected_argument(self, plan):
+        with pytest.raises(TypeError, match="provision"):
+            Plan(
+                output=plan.output,
+                input_use=plan.input_use,
+                consumption=None,
+                consumption_commodity=None,
+                provision=None,
+            )
+
+    def test_leaving_shared_use_out_is_a_missing_argument(self, plan):
+        with pytest.raises(TypeError, match="shared_use"):
+            Plan(
+                output=plan.output,
+                input_use=plan.input_use,
+                consumption=None,
+                consumption_commodity=None,
+            )
+
+    def test_the_fields_come_in_the_documented_order(self):
+        assert [field.name for field in dataclasses.fields(Plan)] == [
+            "output", "input_use", "consumption", "consumption_commodity", "shared_use",
+            "valuation", "extra",
+        ]

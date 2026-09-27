@@ -18,7 +18,7 @@ import math
 
 import numpy as np
 
-from demplan.economy import CommodityKind, Economy
+from demplan.economy import Economy
 from demplan.iterate import iterate
 from demplan.plan import Plan
 from demplan.prefabs.hahnel.councils import (
@@ -28,6 +28,7 @@ from demplan.prefabs.hahnel.councils import (
     CouncilModel,
     PriceRule,
 )
+from demplan.prefabs.hahnel.labels import kind_labels, private_goods, shared_goods
 from demplan.seeds import rng
 from demplan.tools import unit_of_input
 
@@ -292,9 +293,6 @@ def increasing_returns(
     )
 
 
-_FINAL_GOODS = (CommodityKind.PRIVATE_GOOD, CommodityKind.PUBLIC_GOOD)
-
-
 def real_gdp_growth(
     economy_1: Economy, plan_1: Plan, economy_2: Economy, plan_2: Plan
 ) -> float:
@@ -310,27 +308,29 @@ def real_gdp_growth(
 
     and the growth reported is the mean of ``g(p_1)`` and ``g(p_2)``.
 
-    The goods are the commodities whose ``commodity_kind`` is a private or a public good in
-    ``economy_1``.
+    The goods are the commodities :func:`private_goods` and :func:`shared_goods` select in
+    ``economy_1``, in ascending order.
 
     Raises ``ValueError`` when the two economies differ in ``n_commodities`` or in
-    ``commodity_kind``, when either plan has no ``"next_indicative_price"``, or when year
-    one's goods are worth 0 at either price vector: ``p . q_1`` is the denominator of
-    ``g(p)``, so the growth is undefined. The message names the price vector, year one's or
-    year two's.
+    ``commodity_extra["hahnel_kind"]``, when either economy has no such labels, when either
+    plan has no ``"next_indicative_price"``, or when year one's goods are worth 0 at either
+    price vector: ``p . q_1`` is the denominator of ``g(p)``, so the growth is undefined. The
+    message names the price vector, year one's or year two's.
     """
     if economy_1.n_commodities != economy_2.n_commodities:
         raise ValueError(
             f"the two economies differ in n_commodities: {economy_1.n_commodities} and "
             f"{economy_2.n_commodities}"
         )
-    if not np.array_equal(economy_1.commodity_kind, economy_2.commodity_kind):
-        raise ValueError("the two economies differ in commodity_kind")
+    labels_1 = kind_labels(economy_1, "real_gdp_growth")
+    labels_2 = kind_labels(economy_2, "real_gdp_growth")
+    if not np.array_equal(labels_1, labels_2):
+        raise ValueError("the two economies differ in commodity_extra['hahnel_kind']")
     for label, plan in (("plan_1", plan_1), ("plan_2", plan_2)):
         if NEXT_INDICATIVE_PRICE not in plan.valuation:
             raise ValueError(f"{label} has no valuation[{NEXT_INDICATIVE_PRICE!r}]")
 
-    goods = np.isin(economy_1.commodity_kind, [int(kind) for kind in _FINAL_GOODS])
+    goods = np.union1d(private_goods(economy_1), shared_goods(economy_1))
     quantity_1 = plan_1.total_output(economy_1)[goods]
     quantity_2 = plan_2.total_output(economy_2)[goods]
     price_1 = np.asarray(plan_1.valuation[NEXT_INDICATIVE_PRICE])[goods]

@@ -17,7 +17,7 @@ from demplan.configuration import (
     economy_digest,
     run_configuration,
 )
-from demplan.economy import CommodityKind, Economy, SchemaError, TechnologyKind
+from demplan.economy import COBB_DOUGLAS, LEONTIEF, Economy, SchemaError
 from demplan.io import load_dep1ex
 from demplan.iterate import IterateResult, iterate
 from demplan.objectives import MaximizeWeightedConsumption, MinimizeLabor, Objective
@@ -55,8 +55,8 @@ from demplan import prefabs, tools
 __all__ = [
     "Advance",
     "AllocatedPlan",
+    "COBB_DOUGLAS",
     "CONSUMER_DEMAND",
-    "CommodityKind",
     "ConfigurationError",
     "DeterminismReport",
     "EFFORT",
@@ -66,6 +66,7 @@ __all__ = [
     "INDICATIVE_PRICE",
     "IterateResult",
     "LABOR_VALUE",
+    "LEONTIEF",
     "MaximizeWeightedConsumption",
     "MinimizeLabor",
     "NextProcedure",
@@ -85,7 +86,6 @@ __all__ = [
     "SHADOW_PRICE",
     "SchemaError",
     "StatedPlan",
-    "TechnologyKind",
     "check_determinism",
     "compare_economy_digests",
     "core_version",

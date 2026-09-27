@@ -23,7 +23,7 @@ _recorder: contextvars.ContextVar[list["IterateResult"] | None] = contextvars.Co
 )
 """Where :func:`demplan.procedure.run` collects the results of the loops it wraps."""
 
-_WATCHED_FIELDS = ("output", "input_use", "consumption", "provision")
+_WATCHED_FIELDS = ("output", "input_use", "consumption", "shared_use")
 """The plan fields the divergence watch reads.
 
 ``consumption_commodity`` is an index column rather than a quantity, so there is no
@@ -68,7 +68,7 @@ def iterate(
     ``None``: a loop nobody watched is not a loop that stayed finite.
 
     The watch covers the physical fields the plan carries and no others. A mechanism whose
-    plans declare ``consumption`` and ``provision`` absent is watched on ``output`` and
+    plans declare ``consumption`` and ``shared_use`` absent is watched on ``output`` and
     ``input_use`` alone, so ``diverged=False`` from such a run says those two stayed finite
     and says nothing about quantities the mechanism does not compute.
 

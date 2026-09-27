@@ -7,12 +7,15 @@ function, and the first-order condition is read off the result.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from demplan.tools import cobb_douglas, leontief
+from reference import synthetic
 
 RELATIVE_TOLERANCE = 1e-9
 
@@ -138,3 +141,36 @@ class TestLeontief:
                 np.asarray(economy.input_coefficient[window]), float(output[unit])
             )
             np.testing.assert_array_equal(flat[window], one)
+
+
+class TestJointProductsAreRefused:
+    """Both flat forms take one output quantity per unit, which a joint product does not have."""
+
+    def test_leontief_requirements_refuse_a_unit_with_two_outputs(self):
+        economy = synthetic.build_joint_product_economy()
+        with pytest.raises(ValueError) as refused:
+            leontief.input_requirements_flat(economy, np.ones(economy.n_units))
+        message = str(refused.value)
+        assert "unit 0" in message
+        assert "joint products are not supported by input_requirements_flat yet" in message
+
+    def test_cobb_douglas_bundles_refuse_a_unit_with_two_outputs(self):
+        economy = synthetic.build_joint_product_economy()
+        with pytest.raises(ValueError) as refused:
+            cobb_douglas.cost_minimizing_inputs_flat(
+                economy, np.ones(economy.n_units), np.ones(economy.n_commodities)
+            )
+        message = str(refused.value)
+        assert "unit 0" in message
+        assert "joint products are not supported by cost_minimizing_inputs_flat yet" in message
+
+    def test_the_refusal_names_the_first_joint_unit_whichever_it_is(self, synthetic_economy):
+        """Only unit 4 lists two outputs here."""
+        economy = dataclasses.replace(
+            synthetic_economy,
+            output_offsets=np.array([0, 1, 2, 3, 4, 6, 7, 8, 9, 10], dtype=np.int64),
+            output_commodity=np.array([0, 1, 2, 3, 4, 8, 5, 6, 7, 8], dtype=np.int64),
+            output_coefficient=np.ones(10),
+        )
+        with pytest.raises(ValueError, match=r"unit 4\b"):
+            leontief.input_requirements_flat(economy, np.ones(economy.n_units))

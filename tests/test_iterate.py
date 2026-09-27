@@ -26,7 +26,7 @@ def plan_with(value: float, field: str = "output") -> Plan:
         "output": np.ones(3),
         "input_use": np.ones(4),
         "consumption": np.ones((2, 2)),
-        "provision": np.ones(3),
+        "shared_use": np.ones(3),
     }
     fields[field] = np.full_like(fields[field], value)
     return Plan(
@@ -34,7 +34,7 @@ def plan_with(value: float, field: str = "output") -> Plan:
         input_use=fields["input_use"],
         consumption=fields["consumption"],
         consumption_commodity=np.array([0, 1], dtype=np.int64),
-        provision=fields["provision"],
+        shared_use=fields["shared_use"],
     )
 
 
@@ -117,7 +117,7 @@ class TestTrajectory:
 
 
 class TestDivergence:
-    @pytest.mark.parametrize("field", ["output", "input_use", "consumption", "provision"])
+    @pytest.mark.parametrize("field", ["output", "input_use", "consumption", "shared_use"])
     @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
     def test_a_non_finite_physical_array_stops_the_loop(self, field, bad):
         def plan_of(state: int) -> Plan:
@@ -147,7 +147,7 @@ class TestDivergence:
                 input_use=np.ones(4),
                 consumption=np.ones((2, 2)),
                 consumption_commodity=np.array([0, 1], dtype=np.int64),
-                provision=np.ones(3),
+                shared_use=np.ones(3),
                 valuation={"indicative_price": np.full(3, np.nan)},
             )
 
@@ -267,13 +267,13 @@ class TestDivergenceHasThreeAnswers:
 
 
 def bare_plan_with(value: float) -> Plan:
-    """A plan that declares the consumption block and provision absent."""
+    """A plan that declares the consumption block and shared_use absent."""
     return Plan(
         output=np.full(3, value),
         input_use=np.ones(4),
         consumption=None,
         consumption_commodity=None,
-        provision=None,
+        shared_use=None,
     )
 
 
@@ -326,7 +326,7 @@ class TestDivergenceOnAPlanWithAbsentFields:
             plan_of=lambda s: bare_plan_with(float(s)),
         )
         assert [p.absent_fields for p in result.trajectory] == [
-            ("consumption", "consumption_commodity", "provision")
+            ("consumption", "consumption_commodity", "shared_use")
         ] * 2
 
 
@@ -346,7 +346,7 @@ class TestTheWatchAlwaysHasAColumnToRead:
                 input_use=None,
                 consumption=None,
                 consumption_commodity=None,
-                provision=None,
+                shared_use=None,
             )
 
         with pytest.raises(SchemaError, match=r"Plan\.output"):

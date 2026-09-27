@@ -653,7 +653,7 @@ def year_end_plan(economy, year) -> StatedPlan:
         input_use=np.zeros(economy.n_inputs),
         consumption=None,
         consumption_commodity=None,
-        provision=None,
+        shared_use=None,
         valuation={NEXT_INDICATIVE_PRICE: last.price_after},
         extra={PRICE_RULE_STATE: last.pdlist},
     )

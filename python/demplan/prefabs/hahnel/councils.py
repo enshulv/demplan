@@ -21,10 +21,12 @@ the whole society rather than once per council. The two halves of that rule canc
 moves no number the plan reports; :class:`CouncilModel` sets out why, and what it would take
 to give the rule consequences.
 
-The production function is ``Q = a * e**c * prod(x_j ** b_j)``: the Cobb-Douglas input bundle
-of the data model with an effort factor, where ``e`` is the effort the worker council chose
-and ``c`` is ``effort_c``. Both the effort and the consumer councils' demand per commodity
-go into ``Plan.extra``, because neither can be recovered from the physical layer.
+The production function is ``Q = a * e**c * prod(x_j ** b_j)``: a Cobb-Douglas input bundle
+with an effort factor, where ``e`` is the effort the worker council chose and ``c`` is
+``effort_c``. The economy says so by labelling every unit
+:data:`~demplan.prefabs.hahnel.TECHNOLOGY`, and says which class each commodity belongs to in
+``commodity_extra["hahnel_kind"]``. Both the effort and the consumer councils' demand per
+commodity go into ``Plan.extra``, because neither can be recovered from the physical layer.
 """
 
 from __future__ import annotations
@@ -34,9 +36,10 @@ from typing import Callable, Protocol
 
 import numpy as np
 
-from demplan.economy import CommodityKind, Economy, TechnologyKind
+from demplan.economy import Economy
 from demplan.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, Plan, StatedPlan
-from demplan.tools import segment_sum, unit_of_input
+from demplan.prefabs.hahnel.labels import PRIVATE_GOOD, PUBLIC_GOOD, TECHNOLOGY, kind_labels
+from demplan.tools import _require_one_output_per_unit, segment_sum, unit_of_input
 
 NEXT_INDICATIVE_PRICE = "next_indicative_price"
 """Valuation key: the price the rule returned in a round, the price the next round would use."""
@@ -139,7 +142,7 @@ class _State:
     effort: np.ndarray | None = None
     input_use: np.ndarray | None = None
     consumption: np.ndarray | None = None
-    provision: np.ndarray | None = None
+    shared_use: np.ndarray | None = None
     consumer_demand: np.ndarray | None = None
     worst_imbalance: float = float("inf")
 
@@ -165,7 +168,7 @@ class CouncilModel:
     Measured on dep1ex01, at 30000 consumer units, under the rule of
     :class:`~demplan.prefabs.hahnel.Book2021Rule`, at the 5 percent and at the 3 percent
     threshold: the run converges in 12 rounds and in 19 rounds either way. Every array the plan
-    carries -- ``output``, ``input_use``, ``consumption``, ``provision``, both prices in
+    carries -- ``output``, ``input_use``, ``consumption``, the public-good supply, both prices in
     ``valuation``, ``extra["effort"]`` and ``extra["consumer_demand"]`` -- stays within 6e-14
     relative of the run that applies the rule, and ``extra["price_rule_state"]``, a relative
     imbalance and so a difference of two nearly equal totals, within 1.1e-12. That is rounding
@@ -179,12 +182,17 @@ class CouncilModel:
     observable one column at a time: on a public-good column :meth:`_demand` states
     ``n_consumers`` times what it states on a private-good column carrying the same exponent.
 
-    A utility-exponent column names a commodity of any kind, so the columns fall into three
+    A utility-exponent column names a commodity of any class, so the columns fall into three
     cases and not two. The private-good columns are the plan's ``consumption`` block. The
-    public-good columns, and the columns whose commodity is neither a private nor a public
-    good, reach the plan only through ``extra["consumer_demand"]``; that array reports all
-    three cases together, as the quantity each commodity's columns put into this round's
-    demand.
+    public-good columns reach the plan as ``shared_use``, the councils' stated level of each
+    public good: the sum of their stated demands divided by the number of consumer units.
+    The columns whose commodity is neither a private nor a public good reach it only through
+    ``extra["consumer_demand"]``, which reports all three cases together, as the quantity each
+    commodity's columns put into this round's demand.
+
+    The economy has to label every unit :data:`~demplan.prefabs.hahnel.TECHNOLOGY`, give
+    every unit exactly one output entry, and carry ``commodity_extra["hahnel_kind"]`` holding
+    the five class labels; ``__init__`` raises ``ValueError`` saying which is missing.
 
     Everything that does not change with the price is computed once in ``__init__``: the flat
     input layout, the price-independent part of the worker councils' closed form, and the split
@@ -196,7 +204,9 @@ class CouncilModel:
     """
 
     def __init__(self, economy: Economy, threshold_pct: float, price_rule: PriceRule):
-        _require_cobb_douglas(economy)
+        _require_the_hahnel_technology(economy)
+        _require_one_output_per_unit(economy, "CouncilModel")
+        kinds = kind_labels(economy, "CouncilModel")
         _require_keys(economy.unit_extra, _REQUIRED_UNIT_KEYS, "unit_extra")
         _require_keys(economy.consumer_extra, _REQUIRED_CONSUMER_KEYS, "consumer_extra")
 
@@ -233,14 +243,13 @@ class CouncilModel:
         self.exponent_commodity = np.asarray(economy.consumer_extra["utility_exponent_commodity"])
         self.total_exponent = self.utility_exponent.sum(axis=1)
 
-        kinds = np.asarray(economy.commodity_kind)
-        self.public_commodity = kinds == CommodityKind.PUBLIC_GOOD
+        self.public_commodity = kinds == PUBLIC_GOOD
 
         # The split is by one question -- is the column's commodity a private good -- because
         # the private-good columns are the plan's consumption block and nothing else is.
         column_kind = kinds[self.exponent_commodity]
-        self.private_column = np.flatnonzero(column_kind == CommodityKind.PRIVATE_GOOD)
-        other_column = np.flatnonzero(column_kind != CommodityKind.PRIVATE_GOOD)
+        self.private_column = np.flatnonzero(column_kind == PRIVATE_GOOD)
+        other_column = np.flatnonzero(column_kind != PRIVATE_GOOD)
         self.consumption_commodity = self.exponent_commodity[self.private_column].astype(np.int64)
         self.other_commodity = self.exponent_commodity[other_column].astype(np.int64)
         self.other_is_public = self.public_commodity[self.other_commodity]
@@ -299,7 +308,7 @@ class CouncilModel:
             effort=effort,
             input_use=input_use,
             consumption=private_demand,
-            provision=np.where(self.public_commodity, supply, 0.0),
+            shared_use=np.where(self.public_commodity, consumer_demand, 0.0),
             consumer_demand=consumer_demand,
             worst_imbalance=float(np.max(imbalance)),
         )
@@ -336,7 +345,7 @@ class CouncilModel:
             input_use=state.input_use,
             consumption=state.consumption,
             consumption_commodity=self.consumption_commodity,
-            provision=state.provision,
+            shared_use=state.shared_use,
             valuation={
                 INDICATIVE_PRICE: state.price,
                 NEXT_INDICATIVE_PRICE: state.next_price,
@@ -409,7 +418,7 @@ class CouncilModel:
         """Supply, total demand, and the consumer councils' part of it, one per commodity.
 
         The two blocks of stated demand scatter onto disjoint commodities, because a commodity
-        carries one ``commodity_kind`` and the blocks are split by that kind. A public-good
+        carries one ``hahnel_kind`` and the blocks are split by that label. A public-good
         column contributes its total divided by the number of consumer units; every other
         column contributes its total whole.
         """
@@ -434,12 +443,17 @@ class CouncilModel:
         return supply, demand, consumption
 
 
-def _require_cobb_douglas(economy: Economy) -> None:
-    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != TechnologyKind.COBB_DOUGLAS)
+def _require_the_hahnel_technology(economy: Economy) -> None:
+    """Refuse a unit whose ``technology_kind`` is not :data:`TECHNOLOGY`, naming it."""
+    wrong = np.flatnonzero(np.asarray(economy.technology_kind) != TECHNOLOGY)
     if wrong.size:
+        unit = int(wrong[0])
         raise ValueError(
-            f"CouncilModel is the Cobb-Douglas closed form, but unit {int(wrong[0])} "
-            f"carries technology_kind {int(economy.technology_kind[wrong[0]])}"
+            f"CouncilModel is the closed form of the Cobb-Douglas technology with an effort "
+            f"factor, Q = a * e**c * prod(x_j ** b_j), which an economy labels {TECHNOLOGY!r}; "
+            f"unit {unit} carries technology_kind {str(economy.technology_kind[unit])!r}. "
+            "If that unit's technology is this one, label it "
+            "demplan.prefabs.hahnel.TECHNOLOGY, as demplan.load_dep1ex does."
         )
 
 

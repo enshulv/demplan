@@ -13,15 +13,19 @@ def load_dep1ex(path: str | os.PathLike[str], endowment: float = 1000.0) -> Econ
     """Load one dep1ex archive from the Hahnel-Szczepanczyk-Weisdorf experiments.
 
     Commodities come out in five contiguous sections, in this order: private consumption
-    goods, public goods, intermediate goods, natural resources, labour. Producing units and
-    consumer units keep the order they appear in the archive.
+    goods, public goods, intermediate goods, natural resources, labour. Each commodity's
+    section is written as a text label in ``commodity_extra["hahnel_kind"]``, and every
+    producing unit is labelled ``"hahnel_cobb_douglas_effort"`` in ``technology_kind`` with one
+    output entry of coefficient 1; :mod:`demplan.prefabs.hahnel` names both. Producing units
+    and consumer units keep the order they appear in the archive.
 
     ``endowment`` is the per-commodity quantity available without production, applied to every
     natural resource and every kind of labour. The archives do not carry it; the figure comes
     from the papers' text, where it is 1000 per commodity.
 
     Parsing happens in the Rust core, which reads the file once and hands back a mapping of
-    columns. Raises ``NotImplementedError`` while the core does not export the loader.
+    columns, text columns as lists of ``str``. Raises ``NotImplementedError`` while the core
+    does not export the loader.
     """
     from demplan import _core
 

@@ -1,8 +1,10 @@
 //! Python extension module `demplan._core`.
 //!
-//! The module hands the Rust data model to Python as plain dictionaries of numpy
-//! arrays. Keys match the column names of the data model, so the Python package
-//! can build its own immutable data classes without a second naming scheme.
+//! The module hands the Rust data model to Python as plain dictionaries. Numeric
+//! columns arrive as numpy arrays; text columns (`technology_kind` and text extra
+//! arrays) arrive as a `list` of `str`, which the Python package converts. Keys
+//! match the column names of the data model, so the Python package can build its
+//! own immutable data classes without a second naming scheme.
 
 use std::collections::BTreeMap;
 
@@ -12,7 +14,7 @@ use numpy::{Element, IntoPyArray, PyArrayDyn};
 use pyo3::create_exception;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 
 create_exception!(
     _core,
@@ -64,7 +66,6 @@ fn economy_to_dict(py: Python<'_>, economy: Economy) -> PyResult<Bound<'_, PyDic
     dict.set_item("period", economy.period)?;
 
     dict.set_item("commodity_id", economy.commodity_id.into_pyarray(py))?;
-    dict.set_item("commodity_kind", economy.commodity_kind.into_pyarray(py))?;
     dict.set_item("endowment", economy.endowment.into_pyarray(py))?;
     dict.set_item(
         "commodity_extra",
@@ -72,12 +73,7 @@ fn economy_to_dict(py: Python<'_>, economy: Economy) -> PyResult<Bound<'_, PyDic
     )?;
 
     dict.set_item("unit_id", economy.unit_id.into_pyarray(py))?;
-    dict.set_item("unit_group", economy.unit_group.into_pyarray(py))?;
-    dict.set_item(
-        "output_commodity",
-        economy.output_commodity.into_pyarray(py),
-    )?;
-    dict.set_item("technology_kind", economy.technology_kind.into_pyarray(py))?;
+    dict.set_item("technology_kind", PyList::new(py, economy.technology_kind)?)?;
     dict.set_item(
         "technology_scale",
         economy.technology_scale.into_pyarray(py),
@@ -88,23 +84,33 @@ fn economy_to_dict(py: Python<'_>, economy: Economy) -> PyResult<Bound<'_, PyDic
         "input_coefficient",
         economy.input_coefficient.into_pyarray(py),
     )?;
+    dict.set_item("output_offsets", economy.output_offsets.into_pyarray(py))?;
+    dict.set_item(
+        "output_commodity",
+        economy.output_commodity.into_pyarray(py),
+    )?;
+    dict.set_item(
+        "output_coefficient",
+        economy.output_coefficient.into_pyarray(py),
+    )?;
     dict.set_item("unit_extra", extra_to_dict(py, economy.unit_extra)?)?;
 
     dict.set_item("consumer_id", economy.consumer_id.into_pyarray(py))?;
-    dict.set_item("consumer_group", economy.consumer_group.into_pyarray(py))?;
     dict.set_item("consumer_extra", extra_to_dict(py, economy.consumer_extra)?)?;
 
     Ok(dict)
 }
 
-/// Turns one extra bag into a dictionary of numpy arrays, restoring the stored
-/// shape so a two-dimensional array arrives two-dimensional.
+/// Turns one extra bag into a dictionary, restoring the stored shape of numeric
+/// arrays so a two-dimensional array arrives two-dimensional. Text arrays arrive
+/// as a `list` of `str`.
 fn extra_to_dict(py: Python<'_>, bag: BTreeMap<String, ExtraArray>) -> PyResult<Bound<'_, PyDict>> {
     let dict = PyDict::new(py);
     for (key, array) in bag {
         let value = match array {
             ExtraArray::F64 { shape, data } => reshape(py, &key, shape, data)?.into_any(),
             ExtraArray::I64 { shape, data } => reshape(py, &key, shape, data)?.into_any(),
+            ExtraArray::Text { data } => PyList::new(py, data)?.into_any(),
         };
         dict.set_item(key, value)?;
     }

@@ -9,8 +9,4 @@ pub mod dep1ex;
 pub mod economy;
 
 pub use dep1ex::{load_dep1ex, LoadError};
-pub use economy::{
-    Economy, ExtraArray, SchemaError, COMMODITY_KIND_INTERMEDIATE, COMMODITY_KIND_LABOR,
-    COMMODITY_KIND_NATURE, COMMODITY_KIND_PRIVATE, COMMODITY_KIND_PUBLIC,
-    TECHNOLOGY_KIND_COBB_DOUGLAS, TECHNOLOGY_KIND_LEONTIEF,
-};
+pub use economy::{Economy, ExtraArray, SchemaError};

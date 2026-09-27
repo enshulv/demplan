@@ -9,8 +9,10 @@ use demplan_core::{Economy, ExtraArray, SchemaError};
 
 /// Builds an economy that satisfies every structural rule.
 ///
-/// Layout: 3 commodities (private, intermediate, labour), 2 units sharing one
-/// output commodity, 2 consumers.
+/// Layout: 3 commodities, 2 units, 2 consumers. Unit 0 has one output entry
+/// (commodity 0); unit 1 is a joint producer with two output entries
+/// (commodities 0 and 1), so commodity 0 is produced by both units. The two
+/// technology labels are ones the library has no implementation for.
 fn valid_economy() -> Economy {
     let mut unit_extra = BTreeMap::new();
     unit_extra.insert(
@@ -40,20 +42,19 @@ fn valid_economy() -> Economy {
     Economy {
         period: 0,
         commodity_id: vec![0, 1, 2],
-        commodity_kind: vec![0, 2, 4],
         endowment: vec![0.0, 0.0, 1000.0],
         commodity_extra: BTreeMap::new(),
         unit_id: vec![0, 1],
-        unit_group: vec![0, 0],
-        output_commodity: vec![0, 0],
-        technology_kind: vec![1, 1],
+        technology_kind: vec!["my_own_technology".to_string(), "joint_output".to_string()],
         technology_scale: vec![2.0, 3.0],
         input_offsets: vec![0, 2, 3],
         input_commodity: vec![1, 2, 2],
         input_coefficient: vec![0.1, 0.2, 0.3],
+        output_offsets: vec![0, 1, 3],
+        output_commodity: vec![0, 0, 1],
+        output_coefficient: vec![1.0, 2.0, 0.5],
         unit_extra,
         consumer_id: vec![0, 1],
-        consumer_group: vec![0, 0],
         consumer_extra,
     }
 }
@@ -65,9 +66,37 @@ fn error_of(economy: Economy) -> SchemaError {
         .expect_err("expected validate to reject this economy")
 }
 
+/// A text extra array holding the given labels.
+fn text(labels: &[&str]) -> ExtraArray {
+    ExtraArray::Text {
+        data: labels.iter().map(|label| label.to_string()).collect(),
+    }
+}
+
 #[test]
 fn valid_economy_passes_validate() {
     assert_eq!(valid_economy().validate(), Ok(()));
+}
+
+// ---- table sizes ----
+
+#[test]
+fn n_inputs_and_n_outputs_count_the_flat_entries() {
+    let economy = valid_economy();
+    assert_eq!(economy.n_inputs(), 3);
+    assert_eq!(economy.n_outputs(), 3);
+    assert_eq!(economy.n_units(), 2);
+}
+
+#[test]
+fn n_outputs_follows_the_output_commodity_column_not_the_unit_count() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![0, 2, 4];
+    economy.output_commodity = vec![0, 2, 1, 2];
+    economy.output_coefficient = vec![1.0, 1.0, 1.0, 1.0];
+
+    assert_eq!(economy.n_outputs(), 4);
+    assert_eq!(economy.validate(), Ok(()));
 }
 
 // ---- rule: every column of a table has the same length ----
@@ -97,14 +126,14 @@ fn validate_rejects_short_unit_column() {
 }
 
 #[test]
-fn validate_rejects_short_consumer_column() {
+fn validate_rejects_a_technology_kind_column_of_the_wrong_length() {
     let mut economy = valid_economy();
-    economy.consumer_group.pop();
+    economy.technology_kind.push("leontief".to_string());
 
     assert!(matches!(
         error_of(economy),
         SchemaError::ColumnLength { column, len, expected, .. }
-            if column == "consumer_group" && len == 1 && expected == 2
+            if column == "technology_kind" && len == 3 && expected == 2
     ));
 }
 
@@ -117,6 +146,18 @@ fn validate_rejects_input_coefficient_length_differing_from_input_commodity() {
         error_of(economy),
         SchemaError::ColumnLength { column, len, expected, .. }
             if column == "input_coefficient" && len == 2 && expected == 3
+    ));
+}
+
+#[test]
+fn validate_rejects_output_coefficient_length_differing_from_output_commodity() {
+    let mut economy = valid_economy();
+    economy.output_coefficient.pop();
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ColumnLength { column, len, expected, .. }
+            if column == "output_coefficient" && len == 2 && expected == 3
     ));
 }
 
@@ -158,30 +199,45 @@ fn validate_rejects_consumer_id_differing_from_row_index() {
     ));
 }
 
-// ---- rule: kind columns stay inside the defined enumeration ----
+// ---- rule: technology_kind is a non-empty text label, any text accepted ----
 
 #[test]
-fn validate_rejects_commodity_kind_outside_the_enumeration() {
+fn validate_accepts_technology_labels_the_library_does_not_know() {
     let mut economy = valid_economy();
-    economy.commodity_kind[2] = 5;
+    economy.technology_kind = vec![
+        "hahnel_cobb_douglas_effort".to_string(),
+        "技术 x".to_string(),
+    ];
+
+    assert_eq!(economy.validate(), Ok(()));
+}
+
+#[test]
+fn validate_accepts_the_two_library_recognised_labels() {
+    let mut economy = valid_economy();
+    economy.technology_kind = vec!["leontief".to_string(), "cobb_douglas".to_string()];
+
+    assert_eq!(economy.validate(), Ok(()));
+}
+
+#[test]
+fn validate_rejects_an_empty_technology_label() {
+    let mut economy = valid_economy();
+    economy.technology_kind[1] = String::new();
 
     assert!(matches!(
         error_of(economy),
-        SchemaError::UnknownKind { column, row, value, .. }
-            if column == "commodity_kind" && row == 2 && value == 5
+        SchemaError::EmptyLabel { column, row } if column == "technology_kind" && row == 1
     ));
 }
 
 #[test]
-fn validate_rejects_technology_kind_outside_the_enumeration() {
+fn validate_accepts_a_whitespace_technology_label() {
+    // Only the empty string is refused; the data model does not interpret labels.
     let mut economy = valid_economy();
-    economy.technology_kind[1] = 2;
+    economy.technology_kind[0] = " ".to_string();
 
-    assert!(matches!(
-        error_of(economy),
-        SchemaError::UnknownKind { column, row, value, .. }
-            if column == "technology_kind" && row == 1 && value == 2
-    ));
+    assert_eq!(economy.validate(), Ok(()));
 }
 
 // ---- rule: commodity references stay inside [0, n_commodities) ----
@@ -207,6 +263,20 @@ fn validate_rejects_negative_output_commodity() {
         error_of(economy),
         SchemaError::CommodityIndexOutOfRange { column, row, value, .. }
             if column == "output_commodity" && row == 0 && value == -1
+    ));
+}
+
+#[test]
+fn validate_rejects_an_out_of_range_commodity_in_the_last_output_entry() {
+    // The last entry sits past n_units, so a check that walked one entry per
+    // unit would never reach it.
+    let mut economy = valid_economy();
+    economy.output_commodity[2] = 3;
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::CommodityIndexOutOfRange { column, row, value, .. }
+            if column == "output_commodity" && row == 2 && value == 3
     ));
 }
 
@@ -271,6 +341,191 @@ fn validate_rejects_input_offsets_not_ending_at_the_input_count() {
     ));
 }
 
+#[test]
+fn validate_accepts_a_unit_without_inputs() {
+    // Inputs may be empty; only outputs require at least one entry per unit.
+    let mut economy = valid_economy();
+    economy.input_offsets = vec![0, 0, 3];
+    economy.input_commodity = vec![1, 2, 2];
+
+    assert_eq!(economy.validate(), Ok(()));
+}
+
+// ---- rule: output_offsets shape ----
+
+#[test]
+fn validate_rejects_output_offsets_of_the_wrong_length() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![0, 3];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::OutputOffsetsLength { len, expected } if len == 2 && expected == 3
+    ));
+}
+
+#[test]
+fn validate_rejects_output_offsets_not_starting_at_zero() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![1, 2, 3];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::OutputOffsetsStart { value } if value == 1
+    ));
+}
+
+#[test]
+fn validate_rejects_decreasing_output_offsets() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![0, 3, 2];
+    economy.output_commodity = vec![0, 1];
+    economy.output_coefficient = vec![1.0, 1.0];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::OutputOffsetsNotMonotonic { row, value, previous }
+            if row == 2 && value == 2 && previous == 3
+    ));
+}
+
+#[test]
+fn validate_rejects_output_offsets_not_ending_at_the_output_count() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![0, 1, 2];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::OutputOffsetsEnd { value, expected } if value == 2 && expected == 3
+    ));
+}
+
+#[test]
+fn validate_rejects_output_offsets_ending_past_the_output_count() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![0, 1, 4];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::OutputOffsetsEnd { value, expected } if value == 4 && expected == 3
+    ));
+}
+
+#[test]
+fn validate_reports_output_offset_breaches_under_the_output_names() {
+    // Input and output offsets share one rule; the message has to say which
+    // column broke it.
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![0, 1, 2];
+
+    let message = error_of(economy).to_string();
+    assert!(message.contains("output_offsets"), "{message}");
+    assert!(message.contains("output_commodity"), "{message}");
+    assert!(!message.contains("input"), "{message}");
+}
+
+// ---- rule: every unit has at least one output entry ----
+
+#[test]
+fn validate_rejects_a_last_unit_without_outputs() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![0, 2, 2];
+    economy.output_commodity = vec![0, 1];
+    economy.output_coefficient = vec![1.0, 1.0];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::UnitWithoutOutput { unit } if unit == 1
+    ));
+}
+
+#[test]
+fn validate_rejects_a_first_unit_without_outputs() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![0, 0, 3];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::UnitWithoutOutput { unit } if unit == 0
+    ));
+}
+
+#[test]
+fn validate_rejects_a_middle_unit_without_outputs() {
+    let mut economy = valid_economy();
+    economy.unit_id = vec![0, 1, 2];
+    economy.technology_kind.push("leontief".to_string());
+    economy.technology_scale.push(1.0);
+    economy.input_offsets = vec![0, 2, 3, 3];
+    economy.unit_extra.clear();
+    economy.output_offsets = vec![0, 1, 1, 3];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::UnitWithoutOutput { unit } if unit == 1
+    ));
+}
+
+#[test]
+fn validate_accepts_an_economy_without_units() {
+    let mut economy = valid_economy();
+    economy.unit_id.clear();
+    economy.technology_kind.clear();
+    economy.technology_scale.clear();
+    economy.input_offsets = vec![0];
+    economy.input_commodity.clear();
+    economy.input_coefficient.clear();
+    economy.output_offsets = vec![0];
+    economy.output_commodity.clear();
+    economy.output_coefficient.clear();
+    economy.unit_extra.clear();
+
+    assert_eq!(economy.validate(), Ok(()));
+}
+
+// ---- rule: a unit lists each output commodity at most once ----
+
+#[test]
+fn validate_rejects_a_unit_listing_the_same_output_commodity_twice() {
+    let mut economy = valid_economy();
+    economy.output_commodity = vec![0, 1, 1];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::DuplicateOutputCommodity { unit, commodity } if unit == 1 && commodity == 1
+    ));
+}
+
+#[test]
+fn validate_rejects_a_repeated_output_commodity_that_is_not_adjacent() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![0, 1, 4];
+    economy.output_commodity = vec![0, 2, 1, 2];
+    economy.output_coefficient = vec![1.0, 1.0, 1.0, 1.0];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::DuplicateOutputCommodity { unit, commodity } if unit == 1 && commodity == 2
+    ));
+}
+
+#[test]
+fn validate_accepts_the_same_output_commodity_in_different_units() {
+    // Commodity 0 is produced by both units in the valid economy; the check is
+    // per unit, not across the table.
+    let economy = valid_economy();
+    assert_eq!(economy.output_commodity[0], economy.output_commodity[1]);
+    assert_eq!(economy.validate(), Ok(()));
+}
+
+#[test]
+fn validate_accepts_a_unit_that_lists_its_input_commodity_as_an_output() {
+    let mut economy = valid_economy();
+    economy.output_commodity = vec![1, 0, 2];
+
+    assert_eq!(economy.validate(), Ok(()));
+}
+
 // ---- rule: every f64 column is finite ----
 
 #[test]
@@ -304,6 +559,37 @@ fn validate_rejects_nan_input_coefficient() {
         error_of(economy),
         SchemaError::NonFinite { column, row, .. } if column == "input_coefficient" && row == 1
     ));
+}
+
+#[test]
+fn validate_rejects_nan_output_coefficient() {
+    let mut economy = valid_economy();
+    economy.output_coefficient[2] = f64::NAN;
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::NonFinite { column, row, .. } if column == "output_coefficient" && row == 2
+    ));
+}
+
+#[test]
+fn validate_rejects_infinite_output_coefficient() {
+    let mut economy = valid_economy();
+    economy.output_coefficient[0] = f64::NEG_INFINITY;
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::NonFinite { column, row, .. } if column == "output_coefficient" && row == 0
+    ));
+}
+
+#[test]
+fn validate_accepts_zero_and_negative_output_coefficients() {
+    // Sign and magnitude belong to the technology, not to the data model.
+    let mut economy = valid_economy();
+    economy.output_coefficient = vec![0.0, -1.5, 0.5];
+
+    assert_eq!(economy.validate(), Ok(()));
 }
 
 // ---- rule: extra arrays agree with their shape and their table ----
@@ -429,6 +715,88 @@ fn validate_accepts_the_column_to_commodity_mapping_key() {
             data: vec![0],
         },
     );
+
+    assert_eq!(economy.validate(), Ok(()));
+}
+
+// ---- text extra arrays ----
+
+#[test]
+fn a_text_extra_array_is_one_dimensional_with_one_value_per_label() {
+    let array = text(&["private_good", "labor", "labor"]);
+    assert_eq!(array.shape(), vec![3]);
+    assert_eq!(array.len(), 3);
+    assert!(!array.is_empty());
+}
+
+#[test]
+fn validate_accepts_a_text_extra_array_in_every_bag() {
+    let mut economy = valid_economy();
+    economy.commodity_extra.insert(
+        "hahnel_kind".to_string(),
+        text(&["private_good", "intermediate", "labor"]),
+    );
+    economy
+        .unit_extra
+        .insert("sector".to_string(), text(&["steel", "coal"]));
+    economy
+        .consumer_extra
+        .insert("region".to_string(), text(&["north", "南"]));
+
+    assert_eq!(economy.validate(), Ok(()));
+}
+
+#[test]
+fn validate_rejects_a_text_extra_array_longer_than_its_table() {
+    let mut economy = valid_economy();
+    economy.commodity_extra.insert(
+        "hahnel_kind".to_string(),
+        text(&["private_good", "intermediate", "labor", "labor"]),
+    );
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraFirstDimension { bag, ref key, first, expected }
+            if bag == "commodity_extra" && key == "hahnel_kind" && first == 4 && expected == 3
+    ));
+}
+
+#[test]
+fn validate_rejects_a_text_extra_array_shorter_than_its_table() {
+    let mut economy = valid_economy();
+    economy
+        .unit_extra
+        .insert("sector".to_string(), text(&["steel"]));
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraFirstDimension { bag, ref key, first, expected }
+            if bag == "unit_extra" && key == "sector" && first == 1 && expected == 2
+    ));
+}
+
+#[test]
+fn validate_rejects_an_empty_label_in_a_text_extra_array() {
+    let mut economy = valid_economy();
+    economy
+        .consumer_extra
+        .insert("region".to_string(), text(&["north", ""]));
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraEmptyText { bag, ref key, index }
+            if bag == "consumer_extra" && key == "region" && index == 1
+    ));
+}
+
+#[test]
+fn validate_accepts_an_empty_text_extra_array_on_an_empty_table() {
+    let mut economy = valid_economy();
+    economy.consumer_id.clear();
+    economy.consumer_extra.clear();
+    economy
+        .consumer_extra
+        .insert("region".to_string(), text(&[]));
 
     assert_eq!(economy.validate(), Ok(()));
 }

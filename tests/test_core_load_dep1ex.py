@@ -9,9 +9,14 @@ The reference arrays are shaped differently from the loader output: repro pads
 each unit's inputs into a rectangle and keeps the three input segments in
 separate categories, so the expectations below reshape the reference rather than
 restate the loader's own numbers.
+
+The dictionary the loader returns is the contract between the Rust core and the
+Python package, so its key set is checked exactly, on a hand-written archive as
+well as on dep1ex01.
 """
 
 import gzip
+import hashlib
 import os
 import pathlib
 import sys
@@ -38,6 +43,66 @@ LOAD_SECONDS_LIMIT = 1.5
 
 #: Number of timed loads; the fastest one is compared against the limit.
 TIMED_LOADS = 3
+
+#: Every key of the dictionary `_core.load_dep1ex` returns, and no other.
+LOADER_KEYS = {
+    "period",
+    "commodity_id",
+    "endowment",
+    "commodity_extra",
+    "unit_id",
+    "technology_kind",
+    "technology_scale",
+    "input_offsets",
+    "input_commodity",
+    "input_coefficient",
+    "output_offsets",
+    "output_commodity",
+    "output_coefficient",
+    "unit_extra",
+    "consumer_id",
+    "consumer_extra",
+}
+
+#: Technology label the loader writes for every unit: `Q = a * e^c * prod(x^b)`.
+HAHNEL_TECHNOLOGY = "hahnel_cobb_douglas_effort"
+
+#: `commodity_extra` key holding one Hahnel commodity class label per commodity.
+HAHNEL_KIND = "hahnel_kind"
+
+#: Label written on each of the five commodity sections, in section order.
+SECTION_LABELS = ("private_good", "public_good", "intermediate", "natural_resource", "labor")
+
+#: Labels of the commodities that carry the endowment.
+ENDOWED_LABELS = {"natural_resource", "labor"}
+
+#: Label of the section each `:industry` value places its output in.
+INDUSTRY_LABEL = {0: "private_good", 1: "intermediate", 2: "public_good"}
+
+#: SHA-256 fingerprints of the numeric dep1ex01 columns at endowment 1000, taken over
+#: `fingerprint` below. They pin every numeric column bit for bit, including those
+#: the reference parser does not produce (the commodity identifier and endowment).
+DEP1EX01_FINGERPRINTS = {
+    "commodity_id": "05c56a2424009843bf954cb635c42c5b8b203a32cf60940e3aa96fda7ccf6aa8",
+    "consumer_extra.entitlement": "383d230bc070532921520998399d1b577e8ddf25def92d5403b800ead48b07bd",
+    "consumer_extra.utility_exponent": (
+        "7b1f53772fd97260457d62761b144319ffb054c69d8180ee7a65c0d6c5b4792c"
+    ),
+    "consumer_extra.utility_exponent_commodity": (
+        "ebc99cd9dde9ac810839a36cc878c44da0a4b8d3d0e38ee3a413a2b6f4d4511c"
+    ),
+    "consumer_id": "56497c92afc5c3576bb101fa2996587d515e363c4de99e23a829723db5ba95f1",
+    "endowment": "d08c034f42b940069d1f33056c04ff672b9ad36c49c3cdb8ae345ab05649d08c",
+    "input_coefficient": "51478c923f543df902ed66770093f697630e3ca6b34b8ccca74207acb070b2a2",
+    "input_commodity": "1f4e4f34f7b6bbd940072762ddbb99b3b91c096438ca75766515f8e25584c5f5",
+    "input_offsets": "e4bd16219cac3f762227c6e19f4fcf0a34159e07fa2c385bd601d00f925e8fa6",
+    "output_commodity": "25cc616b9bfca7b0eddfd4a7a5bd3f308b45e19f3a62148548289a7785d8e534",
+    "technology_scale": "41bf8a98e8f8b49214d6361e39c96c89d2da0f574bf9c8aa044d36b24fec437e",
+    "unit_extra.effort_c": "e5eda7916d41c59784cb2f956c468a9ca805ead190a6a5735f58ecdce7ee663a",
+    "unit_extra.effort_k": "d5a06f418e0014088d0221a0531b9deb843c6eb47cda2ea70c6324e35d8c4e5f",
+    "unit_extra.effort_s": "86d8ce7fd13f4e70294c03a665118f1e909890608b31b9e1ea8fcfc330ea1f92",
+    "unit_id": "56497c92afc5c3576bb101fa2996587d515e363c4de99e23a829723db5ba95f1",
+}
 
 _skip_without_data = pytest.mark.skipif(
     not DEP1EX01.exists(),
@@ -84,6 +149,40 @@ def reference():
     }
 
 
+def fingerprint(array) -> str:
+    """SHA-256 over the dtype, the shape and the raw bytes of a numeric array."""
+    array = np.ascontiguousarray(array)
+    header = f"{array.dtype.str}|{array.shape}|".encode()
+    return hashlib.sha256(header + array.tobytes()).hexdigest()
+
+
+def section_labels(n_priv, n_pub, n_goods) -> list[str]:
+    """The `hahnel_kind` column for sections of the given lengths."""
+    lengths = (n_priv, n_pub, n_goods, n_goods, n_goods)
+    return [label for label, length in zip(SECTION_LABELS, lengths) for _ in range(length)]
+
+
+def is_list_of_str(value) -> bool:
+    """True when ``value`` is a plain ``list`` whose every element is a ``str``."""
+    return type(value) is list and all(type(item) is str for item in value)
+
+
+# ---- dictionary contract ----
+
+
+@requires_data
+def test_loader_returns_exactly_the_contract_keys(loaded):
+    assert set(loaded) == LOADER_KEYS
+
+
+@requires_data
+@pytest.mark.parametrize("column", sorted(DEP1EX01_FINGERPRINTS))
+def test_numeric_column_is_bit_identical_to_its_fingerprint(loaded, column):
+    bag, _, key = column.rpartition(".")
+    array = loaded[bag][key] if bag else loaded[column]
+    assert fingerprint(array) == DEP1EX01_FINGERPRINTS[column]
+
+
 # ---- commodity table ----
 
 
@@ -99,18 +198,21 @@ def test_commodity_id_equals_the_row_index(loaded):
 
 
 @requires_data
-def test_commodity_kind_marks_the_five_sections_in_order(loaded, reference):
-    n_priv, n_pub, n_goods = reference["n_priv"], reference["n_pub"], reference["n_goods"]
-    expected = np.concatenate(
-        [
-            np.zeros(n_priv, dtype=np.int8),
-            np.ones(n_pub, dtype=np.int8),
-            np.full(n_goods, 2, dtype=np.int8),
-            np.full(n_goods, 3, dtype=np.int8),
-            np.full(n_goods, 4, dtype=np.int8),
-        ]
-    )
-    assert np.array_equal(loaded["commodity_kind"], expected)
+def test_hahnel_kind_labels_the_five_sections_in_order(loaded, reference):
+    expected = section_labels(reference["n_priv"], reference["n_pub"], reference["n_goods"])
+    assert loaded["commodity_extra"][HAHNEL_KIND] == expected
+
+
+@requires_data
+def test_hahnel_kind_arrives_as_a_list_of_str(loaded):
+    assert is_list_of_str(loaded["commodity_extra"][HAHNEL_KIND])
+
+
+@requires_data
+def test_endowment_sits_exactly_on_the_commodities_labelled_as_endowed(loaded):
+    labels = np.array(loaded["commodity_extra"][HAHNEL_KIND])
+    expected = np.where(np.isin(labels, list(ENDOWED_LABELS)), ENDOWMENT, 0.0)
+    assert np.array_equal(loaded["endowment"], expected)
 
 
 @requires_data
@@ -143,8 +245,23 @@ def test_output_commodity_follows_the_industry_of_each_unit(loaded, reference):
 
 
 @requires_data
-def test_unit_group_repeats_the_output_commodity(loaded):
-    assert np.array_equal(loaded["unit_group"], loaded["output_commodity"])
+def test_output_offsets_give_every_unit_exactly_one_output_entry(loaded, reference):
+    n_units = len(reference["wc"]["a"])
+    assert np.array_equal(loaded["output_offsets"], np.arange(n_units + 1))
+
+
+@requires_data
+def test_every_output_coefficient_is_one(loaded, reference):
+    n_units = len(reference["wc"]["a"])
+    assert np.array_equal(loaded["output_coefficient"], np.ones(n_units))
+
+
+@requires_data
+def test_each_output_lands_on_the_label_its_industry_names(loaded, reference):
+    labels = loaded["commodity_extra"][HAHNEL_KIND]
+    output_labels = [labels[commodity] for commodity in loaded["output_commodity"].tolist()]
+    expected = [INDUSTRY_LABEL[industry] for industry in reference["wc"]["industry"].tolist()]
+    assert output_labels == expected
 
 
 @requires_data
@@ -153,9 +270,13 @@ def test_unit_id_equals_the_row_index(loaded, reference):
 
 
 @requires_data
-def test_every_unit_uses_the_cobb_douglas_technology(loaded, reference):
-    expected = np.ones(len(reference["wc"]["a"]), dtype=np.int8)
-    assert np.array_equal(loaded["technology_kind"], expected)
+def test_every_unit_carries_the_hahnel_effort_technology_label(loaded, reference):
+    assert loaded["technology_kind"] == [HAHNEL_TECHNOLOGY] * len(reference["wc"]["a"])
+
+
+@requires_data
+def test_technology_kind_arrives_as_a_list_of_str(loaded):
+    assert is_list_of_str(loaded["technology_kind"])
 
 
 @requires_data
@@ -203,12 +324,6 @@ def test_consumer_id_equals_the_row_index(loaded, reference):
 
 
 @requires_data
-def test_every_consumer_belongs_to_group_zero(loaded, reference):
-    expected = np.zeros(len(reference["cc"]["income"]), dtype=np.int64)
-    assert np.array_equal(loaded["consumer_group"], expected)
-
-
-@requires_data
 def test_entitlement_matches_the_income_column(loaded, reference):
     assert np.array_equal(loaded["consumer_extra"]["entitlement"], reference["cc"]["income"])
 
@@ -252,18 +367,16 @@ def test_period_starts_at_zero(loaded):
     ("key", "dtype"),
     [
         ("commodity_id", np.int64),
-        ("commodity_kind", np.int8),
         ("endowment", np.float64),
         ("unit_id", np.int64),
-        ("unit_group", np.int64),
-        ("output_commodity", np.int64),
-        ("technology_kind", np.int8),
         ("technology_scale", np.float64),
         ("input_offsets", np.int64),
         ("input_commodity", np.int64),
         ("input_coefficient", np.float64),
+        ("output_offsets", np.int64),
+        ("output_commodity", np.int64),
+        ("output_coefficient", np.float64),
         ("consumer_id", np.int64),
-        ("consumer_group", np.int64),
     ],
 )
 def test_column_dtype_follows_the_data_model(loaded, key, dtype):
@@ -276,8 +389,19 @@ def test_utility_exponent_commodity_is_an_integer_mapping(loaded):
 
 
 @requires_data
-def test_commodity_extra_bag_is_empty(loaded):
-    assert loaded["commodity_extra"] == {}
+def test_commodity_extra_bag_holds_only_the_label_column(loaded):
+    assert set(loaded["commodity_extra"]) == {HAHNEL_KIND}
+
+
+@requires_data
+def test_unit_extra_bag_holds_only_the_effort_parameters(loaded):
+    assert set(loaded["unit_extra"]) == {"effort_c", "effort_s", "effort_k"}
+
+
+@requires_data
+def test_consumer_extra_bag_holds_entitlement_and_utility_exponents(loaded):
+    expected = {"entitlement", "utility_exponent", "utility_exponent_commodity"}
+    assert set(loaded["consumer_extra"]) == expected
 
 
 # ---- rejected inputs ----
@@ -368,16 +492,121 @@ def test_goods_sections_are_sized_by_the_input_numbers_not_by_product(tmp_path):
     loaded = _core.load_dep1ex(path, ENDOWMENT)
 
     assert loaded["commodity_id"].shape == (n_priv + n_pub + 3 * largest_input,)
-    expected = np.concatenate(
-        [
-            np.zeros(n_priv, dtype=np.int8),
-            np.ones(n_pub, dtype=np.int8),
-            np.full(largest_input, 2, dtype=np.int8),
-            np.full(largest_input, 3, dtype=np.int8),
-            np.full(largest_input, 4, dtype=np.int8),
-        ]
-    )
-    assert np.array_equal(loaded["commodity_kind"], expected)
+    expected = section_labels(n_priv, n_pub, largest_input)
+    assert loaded["commodity_extra"][HAHNEL_KIND] == expected
+
+
+# Section lengths chosen so that no two of the private, public and goods sections
+# are equal: a label column built with any two of those lengths swapped puts at
+# least one label on the wrong row. The three goods sections share one length by
+# construction of the format.
+UNEVEN_PRIV, UNEVEN_PUB, UNEVEN_GOODS = 2, 5, 3
+
+
+@pytest.fixture
+def uneven_sections(tmp_path):
+    """Loads a hand-written archive whose sections have lengths 2, 5, 3, 3, 3.
+
+    Units, as (industry, product): (0, 2), (2, 5), (1, 3), (0, 1), (2, 1). The
+    largest input number is 3, which sets the goods count.
+    """
+    consumers = [
+        consumer_record([0.1 * (i + 1)] * UNEVEN_PRIV, [0.05] * UNEVEN_PUB, 1000 + i)
+        for i in range(3)
+    ]
+    units = [
+        unit_record(0, 2, [1], [2], [3]),
+        unit_record(2, 5, [2, 3], [1], [1, 2]),
+        unit_record(1, 3, [3], [3], [2]),
+        unit_record(0, 1, [1, 2], [2, 3], [1]),
+        unit_record(2, 1, [2], [1, 2, 3], [3]),
+    ]
+    path = write_scenario(tmp_path / "uneven-sections.clj.gz", consumers, units)
+    return _core.load_dep1ex(path, ENDOWMENT)
+
+
+def test_loader_returns_exactly_the_contract_keys_on_a_hand_written_archive(uneven_sections):
+    assert set(uneven_sections) == LOADER_KEYS
+
+
+def test_hahnel_kind_follows_sections_of_different_lengths(uneven_sections):
+    assert uneven_sections["commodity_extra"][HAHNEL_KIND] == [
+        "private_good",
+        "private_good",
+        "public_good",
+        "public_good",
+        "public_good",
+        "public_good",
+        "public_good",
+        "intermediate",
+        "intermediate",
+        "intermediate",
+        "natural_resource",
+        "natural_resource",
+        "natural_resource",
+        "labor",
+        "labor",
+        "labor",
+    ]
+
+
+def test_hahnel_kind_is_the_only_commodity_extra_and_a_list_of_str(uneven_sections):
+    assert set(uneven_sections["commodity_extra"]) == {HAHNEL_KIND}
+    assert is_list_of_str(uneven_sections["commodity_extra"][HAHNEL_KIND])
+
+
+def test_output_rows_follow_industry_and_product_on_uneven_sections(uneven_sections):
+    # Rows: private 0-1, public 2-6, intermediate 7-9.
+    assert uneven_sections["output_commodity"].tolist() == [1, 6, 9, 0, 2]
+
+
+def test_output_labels_match_the_industry_on_uneven_sections(uneven_sections):
+    labels = uneven_sections["commodity_extra"][HAHNEL_KIND]
+    output_labels = [labels[row] for row in uneven_sections["output_commodity"].tolist()]
+    assert output_labels == [
+        "private_good",
+        "public_good",
+        "intermediate",
+        "private_good",
+        "public_good",
+    ]
+
+
+def test_input_rows_follow_their_segment_on_uneven_sections(uneven_sections):
+    # Rows: intermediate 7-9, natural resource 10-12, labour 13-15; one line per unit.
+    assert uneven_sections["input_commodity"].tolist() == [
+        7, 11, 15,
+        8, 9, 10, 13, 14,
+        9, 12, 14,
+        7, 8, 11, 12, 13,
+        8, 10, 11, 12, 15,
+    ]
+
+
+def test_input_labels_follow_their_segment_on_uneven_sections(uneven_sections):
+    labels = uneven_sections["commodity_extra"][HAHNEL_KIND]
+    input_labels = [labels[row] for row in uneven_sections["input_commodity"].tolist()]
+    segment_counts = [(1, 1, 1), (2, 1, 2), (1, 1, 1), (2, 2, 1), (1, 3, 1)]
+    expected = []
+    for inter, nature, labor in segment_counts:
+        expected += ["intermediate"] * inter + ["natural_resource"] * nature + ["labor"] * labor
+    assert input_labels == expected
+
+
+def test_output_layout_on_a_hand_written_archive(uneven_sections):
+    assert uneven_sections["output_offsets"].tolist() == [0, 1, 2, 3, 4, 5]
+    assert uneven_sections["output_offsets"].dtype == np.int64
+    assert uneven_sections["output_coefficient"].tolist() == [1.0] * 5
+    assert uneven_sections["output_coefficient"].dtype == np.float64
+
+
+def test_technology_label_on_a_hand_written_archive(uneven_sections):
+    assert uneven_sections["technology_kind"] == [HAHNEL_TECHNOLOGY] * 5
+    assert is_list_of_str(uneven_sections["technology_kind"])
+
+
+def test_endowment_follows_the_labels_on_uneven_sections(uneven_sections):
+    assert uneven_sections["endowment"].tolist() == [0.0] * 10 + [ENDOWMENT] * 6
 
 
 def test_every_commodity_is_reachable_from_some_unit_or_consumer(tmp_path):

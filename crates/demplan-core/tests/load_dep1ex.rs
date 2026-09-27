@@ -141,13 +141,18 @@ fn extra_f64<'a>(bag: &'a std::collections::BTreeMap<String, ExtraArray>, key: &
 }
 
 /// Returns the shape of an extra array, failing if the key is absent.
-fn extra_shape<'a>(
-    bag: &'a std::collections::BTreeMap<String, ExtraArray>,
-    key: &str,
-) -> &'a [usize] {
+fn extra_shape(bag: &std::collections::BTreeMap<String, ExtraArray>, key: &str) -> Vec<usize> {
     match bag.get(key) {
-        Some(ExtraArray::F64 { shape, .. }) | Some(ExtraArray::I64 { shape, .. }) => shape,
+        Some(array) => array.shape(),
         None => panic!("expected an extra array at {key}"),
+    }
+}
+
+/// Returns the `hahnel_kind` label column, failing if it is absent or not text.
+fn hahnel_kind(economy: &Economy) -> Vec<&str> {
+    match economy.commodity_extra.get("hahnel_kind") {
+        Some(ExtraArray::Text { data }) => data.iter().map(String::as_str).collect(),
+        other => panic!("expected a text extra array at hahnel_kind, found {other:?}"),
     }
 }
 
@@ -167,7 +172,10 @@ fn load_sizes_the_goods_sections_from_the_input_numbers_alone() {
     let largest_product = 4;
     assert!(largest_product > N_GOODS);
     assert_eq!(
-        economy.commodity_kind.iter().filter(|&&k| k == 2).count(),
+        hahnel_kind(&economy)
+            .iter()
+            .filter(|&&label| label == "intermediate")
+            .count(),
         N_GOODS as usize
     );
     assert_eq!(
@@ -177,11 +185,48 @@ fn load_sizes_the_goods_sections_from_the_input_numbers_alone() {
 }
 
 #[test]
-fn load_orders_commodity_kinds_private_public_intermediate_nature_labour() {
+fn load_labels_commodities_private_public_intermediate_nature_labour() {
     assert_eq!(
-        fixture_economy().commodity_kind,
-        vec![0, 0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4]
+        hahnel_kind(&fixture_economy()),
+        vec![
+            "private_good",
+            "private_good",
+            "private_good",
+            "private_good",
+            "public_good",
+            "public_good",
+            "intermediate",
+            "intermediate",
+            "intermediate",
+            "natural_resource",
+            "natural_resource",
+            "natural_resource",
+            "labor",
+            "labor",
+            "labor",
+        ]
     );
+}
+
+#[test]
+fn load_stores_the_labels_as_one_text_value_per_commodity() {
+    let economy = fixture_economy();
+    assert_eq!(
+        extra_shape(&economy.commodity_extra, "hahnel_kind"),
+        [N_COMMODITIES]
+    );
+}
+
+#[test]
+fn load_sets_endowment_exactly_where_the_label_is_natural_resource_or_labour() {
+    let economy = fixture_economy();
+    for (row, label) in hahnel_kind(&economy).into_iter().enumerate() {
+        let expected = match label {
+            "natural_resource" | "labor" => TEST_ENDOWMENT,
+            _ => 0.0,
+        };
+        assert_eq!(economy.endowment[row], expected, "row {row} ({label})");
+    }
 }
 
 #[test]
@@ -194,8 +239,10 @@ fn load_sets_endowment_on_nature_and_labour_only() {
 }
 
 #[test]
-fn load_leaves_the_commodity_extra_bag_empty() {
-    assert!(fixture_economy().commodity_extra.is_empty());
+fn load_puts_only_the_label_column_in_the_commodity_extra_bag() {
+    let economy = fixture_economy();
+    let keys: Vec<&str> = economy.commodity_extra.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["hahnel_kind"]);
 }
 
 // ---- production units ----
@@ -210,14 +257,73 @@ fn load_maps_each_industry_to_its_commodity_section() {
 }
 
 #[test]
-fn load_sets_unit_group_to_the_output_commodity() {
+fn load_gives_every_unit_exactly_one_output_entry() {
     let economy = fixture_economy();
-    assert_eq!(economy.unit_group, economy.output_commodity);
+    assert_eq!(economy.output_offsets, vec![0, 1, 2, 3]);
+    assert_eq!(economy.n_outputs(), 3);
 }
 
 #[test]
-fn load_marks_every_unit_as_cobb_douglas() {
-    assert_eq!(fixture_economy().technology_kind, vec![1, 1, 1]);
+fn load_sets_every_output_coefficient_to_one() {
+    assert_eq!(fixture_economy().output_coefficient, vec![1.0, 1.0, 1.0]);
+}
+
+#[test]
+fn load_puts_each_output_in_the_section_its_industry_names() {
+    // industry 0 -> private good, 1 -> intermediate, 2 -> public good.
+    let economy = fixture_economy();
+    let labels = hahnel_kind(&economy);
+    let output_labels: Vec<&str> = economy
+        .output_commodity
+        .iter()
+        .map(|&commodity| labels[commodity as usize])
+        .collect();
+    assert_eq!(
+        output_labels,
+        ["private_good", "intermediate", "public_good"]
+    );
+}
+
+#[test]
+fn load_puts_each_input_segment_in_its_own_section() {
+    // Segment order in the file: intermediate, nature, labour; see
+    // `load_expands_input_segments_in_intermediate_nature_labour_order`.
+    let economy = fixture_economy();
+    let labels = hahnel_kind(&economy);
+    let input_labels: Vec<&str> = economy
+        .input_commodity
+        .iter()
+        .map(|&commodity| labels[commodity as usize])
+        .collect();
+    assert_eq!(
+        input_labels,
+        [
+            "intermediate",
+            "intermediate",
+            "natural_resource",
+            "labor",
+            "intermediate",
+            "natural_resource",
+            "natural_resource",
+            "labor",
+            "intermediate",
+            "natural_resource",
+            "labor",
+            "labor",
+        ]
+    );
+}
+
+#[test]
+fn load_labels_every_unit_with_the_hahnel_effort_technology() {
+    assert_eq!(
+        fixture_economy().technology_kind,
+        vec![
+            "hahnel_cobb_douglas_effort",
+            "hahnel_cobb_douglas_effort",
+            "hahnel_cobb_douglas_effort"
+        ]
+    );
 }
 
 #[test]
@@ -326,11 +432,6 @@ fn load_maps_utility_exponent_columns_to_private_then_public_commodities() {
             BASE_PUB + 1
         ]
     );
-}
-
-#[test]
-fn load_puts_every_consumer_in_group_zero() {
-    assert_eq!(fixture_economy().consumer_group, vec![0, 0]);
 }
 
 // ---- identifiers and period ----

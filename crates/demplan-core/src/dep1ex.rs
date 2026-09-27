@@ -8,15 +8,17 @@
 //! # Commodity layout
 //!
 //! The file numbers commodities from 1 within each of its own categories. The
-//! loader lays them out in one table, in five contiguous sections:
+//! loader lays them out in one table, in five contiguous sections, and labels
+//! each commodity with its section in the text extra array
+//! `commodity_extra["hahnel_kind"]`:
 //!
-//! | Section              | `commodity_kind` | Length                                    |
-//! |----------------------|------------------|-------------------------------------------|
-//! | private consumption  | 0                | `n_priv`, the `:utility-exponents` count   |
-//! | public               | 1                | `n_pub`, the `:public-good-exponents` count |
-//! | intermediate         | 2                | `n_goods`                                 |
-//! | natural resource     | 3                | `n_goods`                                 |
-//! | labour               | 4                | `n_goods`                                 |
+//! | Section              | `hahnel_kind`        | Length                                      |
+//! |----------------------|----------------------|---------------------------------------------|
+//! | private consumption  | `"private_good"`     | `n_priv`, the `:utility-exponents` count     |
+//! | public               | `"public_good"`      | `n_pub`, the `:public-good-exponents` count  |
+//! | intermediate         | `"intermediate"`     | `n_goods`                                   |
+//! | natural resource     | `"natural_resource"` | `n_goods`                                   |
+//! | labour               | `"labor"`            | `n_goods`                                   |
 //!
 //! `n_goods` is the largest number appearing in the three `:production-inputs`
 //! segments. `:product` numbers the private and public sections instead, which
@@ -24,6 +26,14 @@
 //! `n_goods`. The natural resource and labour sections carry the `endowment`
 //! argument; every other section carries zero, because those commodities have to
 //! be produced.
+//!
+//! # Production units
+//!
+//! Every unit has one output entry with `output_coefficient` 1.0 and the
+//! technology label `"hahnel_cobb_douglas_effort"`: the file's technology is
+//! `Q = a · e^c · Π x^b`, with `a` in `technology_scale`, the exponents `b` in
+//! `input_coefficient`, and `c` in `unit_extra["effort_c"]`. The effort `e` is
+//! part of a plan, not of the economy.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -32,11 +42,7 @@ use std::path::Path;
 
 use flate2::read::GzDecoder;
 
-use crate::economy::{
-    Economy, ExtraArray, SchemaError, COMMODITY_KIND_INTERMEDIATE, COMMODITY_KIND_LABOR,
-    COMMODITY_KIND_NATURE, COMMODITY_KIND_PRIVATE, COMMODITY_KIND_PUBLIC,
-    TECHNOLOGY_KIND_COBB_DOUGLAS,
-};
+use crate::economy::{Economy, ExtraArray, SchemaError};
 
 /// Marks the start of the production unit vector and the end of the consumption
 /// unit vector.
@@ -54,6 +60,26 @@ const SEGMENT_NAMES: [&str; 3] = ["intermediate", "nature", "labor"];
 const SECTION_PRIVATE: &str = "private";
 /// Name of the section `:industry 2` numbers with `:product`.
 const SECTION_PUBLIC: &str = "public";
+
+/// `commodity_extra` key of the section label column.
+const HAHNEL_KIND_KEY: &str = "hahnel_kind";
+
+/// Section label of the private consumption goods.
+const LABEL_PRIVATE_GOOD: &str = "private_good";
+/// Section label of the public goods.
+const LABEL_PUBLIC_GOOD: &str = "public_good";
+/// Section label of the intermediate goods.
+const LABEL_INTERMEDIATE: &str = "intermediate";
+/// Section label of the natural resources.
+const LABEL_NATURAL_RESOURCE: &str = "natural_resource";
+/// Section label of labour.
+const LABEL_LABOR: &str = "labor";
+
+/// Technology label of every unit: Cobb-Douglas with an effort factor.
+const TECHNOLOGY_LABEL: &str = "hahnel_cobb_douglas_effort";
+
+/// Output coefficient of every unit's single output entry.
+const OUTPUT_COEFFICIENT: f64 = 1.0;
 
 /// `:industry` value placing the output in the private consumption section.
 const INDUSTRY_PRIVATE: i64 = 0;
@@ -184,7 +210,7 @@ pub enum LoadError {
     ///
     /// Numbering restarts at 1 in every section, so an out-of-range number is not
     /// a missing commodity: it silently addresses a row of the neighbouring
-    /// section, which carries a different `commodity_kind`.
+    /// section, which carries a different `hahnel_kind` label.
     #[error(
         "production unit {unit}: commodity number {value} in the {section} \
          section is outside the range [1, {bound}]"
@@ -764,24 +790,21 @@ fn assemble(
     let base_nature = base_intermediate + n_goods as i64;
     let base_labor = base_nature + n_goods as i64;
 
+    // Label, length and per-commodity endowment of each section, in table order.
+    let sections = [
+        (LABEL_PRIVATE_GOOD, n_priv, 0.0),
+        (LABEL_PUBLIC_GOOD, n_pub, 0.0),
+        (LABEL_INTERMEDIATE, n_goods, 0.0),
+        (LABEL_NATURAL_RESOURCE, n_goods, endowment),
+        (LABEL_LABOR, n_goods, endowment),
+    ];
     let n_commodities = n_priv + n_pub + 3 * n_goods;
-    let mut commodity_kind = Vec::with_capacity(n_commodities);
-    commodity_kind.extend(std::iter::repeat_n(COMMODITY_KIND_PRIVATE, n_priv));
-    commodity_kind.extend(std::iter::repeat_n(COMMODITY_KIND_PUBLIC, n_pub));
-    commodity_kind.extend(std::iter::repeat_n(COMMODITY_KIND_INTERMEDIATE, n_goods));
-    commodity_kind.extend(std::iter::repeat_n(COMMODITY_KIND_NATURE, n_goods));
-    commodity_kind.extend(std::iter::repeat_n(COMMODITY_KIND_LABOR, n_goods));
-
-    let endowment_column = commodity_kind
-        .iter()
-        .map(|&kind| {
-            if kind == COMMODITY_KIND_NATURE || kind == COMMODITY_KIND_LABOR {
-                endowment
-            } else {
-                0.0
-            }
-        })
-        .collect();
+    let mut section_label = Vec::with_capacity(n_commodities);
+    let mut endowment_column = Vec::with_capacity(n_commodities);
+    for (label, length, quantity) in sections {
+        section_label.extend(std::iter::repeat_n(label.to_string(), length));
+        endowment_column.extend(std::iter::repeat_n(quantity, length));
+    }
 
     let n_units = units.product.len();
 
@@ -810,6 +833,13 @@ fn assemble(
             input_commodity[index] = segment_base[segment] + number - 1;
         }
     }
+
+    let commodity_extra = BTreeMap::from([(
+        HAHNEL_KIND_KEY.to_string(),
+        ExtraArray::Text {
+            data: section_label,
+        },
+    )]);
 
     let unit_extra = BTreeMap::from([
         (
@@ -866,20 +896,19 @@ fn assemble(
     Ok(Economy {
         period: 0,
         commodity_id: (0..n_commodities as i64).collect(),
-        commodity_kind,
         endowment: endowment_column,
-        commodity_extra: BTreeMap::new(),
+        commodity_extra,
         unit_id: (0..n_units as i64).collect(),
-        unit_group: output_commodity.clone(),
-        output_commodity,
-        technology_kind: vec![TECHNOLOGY_KIND_COBB_DOUGLAS; n_units],
+        technology_kind: vec![TECHNOLOGY_LABEL.to_string(); n_units],
         technology_scale: units.technology_scale,
         input_offsets: units.input_offsets,
         input_commodity,
         input_coefficient: units.input_coefficient,
+        output_offsets: (0..=n_units as i64).collect(),
+        output_commodity,
+        output_coefficient: vec![OUTPUT_COEFFICIENT; n_units],
         unit_extra,
         consumer_id: (0..n_consumers as i64).collect(),
-        consumer_group: vec![0; n_consumers],
         consumer_extra,
     })
 }
@@ -888,8 +917,7 @@ fn assemble(
 ///
 /// Every section restarts its numbering at 1, so a number past the end of its
 /// section still lands on a valid row: the row belongs to the next section and
-/// carries a different `commodity_kind`, which decides endowment use, material
-/// balance and public-good pricing.
+/// carries a different `hahnel_kind` label and endowment.
 fn check_section_number(
     unit: usize,
     section: &'static str,

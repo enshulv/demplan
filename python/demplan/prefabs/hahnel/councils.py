@@ -37,8 +37,16 @@ from typing import Callable, Protocol
 import numpy as np
 
 from demplan.economy import Economy
-from demplan.plan import CONSUMER_DEMAND, EFFORT, INDICATIVE_PRICE, Plan, StatedPlan
-from demplan.prefabs.hahnel.labels import PRIVATE_GOOD, PUBLIC_GOOD, TECHNOLOGY, kind_labels
+from demplan.plan import (
+    CONSUMER_DEMAND,
+    EFFORT,
+    EXPENDITURE,
+    INCOME,
+    INDICATIVE_PRICE,
+    Plan,
+    StatedPlan,
+)
+from demplan.prefabs.hahnel.labels import PUBLIC_GOOD, TECHNOLOGY, kind_labels
 from demplan.tools import _require_one_output_per_unit, segment_sum, unit_of_input
 
 NEXT_INDICATIVE_PRICE = "next_indicative_price"
@@ -144,6 +152,7 @@ class _State:
     consumption: np.ndarray | None = None
     shared_use: np.ndarray | None = None
     consumer_demand: np.ndarray | None = None
+    expenditure: np.ndarray | None = None
     worst_imbalance: float = float("inf")
 
 
@@ -182,13 +191,18 @@ class CouncilModel:
     observable one column at a time: on a public-good column :meth:`_demand` states
     ``n_consumers`` times what it states on a private-good column carrying the same exponent.
 
-    A utility-exponent column names a commodity of any class, so the columns fall into three
-    cases and not two. The private-good columns are the plan's ``consumption`` block. The
-    public-good columns reach the plan as ``shared_use``, the councils' stated level of each
-    public good: the sum of their stated demands divided by the number of consumer units.
-    The columns whose commodity is neither a private nor a public good reach it only through
-    ``extra["consumer_demand"]``, which reports all three cases together, as the quantity each
-    commodity's columns put into this round's demand.
+    A utility-exponent column names a commodity of any class, and the plan splits the columns
+    by one question: is the column's commodity a public good. The public-good columns reach
+    the plan as ``shared_use``, the councils' stated level of each public good: the sum of
+    their stated demands divided by the number of consumer units. Every other column -- a
+    private good, or a commodity of any other class -- is a column of the ``consumption``
+    block, so the material balance of the plan counts it. ``extra["consumer_demand"]`` reports
+    both together, as the quantity each commodity's columns put into this round's demand.
+
+    The plan files the councils' budget in ``valuation``: ``income`` is the entitlement each
+    council spent from, and ``expenditure`` the cost of the council's whole stated bundle at
+    the prices its own demand function paid, public goods at the listed price divided by the
+    number of consumer units.
 
     The economy has to label every unit :data:`~demplan.prefabs.hahnel.TECHNOLOGY`, give
     every unit exactly one output entry, and carry ``commodity_extra["hahnel_kind"]`` holding
@@ -196,7 +210,7 @@ class CouncilModel:
 
     Everything that does not change with the price is computed once in ``__init__``: the flat
     input layout, the price-independent part of the worker councils' closed form, and the split
-    of the utility-exponent columns into the private goods and the rest. ``initial_state``,
+    of the utility-exponent columns into the public goods and the rest. ``initial_state``,
     ``step``, ``converged`` and ``plan_of`` are the four arguments :func:`demplan.iterate`
     takes, so a procedure that wants a different loop can drive this model directly. The price
     rule is an argument rather than a default, because which rule runs is a statement about a
@@ -245,16 +259,16 @@ class CouncilModel:
 
         self.public_commodity = kinds == PUBLIC_GOOD
 
-        # The split is by one question -- is the column's commodity a private good -- because
-        # the private-good columns are the plan's consumption block and nothing else is.
-        column_kind = kinds[self.exponent_commodity]
-        self.private_column = np.flatnonzero(column_kind == PRIVATE_GOOD)
-        other_column = np.flatnonzero(column_kind != PRIVATE_GOOD)
-        self.consumption_commodity = self.exponent_commodity[self.private_column].astype(np.int64)
-        self.other_commodity = self.exponent_commodity[other_column].astype(np.int64)
-        self.other_is_public = self.public_commodity[self.other_commodity]
-        self.private_exponent = self.utility_exponent[:, self.private_column]
-        self.other_exponent = self.utility_exponent[:, other_column]
+        # The split is by one question -- is the column's commodity a public good -- because
+        # the public-good columns are the plan's shared use and every other column is its
+        # consumption block.
+        column_is_public = self.public_commodity[self.exponent_commodity]
+        consumption_column = np.flatnonzero(~column_is_public)
+        public_column = np.flatnonzero(column_is_public)
+        self.consumption_commodity = self.exponent_commodity[consumption_column].astype(np.int64)
+        self.public_column_commodity = self.exponent_commodity[public_column].astype(np.int64)
+        self.consumption_exponent = self.utility_exponent[:, consumption_column]
+        self.public_exponent = self.utility_exponent[:, public_column]
 
     def initial_state(
         self, initial_price: float | np.ndarray, rule_state: np.ndarray | None = None
@@ -286,9 +300,9 @@ class CouncilModel:
         """
         price = state.next_price
         output, effort, input_use = self._propose(price)
-        private_demand, other_demand = self._demand(price)
+        consumption_demand, public_demand = self._demand(price)
         supply, demand, consumer_demand = self._aggregate(
-            output, input_use, private_demand, other_demand
+            output, input_use, consumption_demand, public_demand
         )
         imbalance = _relative_imbalance(supply, demand)
         next_price, next_rule_state = self.price_rule(
@@ -307,9 +321,10 @@ class CouncilModel:
             output=output,
             effort=effort,
             input_use=input_use,
-            consumption=private_demand,
+            consumption=consumption_demand,
             shared_use=np.where(self.public_commodity, consumer_demand, 0.0),
             consumer_demand=consumer_demand,
+            expenditure=self._expenditure(price, consumption_demand, public_demand),
             worst_imbalance=float(np.max(imbalance)),
         )
 
@@ -331,8 +346,10 @@ class CouncilModel:
         ``valuation["indicative_price"]`` is the price the round's proposals were made at, and
         ``valuation["next_indicative_price"]`` the price the rule returned, which the next
         round would use. ``extra["price_rule_state"]`` is the state the rule returned, which
-        the next round would receive. The last two are what a run that continues from this
-        plan starts from.
+        the next round would receive. The next price and that state are what a run that
+        continues from this plan starts from. ``valuation["income"]`` is each council's
+        entitlement and ``valuation["expenditure"]`` what its stated bundle costs at the prices
+        it paid.
 
         It takes a state :meth:`step` produced. The state :meth:`initial_state` returns carries
         a price and nothing else, so this raises :class:`demplan.SchemaError` on it:
@@ -349,6 +366,8 @@ class CouncilModel:
             valuation={
                 INDICATIVE_PRICE: state.price,
                 NEXT_INDICATIVE_PRICE: state.next_price,
+                INCOME: self.entitlement,
+                EXPENDITURE: state.expenditure,
             },
             extra={
                 EFFORT: state.effort,
@@ -387,33 +406,52 @@ class CouncilModel:
     def _demand(self, price: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Consumer councils' stated bundle at ``price``, as two blocks of columns.
 
-        The first block is the private-good columns, in the order of
+        The first block is every column whose commodity is not a public good, in the order of
         ``consumption_commodity``; it is what the plan reports as ``consumption``. The second
-        is every other column, the public goods and the commodities that are neither.
+        is the public-good columns.
 
         A council facing a public good pays the listed price divided by the number of consumer
-        units. Every other column pays the listed price, private goods included, which is why
+        units, :meth:`_public_price`. Every other column pays the listed price, which is why
         the first block has no price adjustment at all. A single column is the only
         place the public-good price is observable; :class:`CouncilModel` says why it leaves
         every commodity-level number of the plan alone.
         """
-        private_price = price[self.consumption_commodity]
-        private = (self.entitlement[:, None] * self.private_exponent) / (
-            self.total_exponent[:, None] * private_price[None, :]
+        consumption = (self.entitlement[:, None] * self.consumption_exponent) / (
+            self.total_exponent[:, None] * price[self.consumption_commodity][None, :]
         )
-        listed = price[self.other_commodity]
-        paid = np.where(self.other_is_public, listed / self.n_consumers, listed)
-        other = (self.entitlement[:, None] * self.other_exponent) / (
-            self.total_exponent[:, None] * paid[None, :]
+        public = (self.entitlement[:, None] * self.public_exponent) / (
+            self.total_exponent[:, None] * self._public_price(price)[None, :]
         )
-        return private, other
+        return consumption, public
+
+    def _public_price(self, price: np.ndarray) -> np.ndarray:
+        """What a council pays for each public-good column: the listed price per consumer unit."""
+        return price[self.public_column_commodity] / self.n_consumers
+
+    def _expenditure(
+        self, price: np.ndarray, consumption_demand: np.ndarray, public_demand: np.ndarray
+    ) -> np.ndarray:
+        """Each council's spending on its whole stated bundle, at the prices :meth:`_demand` paid.
+
+        A column outside the public goods costs the listed price; a public-good column costs
+        :meth:`_public_price`. Cobb-Douglas demand spends the whole entitlement, so this equals
+        ``income`` up to rounding; it is summed from the bundle rather than copied from the
+        entitlement so that the budget difference measures what the councils stated.
+        """
+        # einsum sums each council's products in one pass without building the product
+        # matrix, which on dep1ex is 30000 by 100 per block and would be built every round.
+        on_consumption = np.einsum(
+            "ij,j->i", consumption_demand, price[self.consumption_commodity]
+        )
+        on_public = np.einsum("ij,j->i", public_demand, self._public_price(price))
+        return on_consumption + on_public
 
     def _aggregate(
         self,
         output: np.ndarray,
         input_use: np.ndarray,
-        private_demand: np.ndarray,
-        other_demand: np.ndarray,
+        consumption_demand: np.ndarray,
+        public_demand: np.ndarray,
     ):
         """Supply, total demand, and the consumer councils' part of it, one per commodity.
 
@@ -428,16 +466,14 @@ class CouncilModel:
         demand = np.bincount(
             self.economy.input_commodity, weights=input_use, minlength=self.n_commodities
         )
-        stated_other = other_demand.sum(axis=0)
-        shared_other = np.where(
-            self.other_is_public, stated_other / self.n_consumers, stated_other
-        )
         consumption = np.bincount(
             self.consumption_commodity,
-            weights=private_demand.sum(axis=0),
+            weights=consumption_demand.sum(axis=0),
             minlength=self.n_commodities,
         ) + np.bincount(
-            self.other_commodity, weights=shared_other, minlength=self.n_commodities
+            self.public_column_commodity,
+            weights=public_demand.sum(axis=0) / self.n_consumers,
+            minlength=self.n_commodities,
         )
         demand += consumption
         return supply, demand, consumption

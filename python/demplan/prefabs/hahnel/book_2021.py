@@ -9,6 +9,9 @@ It also holds what the book's two-year experiments add, for :func:`demplan.run_p
 change between the years, :func:`perturb_exponents`; the warm start of year two,
 :class:`WarmStart`; the increasing returns of Table 9.6, :func:`increasing_returns`; and the
 growth figure the book reports, :func:`real_gdp_growth`.
+
+The two rescalings :func:`demplan.check_homogeneity` takes for this procedure are here too:
+:func:`scale_starting_price` and :func:`scale_nominal_quantities`.
 """
 
 from __future__ import annotations
@@ -148,6 +151,8 @@ UTILITY_EXPONENT_STEPS = (-0.002, -0.001, 0.0, 0.001, 0.002)
 """What ``augment-cc`` may add to one consumer-council utility exponent."""
 
 UTILITY_EXPONENT = "utility_exponent"
+
+ENTITLEMENT = "entitlement"
 
 
 def perturb_exponents(economy: Economy, plan: Plan, seed: int) -> Economy:
@@ -356,3 +361,53 @@ def _growth_at(
         )
     value_2 = float(np.dot(price, quantity_2))
     return PERCENT * (value_2 - value_1) / value_1
+
+
+def scale_starting_price(
+    procedure: HahnelBook2021, economy: Economy, factor: float
+) -> tuple[HahnelBook2021, Economy]:
+    """``procedure`` with its initial price multiplied by ``factor``, and ``economy`` unchanged.
+
+    A ``rescale`` for :func:`demplan.check_homogeneity` that tests start-independence: only
+    where the price iteration starts moves. A scalar initial price and a price vector are both
+    multiplied; the procedure passed in keeps its own.
+
+    Raises ``TypeError`` naming the type when ``procedure`` is not a :class:`HahnelBook2021`.
+    """
+    _require_the_book_procedure(procedure, "scale_starting_price")
+    return _with_initial_price_times(procedure, factor), economy
+
+
+def scale_nominal_quantities(
+    procedure: HahnelBook2021, economy: Economy, factor: float
+) -> tuple[HahnelBook2021, Economy]:
+    """The initial price and every consumer council's entitlement multiplied by ``factor``.
+
+    A ``rescale`` for :func:`demplan.check_homogeneity` that tests zero-degree homogeneity:
+    the nominal quantities of the model are the prices and the entitlements, so scaling both
+    changes the unit of account and nothing real. The returned economy differs from
+    ``economy`` in ``consumer_extra["entitlement"]`` alone.
+
+    Raises ``TypeError`` naming the type when ``procedure`` is not a :class:`HahnelBook2021`.
+    """
+    _require_the_book_procedure(procedure, "scale_nominal_quantities")
+    entitlement = np.asarray(economy.consumer_extra[ENTITLEMENT]) * factor
+    scaled = dataclasses.replace(
+        economy, consumer_extra={**economy.consumer_extra, ENTITLEMENT: entitlement}
+    )
+    return _with_initial_price_times(procedure, factor), scaled
+
+
+
+def _require_the_book_procedure(procedure, helper: str) -> None:
+    """Refuse a procedure other than :class:`HahnelBook2021`, naming its type."""
+    if not isinstance(procedure, HahnelBook2021):
+        raise TypeError(
+            f"{helper} rescales the initial price of a HahnelBook2021, and got a "
+            f"{type(procedure).__name__}"
+        )
+
+
+def _with_initial_price_times(procedure: HahnelBook2021, factor: float) -> HahnelBook2021:
+    """``procedure`` with ``initial_price`` multiplied by ``factor``, as a new object."""
+    return dataclasses.replace(procedure, initial_price=procedure.initial_price * factor)

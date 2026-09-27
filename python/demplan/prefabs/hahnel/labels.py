@@ -122,3 +122,22 @@ def natural_resources(economy: Economy) -> np.ndarray:
 def labor(economy: Economy) -> np.ndarray:
     """Indices of the commodities labelled :data:`LABOR`, ascending."""
     return _commodities_labelled(economy, LABOR, "labor")
+
+
+def resources(economy: Economy) -> np.ndarray:
+    """Indices of the natural resources and the kinds of labour, ascending.
+
+    The commodities whose input use draws on the endowment rather than on production within
+    the period: the ``resources`` declaration :meth:`demplan.Plan.endowment_use` and
+    :func:`demplan.period_differences` take.
+    """
+    return np.union1d(natural_resources(economy), labor(economy)).astype(np.int64)
+
+
+def bads(economy: Economy) -> np.ndarray:
+    """The commodities the model counts as bads: none, as an empty int64 array.
+
+    The source model has no commodity with negative value. The economy is taken so that the
+    call reads like the other declaration helpers.
+    """
+    return np.zeros(0, dtype=np.int64)

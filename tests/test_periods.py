@@ -173,7 +173,10 @@ class TestPublicSurface:
             "solve_seed",
             "advance_seed",
         ]
-        assert [field.name for field in dataclasses.fields(PeriodsResult)] == ["periods"]
+        assert [field.name for field in dataclasses.fields(PeriodsResult)] == [
+            "periods",
+            "differences",
+        ]
 
     def test_plain_functions_pass_the_protocol_isinstance_checks(self):
         def advance(economy, plan, seed):

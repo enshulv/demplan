@@ -44,6 +44,13 @@ SHADOW_PRICE = "shadow_price"
 INCOME = "income"
 """Valuation key: income per consumer unit, ``f64[n_consumers]``."""
 
+EXPENDITURE = "expenditure"
+"""Valuation key: total expenditure per consumer unit this period, ``f64[n_consumers]``.
+
+In the unit of :data:`INCOME`, and everything the unit spent, including its part of anything
+used in common.
+"""
+
 EFFORT = "effort"
 """Extra key: the effort each producing unit chose, ``f64[n_units]``."""
 
@@ -55,12 +62,13 @@ _VALUATION_ROWS = {
     LABOR_VALUE: ("n_commodities", "commodity", "commodities"),
     SHADOW_PRICE: ("n_commodities", "commodity", "commodities"),
     INCOME: ("n_consumers", "consumer unit", "consumer units"),
+    EXPENDITURE: ("n_consumers", "consumer unit", "consumer units"),
 }
 """Row count each convention ``valuation`` key is registered with, and what that count counts.
 
-Prices are one entry per commodity and income is one per consumer unit, so the bag has no
-single length. A key outside this table means something the library cannot read, and its
-length is checked the way ``extra`` is instead.
+Prices are one entry per commodity, and income and expenditure one per consumer unit, so the
+bag has no single length. A key outside this table means something the library cannot read,
+and its length is checked the way ``extra`` is instead.
 """
 
 _PHYSICAL_ARRAYS = ("output", "input_use", "consumption", "shared_use")
@@ -123,13 +131,11 @@ class Plan:
         ``input_use`` alone.
     ``consumer_demand``
         ``f64[n_commodities]``, how much of each commodity the consumer councils asked for, as
-        it entered this round's material balance: a private good carries the same total
-        ``consumption`` holds, a public good carries the quantity shared once over the whole
-        society, and a commodity that is neither carries the councils' whole stated total.
-        Zero where no council asked for the commodity. ``consumption`` covers the private
-        goods alone and ``shared_use`` the public goods alone, so without this key the demand
-        side of every other commodity is missing and the material balance cannot be rebuilt
-        from the plan.
+        it entered this round's material balance: a public good carries the quantity shared
+        once over the whole society, and every other commodity the councils' whole stated
+        total, the same total ``consumption`` holds. Zero where no council asked for the
+        commodity. It is the consumer side of the demand the councils' board measured, kept
+        next to ``consumption`` and ``shared_use`` so a reader can check the two against it.
 
     Both carry a constant, :data:`EFFORT` and :data:`CONSUMER_DEMAND`, because a reader needs
     them to take a plan apart: two researchers comparing their runs have to spell such a key
@@ -226,8 +232,7 @@ class Plan:
         ``economy``.
         """
         self._require_conformable(economy)
-        listed = _index_array("resources", resources)
-        _require_indices_in_range("resources", listed, economy.n_commodities)
+        listed = _commodity_declaration("resources", resources, economy.n_commodities)
         drawn = self.total_input_use(economy)
         counted = np.zeros(economy.n_commodities, dtype=bool)
         counted[listed] = True
@@ -405,6 +410,19 @@ class Plan:
                 f"{economy.n_consumers} consumer units and the plan has "
                 f"{columns.shape[0]} consumption columns"
             )
+
+
+def _commodity_declaration(name: str, indices, n_commodities: int) -> np.ndarray:
+    """``indices`` checked as a declaration of commodities. Raises ``ValueError`` naming ``name``.
+
+    A declaration is a one-dimensional int64 array of distinct commodity indices inside
+    ``[0, n_commodities)``. Every accessor and report that takes the commodities a caller
+    counts, exempts or totals checks them here, so one declaration is refused the same way
+    wherever it is passed.
+    """
+    listed = _index_array(name, indices)
+    _require_indices_in_range(name, listed, n_commodities)
+    return listed
 
 
 class StatedPlan(Plan):

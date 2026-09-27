@@ -10,6 +10,9 @@ import dataclasses
 import time
 from typing import Protocol, runtime_checkable
 
+import numpy as np
+
+from demplan.differences import PlanDifferences, plan_differences
 from demplan.economy import Economy
 from demplan.iterate import IterateResult, _recorder
 from demplan.plan import Plan
@@ -49,16 +52,34 @@ class RunSummary:
 
 @dataclasses.dataclass(frozen=True)
 class RunResult:
+    """What one run produced, how it went, and what its plan leaves over or short."""
+
     plan: Plan
     summary: RunSummary
+    differences: PlanDifferences | None = None
+    """:func:`demplan.plan_differences` of the plan, or ``None`` when the run was asked not to
+    compute it."""
 
 
-def run(procedure: Procedure, economy: Economy, seed: int) -> RunResult:
+def run(
+    procedure: Procedure,
+    economy: Economy,
+    seed: int,
+    bads: np.ndarray | None = None,
+    price: str | None = None,
+    differences: bool = True,
+) -> RunResult:
     """Call ``procedure.solve``, timing it and collecting any loop it drove.
 
     A procedure that calls :func:`demplan.iterate` more than once reports the last loop:
     that is the one whose result the returned plan came out of. A nested ``run`` gets its own
     collector, so an inner procedure's loop never lands in the outer summary.
+
+    With ``differences`` true, the result carries :func:`demplan.plan_differences` of the plan,
+    given ``bads`` and ``price``; with it false, ``RunResult.differences`` is ``None`` and the
+    plan is not read. The report is computed after the timed region, so ``wall_seconds`` is the
+    time ``solve`` took and nothing else. Exceptions from ``solve`` and from the report
+    propagate, among them :class:`demplan.SchemaError` for a plan not shaped for ``economy``.
     """
     collected: list[IterateResult] = []
     token = _recorder.set(collected)
@@ -77,4 +98,5 @@ def run(procedure: Procedure, economy: Economy, seed: int) -> RunResult:
         wall_seconds=wall_seconds,
         trajectory=None if loop is None else loop.trajectory,
     )
-    return RunResult(plan=plan, summary=summary)
+    report = plan_differences(economy, plan, bads, price) if differences else None
+    return RunResult(plan=plan, summary=summary, differences=report)

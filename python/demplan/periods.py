@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from typing import Protocol, runtime_checkable
+from typing import Collection, Protocol, runtime_checkable
 
 import numpy as np
 
+from demplan.differences import PeriodDifferences, period_differences
 from demplan.economy import Economy
 from demplan.plan import Plan
 from demplan.procedure import Procedure, RunResult, run
@@ -84,6 +85,9 @@ class PeriodsResult:
     """Every period of a multi-period run, in order."""
 
     periods: tuple[PeriodResult, ...]
+    differences: PeriodDifferences | None = None
+    """:func:`demplan.period_differences` over the run's economies and plans, or ``None`` when
+    the run was asked not to compute it."""
 
 
 def run_periods(
@@ -94,6 +98,11 @@ def run_periods(
     advance: Advance | None = None,
     next_procedure: NextProcedure | None = None,
     check_period: bool = True,
+    bads: np.ndarray | None = None,
+    price: str | None = None,
+    resources: np.ndarray | None = None,
+    constraints: Collection[str] = (),
+    differences: bool = True,
 ) -> PeriodsResult:
     """Run ``procedure`` for ``periods`` periods, starting from ``economy``.
 
@@ -113,9 +122,16 @@ def run_periods(
 
     Every period's economy is kept in the result as the object the run used, without copying.
 
+    ``bads``, ``price`` and ``differences`` are passed to every period's :func:`demplan.run`.
+    With ``differences`` true, the result also carries :func:`demplan.period_differences` over
+    the periods' economies and plans, given ``resources`` and ``constraints``, computed after
+    the last period; with it false, neither report is computed.
+
     Raises ``ValueError`` when ``periods`` is not an integer of at least 1, or when ``seed`` is
-    outside ``[0, 2**64)``; ``TypeError`` when ``advance`` returns something other than an
-    ``Economy`` or ``next_procedure`` returns something without a callable ``solve``.
+    outside ``[0, 2**64)``; the errors :func:`demplan.run` and :func:`demplan.period_differences`
+    raise for the declarations passed on to them; ``TypeError`` when ``advance`` returns
+    something other than an ``Economy`` or ``next_procedure`` returns something without a
+    callable ``solve``.
     Exceptions from ``solve``, ``advance`` and ``next_procedure`` propagate unchanged, and no
     partial result is returned.
     """
@@ -126,7 +142,7 @@ def run_periods(
     advance_seed: int | None = None
     for index in range(periods):
         solve_seed = words[_WORDS_PER_PERIOD * index]
-        result = run(procedure, economy, solve_seed)
+        result = run(procedure, economy, solve_seed, bads, price, differences)
         recorded.append(PeriodResult(index, economy, result, solve_seed, advance_seed))
         if index == periods - 1:
             break
@@ -141,7 +157,15 @@ def run_periods(
         if next_procedure is not None:
             procedure = _next_procedure(next_procedure, result.plan, index)
 
-    return PeriodsResult(tuple(recorded))
+    report = None
+    if differences:
+        report = period_differences(
+            [period.economy for period in recorded],
+            [period.result.plan for period in recorded],
+            resources,
+            constraints,
+        )
+    return PeriodsResult(tuple(recorded), report)
 
 
 def _period_count(periods: object) -> int:

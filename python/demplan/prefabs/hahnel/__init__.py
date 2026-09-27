@@ -20,6 +20,8 @@ from demplan.prefabs.hahnel.book_2021 import (
     increasing_returns,
     perturb_exponents,
     real_gdp_growth,
+    scale_nominal_quantities,
+    scale_starting_price,
 )
 from demplan.prefabs.hahnel.councils import (
     NEXT_INDICATIVE_PRICE,
@@ -37,10 +39,12 @@ from demplan.prefabs.hahnel.labels import (
     PRIVATE_GOOD,
     PUBLIC_GOOD,
     TECHNOLOGY,
+    bads,
     intermediate_goods,
     labor,
     natural_resources,
     private_goods,
+    resources,
     shared_goods,
 )
 from demplan.prefabs.hahnel.production import technology
@@ -60,6 +64,7 @@ __all__ = [
     "StatelessPriceRule",
     "TECHNOLOGY",
     "WarmStart",
+    "bads",
     "book_2021_rule",
     "increasing_returns",
     "intermediate_goods",
@@ -69,6 +74,9 @@ __all__ = [
     "private_goods",
     "real_gdp_growth",
     "relative_imbalance",
+    "resources",
+    "scale_nominal_quantities",
+    "scale_starting_price",
     "shared_goods",
     "stateless",
     "technology",

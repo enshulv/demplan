@@ -8,7 +8,12 @@ Everything else in this package is optional. Use the pieces whose assumptions yo
 """
 
 from demplan._core import core_version
-from demplan.checks import DeterminismReport, check_determinism
+from demplan.checks import (
+    DeterminismReport,
+    HomogeneityReport,
+    check_determinism,
+    check_homogeneity,
+)
 from demplan.configuration import (
     ConfigurationError,
     EconomyDigestReport,
@@ -17,7 +22,18 @@ from demplan.configuration import (
     economy_digest,
     run_configuration,
 )
+from demplan.differences import (
+    BudgetDifference,
+    Coverage,
+    MaterialBalance,
+    NonNegativity,
+    PeriodDifferences,
+    PlanDifferences,
+    period_differences,
+    plan_differences,
+)
 from demplan.economy import COBB_DOUGLAS, LEONTIEF, Economy, SchemaError
+from demplan.indicators import PlanComparison, compare_plans, input_use_on
 from demplan.io import load_dep1ex
 from demplan.iterate import IterateResult, iterate
 from demplan.objectives import MaximizeWeightedConsumption, MinimizeLabor, Objective
@@ -32,6 +48,7 @@ from demplan.periods import (
 from demplan.plan import (
     CONSUMER_DEMAND,
     EFFORT,
+    EXPENDITURE,
     INCOME,
     INDICATIVE_PRICE,
     LABOR_VALUE,
@@ -67,15 +84,19 @@ from demplan import prefabs, tools
 __all__ = [
     "Advance",
     "AllocatedPlan",
+    "BudgetDifference",
     "COBB_DOUGLAS",
     "CONSUMER_DEMAND",
     "CobbDouglas",
     "ConfigurationError",
+    "Coverage",
     "DeterminismReport",
     "EFFORT",
+    "EXPENDITURE",
     "Economy",
     "EconomyDigestReport",
     "FixedRatios",
+    "HomogeneityReport",
     "INCOME",
     "INDICATIVE_PRICE",
     "InputSide",
@@ -83,15 +104,20 @@ __all__ = [
     "LABOR_VALUE",
     "LEONTIEF",
     "Leontief",
+    "MaterialBalance",
     "MaximizeWeightedConsumption",
     "MinimizeLabor",
     "NextProcedure",
+    "NonNegativity",
     "Objective",
     "OutputSide",
+    "PeriodDifferences",
     "PeriodResult",
     "PeriodWarning",
     "PeriodsResult",
     "Plan",
+    "PlanComparison",
+    "PlanDifferences",
     "PlanFieldAbsent",
     "Procedure",
     "ReferenceInfeasible",
@@ -108,11 +134,16 @@ __all__ = [
     "Technology",
     "TechnologyReport",
     "check_determinism",
+    "check_homogeneity",
     "compare_economy_digests",
+    "compare_plans",
     "core_version",
     "economy_digest",
+    "input_use_on",
     "iterate",
     "load_dep1ex",
+    "period_differences",
+    "plan_differences",
     "prefabs",
     "reference_solution",
     "require_comparable",

@@ -8,13 +8,16 @@ the library can do is tell the researcher whether his own procedure reproduces i
 from __future__ import annotations
 
 import dataclasses
-from typing import Mapping
+import math
+import numbers
+from typing import Callable, Mapping
 
 import numpy as np
 
 from demplan.economy import Economy
+from demplan.indicators import PlanComparison, compare_plans
 from demplan.plan import Plan
-from demplan.procedure import Procedure
+from demplan.procedure import Procedure, run
 
 _PHYSICAL_FIELDS = ("output", "input_use", "consumption", "consumption_commodity", "shared_use")
 
@@ -114,3 +117,85 @@ def _bit_identical(first: np.ndarray, other: np.ndarray) -> bool:
     if first.shape != other.shape or first.dtype != other.dtype:
         return False
     return np.ascontiguousarray(first).tobytes() == np.ascontiguousarray(other).tobytes()
+
+
+Rescale = Callable[[Procedure, Economy, float], "tuple[Procedure, Economy]"]
+"""``rescale(procedure, economy, factor) -> (procedure, economy)``: the rescaled run's inputs."""
+
+
+@dataclasses.dataclass(frozen=True)
+class HomogeneityReport:
+    """How far a run moved when its inputs were rescaled by ``factor``.
+
+    ``comparison`` compares the plan of the original run with the plan of the rescaled one.
+    ``rescale`` is the rescaling function's qualified name. The round and convergence fields
+    come from each run's summary and are ``None`` when the procedure did not use
+    :func:`demplan.iterate`. The report states the numbers; which gap counts as homogeneous is
+    the researcher's statement.
+    """
+
+    factor: float
+    rescale: str
+    comparison: PlanComparison
+    rounds: int | None
+    rounds_rescaled: int | None
+    converged: bool | None
+    converged_rescaled: bool | None
+
+
+def check_homogeneity(
+    procedure: Procedure, economy: Economy, seed: int, rescale: Rescale, factor: float
+) -> HomogeneityReport:
+    """Run once, run again on what ``rescale`` makes of the inputs, and compare the two plans.
+
+    ``rescale(procedure, economy, factor)`` returns the procedure and economy of the second
+    run. Two uses:
+
+    * start-independence: ``rescale`` changes only the procedure's starting valuations, and a
+      procedure whose result does not depend on where it starts compares at zero;
+    * zero-degree homogeneity: ``rescale`` scales every nominal quantity the researcher
+      declares, and a procedure whose real result does not depend on the unit of account
+      compares at zero.
+
+    Both runs go through :func:`demplan.run` with the same ``seed`` and ``differences=False``;
+    the plans are compared with :func:`demplan.compare_plans`.
+
+    Raises ``ValueError`` when ``factor`` is not a finite number above zero other than 1, before
+    anything runs, and ``TypeError`` when ``rescale`` returns anything but a tuple of two.
+    """
+    factor = _rescale_factor(factor)
+    original = run(procedure, economy, seed, differences=False)
+    rescaled_inputs = rescale(procedure, economy, factor)
+    if not isinstance(rescaled_inputs, tuple) or len(rescaled_inputs) != 2:
+        raise TypeError(
+            f"rescale must return a pair (procedure, economy), got "
+            f"{type(rescaled_inputs).__name__}"
+        )
+    rescaled = run(*rescaled_inputs, seed, differences=False)
+    return HomogeneityReport(
+        factor=factor,
+        rescale=_qualified_name(rescale),
+        comparison=compare_plans(original.plan, rescaled.plan),
+        rounds=original.summary.rounds,
+        rounds_rescaled=rescaled.summary.rounds,
+        converged=original.summary.converged,
+        converged_rescaled=rescaled.summary.converged,
+    )
+
+
+def _rescale_factor(factor) -> float:
+    """``factor`` as a float, refusing anything but a finite number above zero other than 1.
+
+    A factor of 1 rescales nothing, so the check would compare a run with itself.
+    """
+    is_number = isinstance(factor, numbers.Real) and not isinstance(factor, bool)
+    if not is_number or not math.isfinite(factor) or factor <= 0 or factor == 1:
+        raise ValueError(
+            f"factor must be a finite number above zero other than 1, got {factor!r}"
+        )
+    return float(factor)
+
+
+def _qualified_name(function) -> str:
+    """``__qualname__`` of a function, or of the class of a callable object."""
+    return getattr(function, "__qualname__", type(function).__qualname__)

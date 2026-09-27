@@ -1,5 +1,14 @@
 # WIOD field mapping: what's missing from `Economy`
 
+> **Correction (2026-09-28)**: the points below were checked against the original files of the WIOD 2016 release (dataverse.nl doi:10.34894/PJ2M1C). They replace the corresponding statements marked ⚠ in the body, which is left as written:
+>
+> - WIOT has no compensation-of-employees row. The rows below the table body are only `II_fob`, `TXSP`, `EXP_adj`, `PURR`, `PURNR`, `VA`, `IntTTM` and `GO`, and value added is a single total row, `VA`, so WIOT itself carries no labour data
+> - SEA hours are employees' hours only (`H_EMPE`, millions of hours); there are no hours for all persons engaged, and no variable is split by skill
+> - SEA covers 43 economies and has no rest of the world; China's `EMPE` and `H_EMPE` are `NA` throughout, so there are no hours for China
+> - The intermediate-use matrix `Z` (the 2014 table) is about 83 % non-zero, about 5.05 million entries, not the roughly 40 % the body gives
+>
+> The body was written against the data model of the time; `commodity_kind`, `unit_group`, `consumer_group` and `provision`, which it names, are no longer in `Economy` and `Plan`. The current rules are in [spec.md](../spec.md).
+
 ⚠ Most of this document was written from memory of the WIOD 2016 release's public
 documentation, **without checking the original files**. Only three points have been checked
 against the originals: the industry count, the contents of the SEA, and the source of the

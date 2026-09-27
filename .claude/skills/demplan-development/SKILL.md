@@ -19,8 +19,13 @@ These are settled; each has a decision record in `docs/decisions/`.
 
 1. **The base layer is theory-neutral.** Before adding anything to `Economy`, `Plan` or the loop,
    ask which school of economic thought would disagree with it. If one would, it belongs in an
-   optional tool or a prefab. Prices are not part of `Economy`; material balance is a residual that
-   is computed, not a constraint that is enforced.
+   optional tool or a prefab. Prices are not part of `Economy`; material balance is a difference
+   that is reported, not a constraint that is enforced. `Economy` has no classes of commodity or
+   groups of units: a label a loader or prefab needs goes into an `extra` bag under a key it owns,
+   and the library's own tools never read an `extra` key of `Economy`. A tool that needs to know which commodities are labour, resources, shared or bads
+   takes that as a declaration argument (a one-dimensional int64 array of commodity indices), and
+   a prefab offers helpers that build it. Reports state numbers: N/A is `None` with a reason, and
+   nothing carries a tolerance or a pass/fail field.
 2. **Only two things are fixed**: the `Economy` data model and deterministic seeding.
 3. **The extension point is an interface.** A procedure is any object with
    `solve(economy, seed) -> Plan`; the library does not break procedures into operators.

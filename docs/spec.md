@@ -9,8 +9,17 @@ Code development started 2026-09-05. The following are constraints the implement
 This library covers democratic economic planning and participatory economic planning. The library is called `demplan`, under the MIT license.
 
 The mechanism layer accepts only coordination procedures within this field. **It does not implement market mechanisms**: `Economy` carries no market-clearing-specific fields such as a market-clearing residual. The comparison benchmark across mechanisms is a centralized optimal reference solution, not a market baseline.
-The reference solution takes the researcher's declared objective as a parameter: `reference_solution(economy, objective) -> Plan`. The objective goes into the run manifest. The library ships several objectives as options and sets no default.
-The objective's contract: `weights(economy)` gives weights on final consumption, and `allocate(economy, aggregate)` gives the allocation of the aggregate to consumer units. An objective interpreted as a minimization must carry both `final_demand_lower_bound` and `minimize_kind`; carrying only one is an error. The final-demand lower bound cannot be negative. This well-formedness check on the declaration is not an invariant, so the rule that "non-negativity is an optional constraint" does not apply to it.
+The reference solution takes the researcher's declared objective as a parameter: `reference_solution(economy, objective) -> ReferenceResult` (the plan, the objective value and the solver status; `ReferenceProcedure(objective)` is the same thing as a `solve`). The objective goes into the run manifest. The library ships several objectives as options and sets no default.
+The objective's contract: `weights(economy)` gives weights on final consumption, and `allocate(economy, aggregate)` hands the aggregate final consumption to the consumption side, returning `(consumption, consumption_commodity, shared_use)`. An objective interpreted as a minimization must carry both `final_demand_lower_bound` and `counted_commodities`; carrying only one is an error. The final-demand lower bound cannot be negative. This well-formedness check on the declaration is not an invariant, so the rule that "non-negativity is an optional constraint" does not apply to it.
+
+The commodity groupings an objective needs are declared by the caller as arguments; the economy carries none of them:
+
+- `MinimizeLabor(targets, counted, shared=None)`: `targets` is the floor on final consumption. `counted` is required: the commodities whose input use the minimization totals, at least one (which commodities are labour is the researcher's statement). It is stored as the attribute `counted_commodities`.
+- `MaximizeWeightedConsumption(weights, split="equal", shared=None)`: `weights` is a weight per commodity, either a full vector or a mapping from commodity to weight.
+- `shared` lists the commodities the consumer units use in common; `None` means none. `allocate` puts each commodity in `shared` into `shared_use` at its whole aggregate, and splits every other commodity with a non-zero weight (or floor) evenly across consumer units into `consumption`. The consumption columns are those commodities, in ascending index order.
+- Which commodities carry weight is the researcher's statement; the library does not check it.
+
+The reference solution requires every unit's `technology_kind` to be `LEONTIEF` and every unit to have exactly one output entry, and reads `output_coefficient` as output per unit of activity (1 after linearization and on dep1ex). A unit with joint products is refused.
 
 **The foundation layer is theory-neutral.** Anything that carries an economic-theory assumption — invariants, metrics, behavioral equations — is always an optional tool, never a mandatory prerequisite. Before adding anything to the fixed layer, ask "which school of thought would disagree with this." If you can answer that question, it cannot be fixed.
 
@@ -18,7 +27,7 @@ v1 has no money or debt stock fields, and no interaction topology between agents
 
 **`Economy` is a closed economy: there is no place for imports or exports.** This is an assumption, not a neutral omission — related implementations' open-economy models carry `use_import`, `prices_import`, `prices_export`, and an export residual. World prices are exogenous terms of trade, not an internally cleared price, so adding them would not violate "no market mechanisms." Until it is added, the reference solution's declared assumption list must list this one.
 
-v1 covers producing units on the order of 10³ to 10⁴, with Leontief and Cobb-Douglas technology variants.
+v1 covers producing units on the order of 10³ to 10⁴. The library ships implementations of two technologies, Leontief and Cobb-Douglas; researchers implement any other against the interface, see "Technology."
 
 ## Division of responsibility
 
@@ -42,7 +51,7 @@ v1's public surface is two data types, two functions, and a toolbox:
 | `Plan` | One period's plan: physical layer plus extension layer |
 | `solve(economy, seed) -> Plan` | The coordination procedure interface. An object implementing it is called a `Procedure` |
 | `advance(economy, plan, seed) -> Economy` | The evolution rule; appears only in multi-period runs |
-| Tools | `iterate`, proposal behavior, invariant residuals, metrics, reference solution, seed derivation, self-test tools |
+| Tools | `iterate`, proposal behavior, differences, the technology check, metrics, reference solution, seed derivation, self-test tools |
 
 `Participant` (produces a proposal given a signal) has no interface position in v1; it appears only at v2's council granularity. Metrics are a collection of functions, not an object.
 
@@ -53,48 +62,57 @@ v1's public surface is two data types, two functions, and a toolbox:
 | Parecon's iterative price adjustment | Sector | Working, `prefabs/hahnel` |
 | Cockshott's direct labor-time calculation | Sector | Envisioned |
 | Kantorovich-style linear programming | Sector | Working, `reference_solution`, but **requires Leontief** |
-| OLIN-EP's nonlinear input-output `(I − F(x))x = d` | Unit (factories and citizens) | Doesn't fit: `technology_kind`'s enum has no entry for it |
+| OLIN-EP's nonlinear input-output `(I − F(x))x = d` | Unit (factories and citizens) | The data model can hold it (`technology_kind` is a text label); the library has no implementation of this technology, and the reference solution cannot read it |
 | I-EPOS's discrete candidate-plan selection | Council | v2. A proposal isn't a continuous vector; the `Participant` interface needs to accommodate "choose from a finite candidate set" |
 
-The last two rows have public code and published results, see [research/related-implementations.md](research/related-implementations.md). Two of the first three rows are already working, but **the two cannot be compared today**: dep1ex's 30,000 units are all Cobb-Douglas, the reference solution requires Leontief, so it must pass through `linearize`, and linearization silently swaps decreasing returns to scale for constant returns.
+The last two rows have public code and published results, see [research/related-implementations.md](research/related-implementations.md). Two of the first three rows are already working, but **the two cannot be compared today**: dep1ex's 30,000 units are all Cobb-Douglas with an effort factor (label `hahnel_cobb_douglas_effort`), the reference solution requires Leontief, so it must pass through `linearize`, and linearization silently swaps decreasing returns to scale for constant returns.
 
 ## Data model
 
-`Economy` consists of three columnar tables, each with fixed columns plus an `extra` named-array bag. The fixed columns hold only what every school of thought agrees exists; behavioral parameters go into `extra`, whose keys the library conventionalizes and prefabs interpret. **`Economy` carries no prices.** Valuation quantities live only in `Plan`'s extension layer and in the coordination procedure's own `State`.
+`Economy` consists of three columnar tables, each with fixed columns plus an `extra` named-array bag. The fixed columns hold only what every school of thought agrees exists. **The library does not classify commodities, producing units or consumer units, and keeps no vocabulary of attributes.** Labels and behavioral parameters that a loader or a prefab needs go into `extra`, under keys whose names and meanings belong to the loader or prefab that writes them. The library's tools read no `extra` key of `Economy`; validation checks shapes only. **`Economy` carries no prices.** Valuation quantities live only in `Plan`'s extension layer and in the coordination procedure's own `State`.
 
-**Commodities**: a single table, each row tagged with a kind. dep1ex currently has five kinds — private consumption goods, public goods, intermediate goods, natural resources, and labor. **This set is currently closed**; `validate` rejects any other value. Opening it up has to happen together with making the kind attribute declarable, and **emissions are not blocked by the kind set** — emissions are joint products, blocked by "one output per unit"; money stock, per the deferred list, is an added field, not an added kind. Both are decided to happen, see [decisions/data-model.md](decisions/data-model.md) 2026-09-05.
+When a library tool needs to know which commodities are resources, labour, used in common or bads, the caller declares it as an argument at the call site. These **declaration arguments** (`resources=`, `bads=`, `commodities=`, `counted=`, `shared=`) are all one-dimensional int64 arrays of commodity indices, each index at most once. An index out of range or listed twice raises `ValueError` naming the argument and the first offending index.
+
+**Commodities**: a single table.
 
 | Column | Type | Meaning |
 |---|---|---|
 | `commodity_id` | int64 | Stable identifier, equal to the row index |
-| `commodity_kind` | int8 | Kind: 0 private consumption good, 1 public good, 2 intermediate good, 3 natural resource, 4 labor. Extensible |
 | `endowment` | f64 | Quantity available this period without production. Zero for produced goods |
 
-**Producing units**: columnar arrays, plus a unit-to-sector grouping map. Variable-length inputs are stored as a flat array plus offsets, not padded into a rectangle. In v1, each unit has exactly one output commodity.
+**Producing units**: columnar arrays. Variable-length inputs and outputs are both stored as a flat array plus offsets, not padded into a rectangle. Every unit has at least one output entry, and a unit lists a commodity at most once among its output entries; a unit with two or more output entries is a unit with joint products. **The data model records no ratio between a unit's outputs and assumes none.**
 
 | Column | Type | Meaning |
 |---|---|---|
 | `unit_id` | int64 | Stable identifier, equal to the row index |
-| `unit_group` | int64 | Unit-to-sector grouping map; values are arbitrary group labels the library does not range-check. In dep1ex it equals the output commodity |
-| `output_commodity` | int64 | The output commodity |
-| `technology_kind` | int8 | 0 Leontief, 1 Cobb-Douglas. Extensible |
+| `technology_kind` | text | Technology label, any non-empty text. The two labels the library recognises are exported as constants: `LEONTIEF = "leontief"`, `COBB_DOUGLAS = "cobb_douglas"` |
 | `technology_scale` | f64 | Scale coefficient. dep1ex's `a` |
-| `input_offsets` | int64[n_units + 1] | Unit i's inputs are the flat array's `[offsets[i], offsets[i+1])` |
+| `input_offsets` | int64[n_units + 1] | Unit i's inputs are the flat input arrays' `[input_offsets[i], input_offsets[i+1])` |
 | `input_commodity` | int64[n_inputs] | Input commodities |
-| `input_coefficient` | f64[n_inputs] | Under Leontief, the input coefficient; under Cobb-Douglas, the exponent |
+| `input_coefficient` | f64[n_inputs] | A number per input whose meaning the unit's technology sets: under Leontief the input coefficient, under Cobb-Douglas the exponent |
+| `output_offsets` | int64[n_units + 1] | Unit i's output entries are the flat output arrays' `[output_offsets[i], output_offsets[i+1])` |
+| `output_commodity` | int64[n_outputs] | The commodity of each output entry |
+| `output_coefficient` | f64[n_outputs] | A number per output entry whose meaning the unit's technology sets, as `input_coefficient` is for inputs. The library's own technologies read it as output per unit of activity |
 
-**Consumer units**: `consumer_id` (int64, stable identifier), `consumer_group` (int64).
+Both sets of offsets start at 0, never decrease and end at the entry count; commodity indices are in range; coefficients are finite. `n_inputs` and `n_outputs` are the lengths of the two flat layouts.
 
-**`extra` conventional keys** (whether they're present is decided by the loader and the prefab; the library doesn't require them):
+**Consumer units**: `consumer_id` (int64, stable identifier, equal to the row index).
+
+**Text columns**: `technology_kind` and any text array in an `extra` bag are one-dimensional numpy arrays of dtype kind `U`, one label per row; an empty label is refused. A list of `str` is accepted in their place and stored as such an array; the Rust loaders hand text columns over in that form. The finiteness check applies to numeric arrays only.
+
+**`extra` bags**: each array's first dimension equals that table's row count, and it may be numeric or text. The library interprets no key. It checks the shape of the registered **column-map keys** only: such a key has shape `[k]`, where k is the column count of another 2-D `extra` array, and holds commodity indices. The only one registered is `consumer_extra["utility_exponent_commodity"]`, for `utility_exponent`.
+
+The dep1ex loader writes the keys below; their meaning belongs to the loader and to the prefab `hahnel`:
 
 | Table | Key | Shape | Meaning |
 |---|---|---|---|
+| Commodity | `hahnel_kind` | text[n_commodities] | The five class labels of Hahnel's model: `private_good`, `public_good`, `intermediate`, `natural_resource`, `labor`, laid out as five contiguous sections in that order |
 | Consumer unit | `entitlement` | f64[n_consumers] | Consumption entitlement, an exogenous flow. dep1ex's `income` |
 | Consumer unit | `utility_exponent` | f64[n_consumers, k] | Cobb-Douglas utility exponents. Column j's commodity is given by `utility_exponent_commodity` |
-| Consumer unit | `utility_exponent_commodity` | int64[k] | The column-to-commodity map for the row above |
+| Consumer unit | `utility_exponent_commodity` | int64[k] | The column-to-commodity map for the row above. A column can point to any commodity |
 | Producing unit | `effort_c`, `effort_s`, `effort_k` | f64[n_units] | dep1ex's worker-council closed-form parameters `c`, `s`, `du`. `c` is also the effort exponent in the production function |
 
-Each array in `extra` has a first dimension equal to that table's row count. **Column-map keys are the exception**: their shape is `[k]`, where k is the column count of another 2-D `extra` array. The only column-map key currently registered is `utility_exponent_commodity`. A utility-exponent column can point to a commodity of any kind, not just private consumption goods and public goods.
+The prefab `hahnel` has five helpers that turn `hahnel_kind` into the index arrays the declaration arguments take: `private_goods`, `shared_goods` (the `public_good` class), `intermediate_goods`, `natural_resources`, `labor`; plus `resources` (natural resources and labour together) and `bads` (an empty array: the source model has no commodity with negative value).
 
 `period` (int64) records which period this is.
 
@@ -104,46 +122,100 @@ Each array in `extra` has a first dimension equal to that table's row count. **C
 
 ```
 Physical layer (theory-neutral, every mechanism has it)
-├── Production side: output f64[n_units], input_use f64[n_inputs] (aligned with Economy's flat input array)
+├── Production side: output f64[n_outputs] (one quantity per output entry, aligned with Economy's
+│           flat output arrays; its length is n_units when every unit has one output entry),
+│           input_use f64[n_inputs] (aligned with Economy's flat input arrays)
 └── Consumption side: consumption f64[n_consumers, k] plus consumption_commodity int64[k]
-            (private goods: "who gets how much"; the column-to-commodity map follows the same
-            pattern as Economy's utility_exponent),
-            provision f64[n_commodities] (public goods: "how much is produced and shared in total";
-            zero for other commodities)
+            ("who gets how much"; the column-to-commodity map follows the same pattern as
+            Economy's utility_exponent),
+            shared_use f64[n_commodities] (per commodity, the quantity the consumer units use
+            in common and that is attributed to no single one of them)
 
 Extension layer (mechanism-specific)
-├── valuation: a named-array bag. Predefined keys indicative_price / labor_value / shadow_price
-│   (f64[n_commodities], NaN for commodities the mechanism leaves undefined) and income (f64[n_consumers]).
-│   Other keys are free
+├── valuation: a named-array bag. Registered keys indicative_price / labor_value / shadow_price
+│   (f64[n_commodities], NaN for commodities the mechanism leaves undefined) and
+│   income / expenditure (f64[n_consumers]). Other keys are free
 └── extra: a named-array bag for mechanism-specific physical quantities. The first dimension is one
     of n_units, n_consumers, or n_commodities.
     prefab hahnel writes effort (f64[n_units], the effort factor in the production function)
     and consumer_demand (f64[n_commodities], the contribution of consumer councils' stated plans to
-    demand for each commodity: for private goods, the sum across councils; for public goods, the
-    shared quantity counted once for society as a whole; for other commodities, the undivided total;
-    zero for a commodity nobody stated demand for)
+    demand for each commodity: for public goods, the shared quantity counted once for society as
+    a whole; for every other commodity, the sum of what the councils stated; zero for a commodity
+    nobody stated demand for)
 ```
 
-Each of these two keys has an exported constant (`EFFORT`, `CONSUMER_DEMAND`); the test is "vocabulary needed to read any plan." The `extra` keys on `Economy`'s three tables are mechanism input parameters, not vocabulary for reading a plan, so they stay bare strings.
+**`shared_use` is a use, not a supply.** Use in common means non-rival use: one party using the commodity does not reduce what another can use. It is zero for a commodity nobody uses in common. It is kept apart from `consumption` because a quantity used in common cannot be written per consumer unit and summed: 100 councils sharing one 50-acre park would sum to 5,000 acres. A commodity has one shared quantity, meaning everybody uses the same one; regional or tiered sharing cannot be stated. The prefab `hahnel` fills it on public goods with the councils' stated level (the sum of stated quantities divided by the number of consumer units, the same number `extra["consumer_demand"]` holds for those commodities), and with zero elsewhere.
 
-dep1ex's production function is `Q = a · e^c · Π x_j^{b_j}`, where `e` is the effort a unit chooses each round and `c` is `effort_c`. `technology_kind = 1` describes only the input side; reconstructing the full relationship requires `Plan.extra["effort"]`.
+**`expenditure`** is each consumer unit's total expenditure this period, in the unit of `income`, including its part of anything used in common. Like `income` it is an optional registered key; a mechanism that wants a budget difference fills it.
 
-Input use must be stored in the physical layer; it cannot be dropped as a derived quantity — when the technology allows substitution, the input mix is a decision the mechanism made, not a computed result. Endowment use (how much of each natural resource or labor was used) is an aggregation of input use by commodity, derived by an accessor, and not stored separately.
+The valuation keys and the two conventional `extra` keys are all exported as constants: `INDICATIVE_PRICE`, `LABOR_VALUE`, `SHADOW_PRICE`, `INCOME`, `EXPENDITURE`, `EFFORT`, `CONSUMER_DEMAND`; the test is "vocabulary needed to read any plan." The `extra` keys on `Economy`'s three tables are mechanism input parameters, not vocabulary for reading a plan, so they stay bare strings.
 
-**Three physical-layer fields can be absent**: passing `None` for `consumption`, `consumption_commodity`, or `provision` declares "this mechanism has no such quantity." `output` and `input_use` are required — every mechanism that plans production has both, and **passing `None` for them is an error at construction time**, not deferred to `validate`. Fields have no default value, so an omission is still a missing-argument error; absence can only be something the researcher wrote explicitly. `consumption` and `consumption_commodity` describe the same quantity and go in and out together. `Plan.absent_fields` reads back the declaration. An accessor that needs a field the plan lacks raises `PlanFieldAbsent` — **it does not return zero**, because a zero would enter a balance equation as a quantity the other side never held, and the two sides would no longer close.
+dep1ex's production function is `Q = a · e^c · Π x_j^{b_j}`, where `e` is the effort a unit chooses each round and `c` is `effort_c`. The loader labels every unit `hahnel_cobb_douglas_effort` (`hahnel.TECHNOLOGY`), with one output entry of `output_coefficient = 1`. Reconstructing the full relationship requires `Plan.extra["effort"]`; `hahnel.technology()` is the technology for this label, see "Technology."
+
+Input use must be stored in the physical layer; it cannot be dropped as a derived quantity — when the technology allows substitution, the input mix is a decision the mechanism made, not a computed result.
+
+Aggregates by commodity are derived by accessors and not stored:
+
+- `total_output(economy)`: `output` summed by `output_commodity` over output entries; a unit with joint products contributes to each commodity it lists
+- `total_input_use(economy)`: input use summed by commodity
+- `total_consumption(economy)`: the consumption columns summed by `consumption_commodity`; zero for commodities with no column
+- `endowment_use(economy, resources)`: input use of the commodities in `resources`, zero for every other commodity. Which commodities draw on the endowment is the caller's statement and has no default: a call without `resources` is a `TypeError` from Python itself
+
+**Three physical-layer fields can be absent**: passing `None` for `consumption`, `consumption_commodity`, or `shared_use` declares "this mechanism has no such quantity." `output` and `input_use` are required — every mechanism that plans production has both, and **passing `None` for them is an error at construction time**, not deferred to `validate`. Fields have no default value, so an omission is still a missing-argument error; absence can only be something the researcher wrote explicitly. `consumption` and `consumption_commodity` describe the same quantity and go in and out together. `Plan.absent_fields` reads back the declaration. An accessor that needs a field the plan lacks raises `PlanFieldAbsent` — **it does not return zero**, because a zero would enter a balance equation as a quantity the other side never held, and the two sides would no longer close.
 
 Divergence monitoring covers only the physical fields a plan actually carries: a mechanism that reports only `output` and `input_use` gets a `diverged=False` that says only those two stayed finite. In determinism comparisons, both sides absent counts as consistent; one side absent and the other present is reported as `<field> (absent from one run)`, not as a numeric difference.
 
-**`valuation`'s length has two tiers by key**: conventional keys follow their registered row count (`indicative_price`, `labor_value`, and `shadow_price` are one per commodity; `income` is one per consumer unit); other keys' first dimension is one of `n_units`, `n_consumers`, or `n_commodities`. The dtype must be `float64`, and it's **rejected rather than converted** — converting would erase the signal that "the mechanism computed this quantity in a different type."
+**`valuation`'s length has two tiers by key**: registered keys follow their registered row count (`indicative_price`, `labor_value`, and `shadow_price` are one per commodity; `income` and `expenditure` are one per consumer unit); other keys' first dimension is one of `n_units`, `n_consumers`, or `n_commodities`. The dtype must be `float64`, and it's **rejected rather than converted** — converting would erase the signal that "the mechanism computed this quantity in a different type."
 
 **`Plan` has two subclasses**: `StatedPlan`'s `consumption` is the stated plan, `AllocatedPlan`'s is the allocated plan. A subclass only adds an identity — no added fields, no narrowed contract. `require_comparable(a, b)` refuses to subtract when the two sides are different subclasses. The prefab `hahnel` produces `StatedPlan`; the reference solution produces `AllocatedPlan`.
+
+## Technology
+
+`technology_kind` is a label, and the data model does not say what a label means. A **technology** is one reading of a label, and it answers one question: can a producing unit's planned inputs produce the unit's planned outputs, and by how much does each output fall short or exceed.
+
+```
+class Technology(Protocol):
+    label: str
+    def margin(self, economy, plan, unit) -> ndarray: ...
+```
+
+`margin` gives one number per output entry of the unit, in storage order: what the unit's planned inputs can deliver of that output minus what the plan records. A negative number means the plan asks for more than the inputs can produce. It receives the whole plan because some technologies read plan fields beyond `input_use` (Hahnel's reads `plan.extra["effort"]`). The interface is per unit, so a researcher writes the formula for one unit in plain Python without vectorizing. It does not assume that inputs and the mix of outputs can be treated separately.
+
+**Assembly**: a separable technology has two halves.
+
+- The input side, `InputSide.activity(economy, plan, unit) -> float`: how much the unit can run on its planned inputs
+- The output side, `OutputSide.deliverable(economy, unit, activity) -> ndarray`: how much of each of the unit's output entries that activity delivers
+- `SeparableTechnology(label, inputs, outputs)` joins the two; its margin is `outputs.deliverable(economy, unit, inputs.activity(economy, plan, unit))` minus the plan's output entries of the unit
+
+Pieces the library ships:
+
+| Piece | Side | Reading |
+|---|---|---|
+| `Leontief()` | input | The smallest `input_use / input_coefficient` over the inputs with a positive coefficient; a unit with no positive coefficient has infinite activity |
+| `CobbDouglas()` | input | `technology_scale · Π input_use ^ input_coefficient` |
+| `SingleOutput()` | output | The unit must have exactly one output entry, otherwise `ValueError` naming the unit; delivers `activity · output_coefficient` |
+| `FixedRatios()` | output | Every output entry delivers `activity · output_coefficient`: outputs in fixed ratios |
+
+The library recognises two labels: `LEONTIEF` reads as `SeparableTechnology(LEONTIEF, Leontief(), SingleOutput())`, and `COBB_DOUGLAS` as `SeparableTechnology(COBB_DOUGLAS, CobbDouglas(), SingleOutput())`. **`FixedRatios` is never attached to a label by default**: reading several outputs in fixed ratios is a statement about that unit's technology, so a researcher who wants it builds the technology and passes it in.
+
+**The check tool** `technology_margins(economy, plan, technologies=None) -> TechnologyReport`:
+
+- `technologies` maps labels to technologies; it adds to the two labels the library recognises and may override them
+- The report carries `margin` (f64[n_outputs], 0.0 where not computed), `computed` (bool[n_outputs], which entries were computed) and `missing` (label → number of units carrying that label with no implementation). The arrays are read-only
+- A unit whose label has no implementation is not computed and is counted, **never read under a guessed technology**
+- A plan not shaped for the economy raises `SchemaError`; a technology that returns a number of entries other than the unit's output entries raises `ValueError`; a technology's own refusal (such as `SingleOutput` meeting a unit with joint products) propagates
+
+The prefab `hahnel` provides `hahnel.technology()`, labelled `hahnel.TECHNOLOGY`, whose margin is `a · e^c · Π x^b − output`, with `e` read from `plan.extra["effort"]` and `c` from `unit_extra["effort_c"]`. The library does not read this label on its own; pass it in: `technology_margins(economy, plan, {hahnel.TECHNOLOGY: hahnel.technology()})`.
+
+Every technology is a theoretical claim about production, so this is a tool, and it is not part of `plan_differences`. `tools.linearize.linearize` and the closed forms in `tools.leontief` and `tools.cobb_douglas` take only economies with one output entry per unit and refuse a unit with joint products; `linearize` writes every unit as `LEONTIEF` with `output_coefficient = 1`.
 
 ## Multiple periods
 
 The researcher chooses between static and rolling:
 
 ```
-run_periods(economy, procedure, periods, seed, advance=None, next_procedure=None, check_period=True)
+run_periods(economy, procedure, periods, seed, advance=None, next_procedure=None, check_period=True,
+            bads=None, price=None, resources=None, constraints=(), differences=True) -> PeriodsResult
 ```
 
 Not passing an evolution rule means static (the same economy is solved `periods` times); passing one means rolling (`Economy` is updated each period). Anyone not doing multi-period work never sees this concept.
@@ -154,11 +226,11 @@ Not passing an evolution rule means static (the same economy is solved `periods`
 
 **Seed layout**: `split_seed(seed, 2 · periods)` gives `w₀ …`. Period i (counting from 0) uses `w₂ᵢ` for the coordination procedure, and the evolution rule that produces the economy of period i+1 uses `w₂ᵢ₊₁`. The last position is reserved. This layout is part of the determinism contract.
 
-**Output** keeps every period's economy, the `RunResult`, the coordination procedure's seed and the evolution rule's seed.
+**Output**: `PeriodsResult.periods` keeps every period's economy, the `RunResult`, the coordination procedure's seed and the evolution rule's seed; `PeriodsResult.differences` is the cross-period difference report (see "Invariants"), `None` when `differences=False`. `bads`, `price` and `differences` are passed to every period's `run`; `resources` and `constraints` go to the cross-period differences computed after the last period. The one `differences` switch turns off both the per-period and the cross-period report.
 
 **Soft check on the period number**: when the `period` returned by the evolution rule is not the previous one plus one, a `PeriodWarning` is issued. It does not raise and does not correct the value; `check_period=False` turns it off.
 
-It's structurally the same as `iterate`: the value isn't running the loop for the researcher, but letting the library see that this is a trajectory — which is what makes cross-period provenance, multi-period output structure, and cross-period residuals possible.
+It's structurally the same as `iterate`: the value isn't running the loop for the researcher, but letting the library see that this is a trajectory — which is what makes cross-period provenance, multi-period output structure, and cross-period differences possible.
 
 ## Replaceable and fixed
 
@@ -187,8 +259,6 @@ The library also provides an **opt-in** loop tool, `iterate(init, step, converge
 
 ## Invariants: an optional toolbox
 
-> **Status**: the residuals, the homogeneity checks and the cross-period residuals in this section are built in Stage 2; the current code does not provide them yet.
-
 The four invariants are **optional constraints**, not hard gates. The researcher enables them as needed; adding them one at a time makes the experiment progressively stricter.
 
 - **Material balance**: no commodity's use exceeds its output plus its endowment
@@ -200,13 +270,79 @@ Each of the four carries a theoretical assumption of its own (in order: closed w
 
 **Theoretical commitments belong to the prefab.** Which invariants to enable when reproducing a given paper is declared by that paper's prefab; the library sets no global default.
 
-**Residuals are always computed, and their names stay neutral.** Material balance, budget, and non-negativity can all be computed from a single run's output, and the library computes their residuals and writes them into the output whether or not they were set as constraints — except where the mechanism leaves them undefined (direct labor-time calculation has no prices, so the budget residual is N/A for it, not 0, and the output must be able to show that difference). The budget residual needs three things, all supplied by the coordination procedure in the plan: prices, each consumer unit's income, and all of its spending. If any one is missing, the residual is N/A and the report states which one is missing; the library does not fall back or borrow quantities from elsewhere. The residual computation is a separate function that works on any plan; `run` and `run_periods` call it by default and attach the report to the result. The naming is always "budget residual," never "budget-identity violation": the same number is a defect to one researcher and the object of study itself to someone running a credit-creation experiment. The library gives the number, not the verdict.
+**Differences are always computed, and their names stay neutral.** Material balance, budget, and non-negativity can all be computed from a single run's output, and the library computes their differences and writes them into the output whether or not they were set as constraints — except where the mechanism leaves them undefined (direct labor-time calculation has no prices, so the budget difference is N/A for it, not 0, and the output must be able to show that). The naming is always "budget difference," never "budget-identity violation": the same number is a defect to one researcher and the object of study itself to someone running a credit-creation experiment. The library gives the number, not the verdict. (The decision records call these quantities residuals.)
 
-**Price homogeneity of degree zero is a property test, not a residual.** It's a property of the coordination procedure, and a single run's output doesn't contain it. The `check_homogeneity` tool does not decide which quantities are nominal: the caller passes in a function that says how to scale them, and a prefab ships its own version. It has two uses: replace only the starting valuation (independence from the starting point), or scale all declared nominal quantities (homogeneity of degree zero). The report gives the maximum relative difference in the physical fields and the round counts on both sides. It does not judge pass or fail; the researcher sets the tolerance.
+### Conventions shared by every report
 
-**Cross-period residuals** are likewise always computed and neutrally named: the cumulative resource use (against the initial endowment) and the change in the number of consumer units, which can be computed from fixed fields, are computed by default in multi-period runs and written to the output, and can be turned off. Non-negative capital stock and a stock equal to the prior period's stock plus net flow have no corresponding fields in the data model; they are marked N/A with the reason. Which of them constrain a given model is declared by its evolution rule or prefab. The output includes a coverage table.
+- A report states numbers only: its fields are differences, margins and minimums, with no pass/fail field and no tolerance. A difference is signed; no absolute value is taken
+- **N/A is `None`, never NaN and never 0.** Each quantity that can be N/A comes with a `why_not_computed`, which is `None` when the quantity was computed and otherwise names what is missing. The library does not fall back or borrow a quantity from elsewhere. A NaN in a result only ever comes from a NaN or inf in the plan, carried through by floating-point arithmetic
+- Which commodities are bads, which draw on the endowment and which valuation key holds the prices are the caller's statements, passed as arguments at the call site (`bads=`, `resources=`, `price=`). The library reads no `extra` key of `Economy` or `Plan`
+- Reports are frozen dataclasses; arrays are float64 or int64 and read-only; mappings are read-only; sequences are tuples
+- The differences are computed in Python with numpy. Sums by commodity use `np.bincount` in entry order, so the result is bit-for-bit deterministic
+
+### Single-period differences
+
+`plan_differences(economy, plan, bads=None, price=None) -> PlanDifferences` is a standalone function that works on any plan: one from `run`, from the reference solution, read back from a file, or produced by someone else's code. It first checks that the plan is shaped for the economy and lets the `SchemaError` propagate if not (a malformed plan is an error, not an N/A); a `plan` that is not a `Plan` raises `TypeError`.
+
+`run(procedure, economy, seed, bads=None, price=None, differences=True) -> RunResult` calls it after `solve` returns and outside the timed region, and attaches the report as `RunResult.differences`; with `differences=False` the field is `None` and the plan is not read. `wall_seconds` covers `solve` alone. `check_determinism` does not compute differences.
+
+The report, `PlanDifferences(material_balance, budget, non_negativity)`, has three parts.
+
+**Material balance**, `MaterialBalance`, one number per commodity in every field:
+
+- `supply = total_output + endowment`, where `total_output` is `plan.total_output(economy)`, joint products counted under their own commodities
+- `use = total_input_use + total_consumption + shared_use`
+- `difference = supply − use`
+- When the plan declares `consumption` or `shared_use` absent, use by consumer units is unknown, so `use` and `difference` are N/A for the whole vector, and the reason lists the absent fields in declaration order; the components the plan does carry are still filled in
+
+**Budget difference**, `BudgetDifference`, one number per consumer unit: `difference = income − expenditure`.
+
+- It is computed only when all three are in the plan's `valuation`: the price key the caller names with `price=`, `INCOME` and `EXPENDITURE`. The library does not guess which key holds prices and does not fall back to the consumer units' `entitlement`
+- When something is missing, the reason lists what is missing in a fixed order: no declared price (listing the valuation keys the plan carries), the declared price key not in the plan, no `income`, no `expenditure`
+- `income` and `expenditure` are filled in whenever the plan carries them, even when the difference cannot be formed
+- `priced_consumption` is each consumer unit's row of `consumption` valued at the declared price. It is a reconciliation column: `expenditure − priced_consumption` is what the unit spent outside the consumption block. It is `None` when the plan has no consumption block or no price
+- A `price=` that names an array not holding one entry per commodity raises `ValueError`
+
+**Non-negativity**, `NonNegativity`:
+
+- Quantities checked: `output`, `input_use`, `consumption` and `shared_use`, whichever the plan carries
+- Prices checked: every registered per-commodity key the plan carries (`indicative_price`, `labor_value`, `shadow_price`), as entries named `valuation.<key>`, skipping the commodities in `bads`. A bad exempts prices only; a negative quantity on a bad is still counted. `bads=None` means no commodity is a bad
+- Each entry has a `minimum` (NaN ignored; `None` when nothing is left to check) and a `negative_count`
+- `not_checked` lists every entry that was not checked, with the reason: a field the plan declares absent, a valuation key the library has not registered (it does not know what the key holds), or nothing left to check after the exemption
+
+### Cross-period differences
+
+`period_differences(economies, plans, resources=None, constraints=()) -> PeriodDifferences` accepts any trajectory, `plans[t]` being the plan for `economies[t]`, including one from the researcher's own loop. Sequences of unequal length, or empty ones, raise `ValueError`. `run_periods` calls it after the last period.
+
+- **Cumulative resource use**: `resources` declares the commodities whose input use draws on the initial endowment. `initial_endowment` is period 0's endowment of those commodities, row t of `cumulative_use` is `endowment_use` summed over periods 0 to t, and `resource_difference = initial_endowment − cumulative_use`, signed. When no `resources` are declared, or when some period's commodity count differs from period 0's (so the same index no longer names the same commodity), all three are N/A and `why_resources_not_computed` says which
+- **Consumer units**: `consumer_units` counts each period's consumer units and `consumer_unit_change` is the change between consecutive periods. Always computed
+- **Non-negative capital stock** and **the stock-flow identity** are never computed: the data model has no capital stock and no stock carried from one period to the next. They appear only in the coverage table, with that reason
+
+**The coverage table**, `PeriodDifferences.coverage`, has exactly four rows, in the order `cumulative_resource_use`, `consumer_unit_count`, `capital_stock_non_negativity`, `stock_flow_identity` (the four names are constants in `demplan.differences`). Each row is `Coverage(name, computed, why_not_computed, declared_constraint)`: `declared_constraint` echoes whether the caller named the row in `constraints=`, and an unknown name raises `ValueError` listing the four. Which of them constrain a given model is declared by its evolution rule or prefab; the library echoes the declaration and does not judge the numbers against it.
 
 Their character differs from the single-period batch, and the document calls this out separately: **a single-period invariant violation is visible to the researcher on the spot** (this period's plan is infeasible), **but a cross-period violation is not** — when the evolution rule computes something wrong, every subsequent period's coordination procedure computes a fully self-consistent answer to a wrong problem, every check passes, the charts look fine, and the error grows with the number of periods, silently the whole way.
+
+### Homogeneity and start-independence
+
+**Price homogeneity of degree zero is a property test, not a difference.** It's a property of the coordination procedure, and a single run's output doesn't contain it.
+
+`check_homogeneity(procedure, economy, seed, rescale, factor) -> HomogeneityReport` runs `run(procedure, economy, seed, differences=False)`, runs again with the same seed on the procedure and economy that `rescale(procedure, economy, factor)` returns, and compares the two plans with `compare_plans`. The library does not decide which quantities are nominal; the caller passes in how to scale them. Two uses:
+
+- **Start-independence**: `rescale` changes only the procedure's starting valuations
+- **Homogeneity of degree zero**: `rescale` scales every nominal quantity the researcher declares
+
+The prefab `hahnel` ships two: `scale_starting_price` (the initial price alone) and `scale_nominal_quantities` (the initial price and every consumer council's `entitlement`), both for `HahnelBook2021` only.
+
+The report carries `factor`, `rescale` (the function's qualified name), `comparison`, and both runs' round counts and convergence (`None` when the procedure did not use `iterate`). `factor` must be finite, above zero and other than 1, or `ValueError`; a `rescale` that returns anything but a pair raises `TypeError`. It does not judge pass or fail; the researcher sets the tolerance.
+
+### Indicators
+
+The library ships two general functions that carry no theory, in `demplan.indicators`:
+
+- `input_use_on(economy, plan, commodities) -> float`: the plan's input use summed over the listed commodities, equal to `plan.endowment_use(economy, commodities).sum()`. The labour total of a Hahnel plan is `input_use_on(economy, plan, hahnel.labor(economy))`
+- `compare_plans(plan, other) -> PlanComparison`: for each of `output`, `input_use`, `consumption` and `shared_use`, the `max_relative_difference` over entries of `|a − b| / max(|a|, |b|)`, counting an entry where both are 0 as 0 and letting NaN through. That number does not depend on the argument order. A field absent from one or both plans, `consumption` compared between a stated and an allocated plan, and `consumption` when the two plans' columns name different commodities go into `not_compared` with the reason; the other fields are still compared. A field both plans carry with different shapes raises `ValueError`
+
+Welfare, GDP, speed of convergence and similar indicators each carry theoretical commitments and stay out of the library.
 
 The toolbox will keep growing. SFC accounting identities (stocks as accumulated flows, transaction-flow matrix rows and columns summing to zero) are the next planned addition; their behavioral-equation part does not enter the foundation layer.
 
@@ -222,11 +358,21 @@ A researcher-supplied coordination procedure is arbitrary Python, and the librar
 
 `run_configuration(procedure, economy, seed, loader=None, plan=None)` produces a **loadable** configuration document: it comes out at the end of a run, and feeding it back in gives the same configuration. This is **a separate document** from the run manifest — the configuration document holds configuration, the manifest holds provenance, and the configuration document's hash goes into the manifest. Keeping them separate lets a load tell clearly which half is input; otherwise, feeding it back in would treat the previous run's result as input.
 
-**It is not welded into `run`.** `run`'s signature and `RunResult` stay unchanged; computing an economy's content hash costs something (0.064 seconds for dep1ex01's 53 MB), and a parameter sweep of thousands of runs shouldn't pay that cost every time. The researcher calls it explicitly.
+**It is not welded into `run`.** The economy's content hash is not computed inside `run`: computing it costs something (0.064 seconds for dep1ex01's 53 MB), and a parameter sweep of thousands of runs shouldn't pay that cost every time. The researcher calls it explicitly.
 
 The format is JSON (UTF-8, sorted keys, indent 2, `allow_nan=False`). There are eight top-level keys: `configuration_version`, `library_version`, `core_version`, `seed`, `economy`, `procedure`, `loader`, `plan_fields_absent`. A multi-period run (`periods > 1`) writes three more: `periods`, `advance` and `next_procedure`, the last two as origin blocks, `null` when not given. A single-period run writes none of them, so its document has the same bytes as one written by a library without these keys. A single-period configuration that carries an evolution law or a next-procedure slot is refused on writing and on reading. A multi-period document reproduces the whole trajectory (initial economy, seed, evolution law, next-procedure slot, number of periods); later periods' starting points are not in the document and are recomputed by rerunning the trajectory.
 
-**The economy is content-hashed** byte-for-byte with no precision loss, under the algorithm identifier `sha256-columns-v2`: each column is converted to C order and normalized to little-endian, then `column-name\ndtype\nshape\n` is prepended to the bytes fed into sha256; the three `extra` bags' keys, with their prefix, count as columns too; the overall digest is the sha256 of the per-column digests concatenated after sorting by column name. **A scalar column's shape line reads `1`** (a 0-D array is promoted to 1-D), and integer scalars are normalized to int64 first. **Only numeric dtypes can be hashed**: object, structured, and text dtypes are all rejected, with the offending column named — their bytes are either memory addresses or a width the second language can't reproduce. **Any change to any step requires bumping the algorithm identifier.** **Per-column digests are stored alongside the overall digest**; `compare_economy_digests` compares two of them and returns an `EconomyDigestReport` naming which columns differ — this is what makes cross-platform floating-point last-bit differences diagnosable. Comparison is refused when the two digests' `algorithm` differ. **The library doesn't verify this automatically**; comparison is a tool the researcher calls explicitly.
+**The economy is content-hashed** byte-for-byte with no precision loss, under the algorithm identifier `sha256-columns-v3`:
+
+- A numeric column is converted to C order and normalized to little-endian, and `column-name\ndtype\nshape\n` (UTF-8) is prepended to the bytes fed into sha256
+- A **text column** (dtype kind `U`) has the same three header lines, with `text` on the dtype line; then, for each label in row order, its UTF-8 byte length as an 8-byte little-endian unsigned integer followed by those bytes. The width numpy stores the labels at is not part of the digest
+- Each key of the three `extra` bags counts as a column named `<bag>.<key>`; the overall digest is the sha256 of the per-column digests concatenated after sorting by column name
+- The columns come from `Economy`'s current fields and carry the field names, such as `output_offsets` and `output_coefficient`; the library keeps no list of column names
+- **A scalar column's shape line reads `1`** (a 0-D array is promoted to 1-D), and integer scalars are normalized to int64 first
+- Object and structured dtypes are rejected, with the offending column named: the first's bytes are memory addresses, and the second's dtype string carries no field names, so two different columns would collide
+- A numeric column digests under v3 exactly as under v2
+
+**Any change to any step requires bumping the algorithm identifier.** **Per-column digests are stored alongside the overall digest**; `compare_economy_digests` compares two of them and returns an `EconomyDigestReport` naming which columns differ — this is what makes cross-platform floating-point last-bit differences diagnosable. Comparison is refused when the two digests' `algorithm` differ. **The library doesn't verify this automatically**; comparison is a tool the researcher calls explicitly.
 
 **Implementations shipped with the library are content-hashed; the researcher's own are not**: for library-shipped ones, the module's source file gets a sha256; for the researcher's, only their declared provenance is recorded, and it's `null` if none is given. **Both sides record parameters** — a parameter is data, not code, and the library can introspect the researcher's data classes the same way it introspects its own. numpy scalars are recorded by value.
 
@@ -242,7 +388,7 @@ Versioning rules: a missing key in a document falls back to its default (an old 
 
 The entire economy stays resident in memory as columnar f64 arrays. A single iteration round never touches disk: reads happen only at the start of a run, writes only at the end.
 
-v1's Rust layer holds only four things: storage and schema validation for `Economy` and `Plan`, the data loader, residual computation, and Parquet output. Proposal behavior, `iterate`, prefabs, and the reference solution live in Python. On the Python side, `Economy` and `Plan` are immutable data classes with numpy-array fields. Errors returned from Rust are converted at the binding layer into Python exceptions that inherit from `ValueError`.
+v1's Rust layer holds only three things: storage and schema validation for `Economy` and `Plan`, the data loader, and Parquet output. Proposal behavior, `iterate`, prefabs, the reference solution, the technology check and the differences live in Python. The differences are computed with numpy and take about 1 to 2 % of a run on dep1ex01. On the Python side, `Economy` and `Plan` are immutable data classes with numpy-array fields. Errors returned from Rust are converted at the binding layer into Python exceptions that inherit from `ValueError`.
 
 ## Output contract
 

@@ -56,8 +56,9 @@ centrally computed optimum under an objective function you declare, not a market
 
 MIT licensed. Status: early. What exists today is the data model, the dep1ex loader, one
 published procedure, the loop and seed tools, the determinism self-test, the run configuration
-document, and the linear-programming reference optimum for Leontief economies with a
-`linearize` tool for Cobb-Douglas ones. What is missing is listed under
+document, the report of what a plan leaves over or short that every run carries, a check of
+plans against technologies, and the linear-programming reference optimum for Leontief economies
+with a `linearize` tool for Cobb-Douglas ones. What is missing is listed under
 [Limitations](#limitations-and-open-work). How the library is tested and reviewed is described
 in the [quality assurance](https://github.com/enshulv/demplan/wiki/Quality-Assurance) page of
 the wiki. Issues and comments are welcome.
@@ -178,8 +179,14 @@ Honest status, roughly in the order these will be addressed:
   with labour and emission accounts are the next data milestone.
 - **No on-disk output format yet.** Plans come back as arrays in memory; the long-format
   Parquet output and the run manifest are not built.
-- **The invariant residual toolbox is not built.** Material balance and the other residuals are
-  computed by hand for now (the README example below shows how).
+- **The difference reports stop at what one plan and the fixed fields can show.** Material
+  balance, the budget and non-negativity are computed for every run, and cumulative resource use
+  across periods; technology margins are a separate call (`technology_margins`) rather than part
+  of that report. A capital stock, and the identity that carries a stock from one period to the
+  next, have no place in the data model, so the cross-period report lists them as not computed.
+  The declarations behind a report (`bads`, `price`, `resources`) are not yet recorded in the run
+  configuration document, and the reference solution's result carries no report of its own: pass
+  its plan to `plan_differences`.
 - **The reference solution states less than it assumes.** Leontief only, constant returns after
   `linearize`, closed economy, non-negativity and free disposal are all built in and none of
   them is reported with the result.
@@ -260,6 +267,61 @@ Nothing in that last calculation is privileged. `Plan` stores the full configura
 measure of feasibility, cost or fairness you want to argue about is a few lines away from the
 same output.
 
+## What the plan leaves over or short
+
+`run` also reads the plan it returns and reports, per commodity and per consumer unit, what the
+plan leaves over or short: `result.differences`. Continuing from the ten lines above:
+
+```python
+from demplan import INDICATIVE_PRICE, plan_differences, technology_margins
+from demplan.prefabs import hahnel
+
+balance = result.differences.material_balance
+print(balance.difference.min(), balance.difference.max())
+print(result.differences.budget.why_not_computed)
+
+budget = plan_differences(economy, plan, price=INDICATIVE_PRICE).budget
+print(abs(budget.difference).max())
+
+margins = technology_margins(economy, plan, {hahnel.TECHNOLOGY: hahnel.technology()})
+print(margins.missing, abs(margins.margin).max())
+```
+
+`balance.difference` is supply minus use for every commodity, signed: output plus endowment,
+minus input use, consumption and `shared_use`. On dep1ex01 it lies between 14.9 and 45.9, so the
+plan leaves some of every commodity unused. The same report carries every term of that sum, so
+the ten-line calculation above is one of many you can make from it.
+
+The budget difference is not computed, and the report says why rather than printing a number
+(wrapped here):
+
+```text
+the budget difference needs a price, income per consumer unit and total expenditure per consumer
+unit, all filed by the mechanism in Plan.valuation; this plan has no declared price (pass price=
+naming the valuation key the prices are filed under; this plan carries 'expenditure', 'income',
+'indicative_price', 'next_indicative_price')
+```
+
+The plan carries two price vectors, and which one a budget is reckoned in is yours to say. Named
+with `price=`, income minus expenditure is below 3e-12 for every council. A quantity that cannot
+be formed is `None` with a reason, never NaN or zero, and the library never borrows another
+quantity to fill the gap. `bads=` exempts the prices of the commodities you declare bads from
+the non-negativity check, and `differences=False` skips the report.
+
+`technology_margins` checks each producing unit against a technology: what its planned inputs can
+deliver minus what the plan records. The library reads the labels `LEONTIEF` and
+`COBB_DOUGLAS` by itself. dep1ex units carry the label of the Hahnel production function, which
+has an effort factor, so the example passes the prefab's technology in; called without it, the report
+lists all 30,000 units under `missing` instead of reading them as plain Cobb-Douglas. With it,
+the largest margin is 5.7e-13: the plan's outputs are what its inputs and efforts produce.
+
+`run_periods` does the same for every period and adds cross-period differences: cumulative use of
+the resources you declare against the initial endowment, and the change in the number of consumer
+units, with a coverage table listing what the data model cannot test. `check_homogeneity` reruns
+a procedure on rescaled inputs and reports how far the plan moved, and `compare_plans` and
+`input_use_on` are the two indicators the library ships. None of these reports carries a
+tolerance or a pass/fail field.
+
 ## Write your own coordination method
 
 A coordination method is any object with one method:
@@ -307,8 +369,8 @@ To change more than the rule, write `solve` yourself. `CouncilModel` in
 `demplan.prefabs.hahnel` is the councils' side of the procedure on its own. It takes the price
 rule as an argument and has `initial_state`, `step`, `converged` and `plan_of` in exactly the
 shape `iterate` takes, so a procedure that wants a different loop can drive it directly; using
-it commits you to the theory its docstring states. `demplan.tools` holds the closed forms of the two technologies the data model
-knows about.
+it commits you to the theory its docstring states. `demplan.tools` holds the closed forms of the two technologies the library
+recognises by label.
 
 If your method drives a fixed point, running the loop through `iterate` lets the library count
 rounds, apply a cap and watch for divergence, none of which it can see from outside. Pass
@@ -437,8 +499,8 @@ of input use on the commodities you name, so `plan.endowment_use(economy, resour
 it; which commodities count as resources is your statement, not the library's.
 
 **Absent fields.** Not every mechanism has every physical quantity. A mechanism that
-balances totals alone has no consumption per consumer unit, and one whose public supply is
-regional cannot state it as a single society-wide scalar, so `consumption`,
+balances totals alone has no consumption per consumer unit, and one whose common use is
+regional cannot state it as a single society-wide quantity, so `consumption`,
 `consumption_commodity` and `shared_use` may be declared absent by passing `None`. `output` and
 `input_use` are required: every mechanism that plans production has both. The fields carry no
 default, so leaving one out of the call is still a missing argument -- absence is something
@@ -453,7 +515,9 @@ subtract one from the other.
 **Extension layer.** `valuation` is a named-array bag, because a mechanism that computes
 labour times has no prices and one that iterates on prices has no labour times. Predefined
 keys are `indicative_price`, `labor_value` and `shadow_price` (f64[n_commodities], with NaN
-for commodities the mechanism leaves undefined) and `income` (f64[n_consumers]). Any other key
+for commodities the mechanism leaves undefined), and `income` and `expenditure`
+(f64[n_consumers]; expenditure is everything the unit spent this period, its part of anything
+used in common included). Any other key
 is yours, and its leading dimension has to be one of the three row counts. Every array is
 float64, refused rather than converted: converting would hide that the mechanism computed the
 quantity in another type.
@@ -512,8 +576,7 @@ representation on your behalf.
 ## What this library is answerable for
 
 The infrastructure half: the data model, the loaders, deterministic seed distribution, the
-determinism self-test, and, once built, the invariant residuals and the provenance record of
-a run.
+determinism self-test, the difference reports, and, once built, the provenance record of a run.
 
 The coordination method is yours. Whether your implementation is correct and whether your
 conclusions follow are yours too. The library does not read your code, does not judge whether

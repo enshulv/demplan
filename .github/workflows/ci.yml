@@ -1,4 +1,4 @@
-# Runs on every push and pull request.
+# Runs on every push and pull request, and by hand from the Actions tab.
 #
 # checks: repository checks (documentation format, links, required files, no committed data or
 #         build artefacts), Rust formatting and Clippy. Fast, so problems show up first.
@@ -10,6 +10,7 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -316,6 +316,15 @@ class TestMinimizeLabor:
         with pytest.raises(ValueError, match="counted"):
             MinimizeLabor(np.zeros(N_COMMODITIES), np.array([LABOR, LABOR], dtype=np.int64))
 
+    def test_an_empty_counted_array_is_refused(self):
+        """Counting no commodity makes the cost zero for every plan."""
+        with pytest.raises(ValueError, match="counted"):
+            MinimizeLabor(np.zeros(N_COMMODITIES), np.zeros(0, dtype=np.int64))
+
+    def test_a_single_counted_commodity_is_enough(self):
+        objective = MinimizeLabor(np.zeros(N_COMMODITIES), np.array([NATURAL], dtype=np.int64))
+        np.testing.assert_array_equal(objective.counted_commodities, [NATURAL])
+
     def test_a_float_counted_array_is_refused(self):
         with pytest.raises(ValueError, match="counted"):
             MinimizeLabor(np.zeros(N_COMMODITIES), np.array([5.0]))

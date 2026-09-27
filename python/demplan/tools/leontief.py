@@ -18,12 +18,17 @@ def input_requirements(coefficients: np.ndarray, output: float) -> np.ndarray:
 
 
 def input_requirements_flat(economy: Economy, output: np.ndarray) -> np.ndarray:
-    """:func:`input_requirements` for every producing unit at once.
+    """Inputs every producing unit needs for its given output, all units at once.
 
-    ``output`` is one quantity per unit; the result lines up with ``Economy.input_commodity``.
-    Raises ``ValueError`` when a unit has more than one output entry, since one quantity per
-    unit does not say which of its outputs it is.
+    ``output`` is one quantity per unit of the unit's one output; the result lines up with
+    ``Economy.input_commodity``. A unit delivers ``output_coefficient`` of its output per run,
+    so it runs ``output / output_coefficient`` times and needs ``input_coefficient`` of each
+    input per run. Where every output coefficient is 1 this is :func:`input_requirements` per
+    unit. Raises ``ValueError`` when a unit has more than one output entry, since one quantity
+    per unit does not say which of its outputs it is.
     """
     _require_one_output_per_unit(economy, "input_requirements_flat")
-    quantities = np.asarray(output, dtype=np.float64)[unit_of_input(economy)]
-    return np.asarray(economy.input_coefficient, dtype=np.float64) * quantities
+    runs = np.asarray(output, dtype=np.float64) / np.asarray(
+        economy.output_coefficient, dtype=np.float64
+    )
+    return np.asarray(economy.input_coefficient, dtype=np.float64) * runs[unit_of_input(economy)]

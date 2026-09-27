@@ -14,6 +14,16 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from demplan import (
+    COBB_DOUGLAS,
+    LEONTIEF,
+    CobbDouglas,
+    Economy,
+    Leontief,
+    Plan,
+    SeparableTechnology,
+    SingleOutput,
+)
 from demplan.tools import cobb_douglas, leontief
 from reference import synthetic
 
@@ -174,3 +184,86 @@ class TestJointProductsAreRefused:
         )
         with pytest.raises(ValueError, match=r"unit 4\b"):
             leontief.input_requirements_flat(economy, np.ones(economy.n_units))
+
+
+def _one_unit_economy(coefficients, output_coefficient: float, scale: float = 1.0):
+    """One unit using commodities 1, 2, ... with ``coefficients`` and making commodity 0."""
+    n_inputs = len(coefficients)
+    return Economy(
+        period=0,
+        commodity_id=np.arange(n_inputs + 1, dtype=np.int64),
+        endowment=np.zeros(n_inputs + 1, dtype=np.float64),
+        unit_id=np.zeros(1, dtype=np.int64),
+        technology_kind=[LEONTIEF],
+        technology_scale=np.array([scale], dtype=np.float64),
+        input_offsets=np.array([0, n_inputs], dtype=np.int64),
+        input_commodity=np.arange(1, n_inputs + 1, dtype=np.int64),
+        input_coefficient=np.array(coefficients, dtype=np.float64),
+        output_offsets=np.array([0, 1], dtype=np.int64),
+        output_commodity=np.zeros(1, dtype=np.int64),
+        output_coefficient=np.array([output_coefficient], dtype=np.float64),
+        consumer_id=np.zeros(0, dtype=np.int64),
+    )
+
+
+OUTPUT_COEFFICIENTS = (0.5, 2.0, 1.5, 4.0, 0.25, 1.0, 3.0, 0.8, 1.25)
+"""One output coefficient per unit of the synthetic economy, none of them 1 but one."""
+
+
+def _plan_of(economy, output, input_use) -> Plan:
+    return Plan(
+        output=np.asarray(output, dtype=np.float64),
+        input_use=np.asarray(input_use, dtype=np.float64),
+        consumption=None,
+        consumption_commodity=None,
+        shared_use=None,
+    )
+
+
+class TestTheOutputCoefficientIsOutputPerRun:
+    """Both flat forms read ``output`` as a quantity of the unit's output, which is
+    ``output_coefficient`` per unit of activity, as the technology interface and the reference
+    solution read it."""
+
+    def test_leontief_requirements_by_hand(self):
+        """Output 10 at 2 per run is 5 runs, needing 5 * (2, 3)."""
+        economy = _one_unit_economy([2.0, 3.0], output_coefficient=2.0)
+        np.testing.assert_allclose(
+            leontief.input_requirements_flat(economy, np.array([10.0])),
+            [10.0, 15.0],
+            rtol=RELATIVE_TOLERANCE,
+        )
+
+    def test_cobb_douglas_bundle_by_hand(self):
+        """Output 12 at 4 per run is 3 runs; with exponents (1, 1) at equal prices and scale 1
+        the bundle is (3**0.5, 3**0.5)."""
+        economy = _one_unit_economy([1.0, 1.0], output_coefficient=4.0)
+        bundle = cobb_douglas.cost_minimizing_inputs_flat(
+            economy, np.array([12.0]), np.ones(3, dtype=np.float64)
+        )
+        np.testing.assert_allclose(bundle, [3.0**0.5, 3.0**0.5], rtol=RELATIVE_TOLERANCE)
+
+    def test_leontief_requirements_agree_with_the_leontief_technology(self, synthetic_economy):
+        economy = dataclasses.replace(
+            synthetic_economy, output_coefficient=np.array(OUTPUT_COEFFICIENTS)
+        )
+        output = np.linspace(1.0, 9.0, economy.n_units)
+        plan = _plan_of(economy, output, leontief.input_requirements_flat(economy, output))
+        technology = SeparableTechnology(LEONTIEF, Leontief(), SingleOutput())
+        for unit in range(economy.n_units):
+            margin = technology.margin(economy, plan, unit)
+            assert margin[0] == pytest.approx(0.0, abs=RELATIVE_TOLERANCE * output[unit])
+
+    def test_cobb_douglas_bundles_agree_with_the_cobb_douglas_technology(self, synthetic_economy):
+        economy = dataclasses.replace(
+            synthetic_economy, output_coefficient=np.array(OUTPUT_COEFFICIENTS)
+        )
+        output = np.linspace(1.0, 9.0, economy.n_units)
+        prices = np.linspace(10.0, 24.0, economy.n_commodities)
+        plan = _plan_of(
+            economy, output, cobb_douglas.cost_minimizing_inputs_flat(economy, output, prices)
+        )
+        technology = SeparableTechnology(COBB_DOUGLAS, CobbDouglas(), SingleOutput())
+        for unit in range(economy.n_units):
+            margin = technology.margin(economy, plan, unit)
+            assert margin[0] == pytest.approx(0.0, abs=RELATIVE_TOLERANCE * output[unit])

@@ -43,6 +43,7 @@ from demplan.prefabs.hahnel.labels import (
     private_goods,
     shared_goods,
 )
+from demplan.prefabs.hahnel.production import technology
 
 __all__ = [
     "Book2021Rule",
@@ -70,4 +71,5 @@ __all__ = [
     "relative_imbalance",
     "shared_goods",
     "stateless",
+    "technology",
 ]

@@ -210,9 +210,9 @@ class MinimizeLabor:
     ``targets`` is a floor on final consumption, one entry per commodity, never negative.
     Consumption above the floor is neither rewarded nor penalised, so the solution meets the
     floor and stops. ``counted`` is a one-dimensional int64 array of the commodities whose
-    input use the objective totals: which commodities are labour is the researcher's
-    statement. ``shared`` is as on :class:`MaximizeWeightedConsumption`, and the floor decides
-    the consumption columns the way the weights do there.
+    input use the objective totals, at least one of them: which commodities are labour is the
+    researcher's statement. ``shared`` is as on :class:`MaximizeWeightedConsumption`, and the
+    floor decides the consumption columns the way the weights do there.
 
     :func:`demplan.reference.reference_solution` recognises this objective by two
     attributes rather than by its type, so a researcher's own labour-minimising objective is
@@ -230,6 +230,11 @@ class MinimizeLabor:
         self.final_demand_lower_bound = np.asarray(targets, dtype=np.float64)
         _require_non_negative(self.final_demand_lower_bound, "targets")
         self.counted_commodities = _index_array("counted", counted)
+        if self.counted_commodities.size == 0:
+            raise ValueError(
+                "counted: lists no commodity, so the labour the objective minimises is zero "
+                "for every plan; name the commodities whose input use it totals"
+            )
         self.shared_commodities = _shared_commodities(shared)
 
     def weights(self, economy: Economy) -> np.ndarray:

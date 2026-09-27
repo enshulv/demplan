@@ -43,12 +43,18 @@ def cost_minimizing_inputs_flat(
 ) -> np.ndarray:
     """:func:`cost_minimizing_inputs` for every producing unit at once.
 
-    ``output`` is one quantity per unit and ``input_prices`` one price per commodity. The
-    result lines up with ``Economy.input_commodity``. Raises ``ValueError`` when a unit has
-    more than one output entry, since one quantity per unit does not say which of its outputs
-    it is.
+    ``output`` is one quantity per unit of the unit's one output and ``input_prices`` one
+    price per commodity. The result lines up with ``Economy.input_commodity``. A unit delivers
+    ``output_coefficient`` of its output per unit of ``scale * prod(x_j ** b_j)``, so the
+    bundle is the least-cost one reaching ``output / output_coefficient`` of that; where every
+    output coefficient is 1 this is :func:`cost_minimizing_inputs` per unit. Raises
+    ``ValueError`` when a unit has more than one output entry, since one quantity per unit does
+    not say which of its outputs it is.
     """
     _require_one_output_per_unit(economy, "cost_minimizing_inputs_flat")
+    activity = np.asarray(output, dtype=np.float64) / np.asarray(
+        economy.output_coefficient, dtype=np.float64
+    )
     exponents = np.asarray(economy.input_coefficient, dtype=np.float64)
     owner = unit_of_input(economy)
     prices = np.asarray(input_prices, dtype=np.float64)[economy.input_commodity]
@@ -57,7 +63,7 @@ def cost_minimizing_inputs_flat(
     log_share = np.log(exponents) - np.log(exponent_sum)[owner]
     log_price = np.log(prices)
     log_cost = (
-        np.log(np.asarray(output, dtype=np.float64))
+        np.log(activity)
         - np.log(economy.technology_scale)
         - segment_sum(economy, exponents * (log_share - log_price), owner)
     ) / exponent_sum

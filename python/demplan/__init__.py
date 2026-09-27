@@ -50,6 +50,18 @@ from demplan.reference import (
     reference_solution,
 )
 from demplan.seeds import rng, split_seed
+from demplan.technology import (
+    CobbDouglas,
+    FixedRatios,
+    InputSide,
+    Leontief,
+    OutputSide,
+    SeparableTechnology,
+    SingleOutput,
+    Technology,
+    TechnologyReport,
+    technology_margins,
+)
 from demplan import prefabs, tools
 
 __all__ = [
@@ -57,20 +69,25 @@ __all__ = [
     "AllocatedPlan",
     "COBB_DOUGLAS",
     "CONSUMER_DEMAND",
+    "CobbDouglas",
     "ConfigurationError",
     "DeterminismReport",
     "EFFORT",
     "Economy",
     "EconomyDigestReport",
+    "FixedRatios",
     "INCOME",
     "INDICATIVE_PRICE",
+    "InputSide",
     "IterateResult",
     "LABOR_VALUE",
     "LEONTIEF",
+    "Leontief",
     "MaximizeWeightedConsumption",
     "MinimizeLabor",
     "NextProcedure",
     "Objective",
+    "OutputSide",
     "PeriodResult",
     "PeriodWarning",
     "PeriodsResult",
@@ -85,7 +102,11 @@ __all__ = [
     "RunSummary",
     "SHADOW_PRICE",
     "SchemaError",
+    "SeparableTechnology",
+    "SingleOutput",
     "StatedPlan",
+    "Technology",
+    "TechnologyReport",
     "check_determinism",
     "compare_economy_digests",
     "core_version",
@@ -100,5 +121,6 @@ __all__ = [
     "run_configuration",
     "run_periods",
     "split_seed",
+    "technology_margins",
     "tools",
 ]

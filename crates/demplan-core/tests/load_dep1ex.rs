@@ -473,6 +473,36 @@ fn load_rejects_an_input_segment_whose_exponent_count_differs() {
 }
 
 #[test]
+fn an_input_segment_mismatch_counts_one_commodity_in_the_singular() {
+    let units = UNIT_RECORDS.replace(":nature-exponents [0.13]", ":nature-exponents [0.13 0.19]");
+    let path = gzip_file(
+        "segment-one-commodity",
+        &scenario_text(CONSUMER_RECORDS, &units),
+    );
+
+    let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
+    assert_eq!(
+        err.to_string(),
+        "production unit 0: the nature segment lists 1 commodity but 2 exponents"
+    );
+}
+
+#[test]
+fn an_input_segment_mismatch_counts_one_exponent_in_the_singular() {
+    let units = UNIT_RECORDS.replace(":input-exponents [0.11 0.12]", ":input-exponents [0.11]");
+    let path = gzip_file(
+        "segment-one-exponent",
+        &scenario_text(CONSUMER_RECORDS, &units),
+    );
+
+    let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
+    assert_eq!(
+        err.to_string(),
+        "production unit 0: the intermediate segment lists 2 commodities but 1 exponent"
+    );
+}
+
+#[test]
 fn load_rejects_a_private_product_number_past_the_private_section() {
     let units = UNIT_RECORDS.replace(":product 4,", ":product 5,");
     let path = gzip_file(
@@ -612,6 +642,44 @@ fn load_rejects_consumers_whose_exponent_counts_disagree() {
         LoadError::ConsumerExponentCount { consumer, count, expected, .. }
             if consumer == 1 && count == 1 && expected == 4
     ));
+}
+
+#[test]
+fn a_consumer_exponent_count_of_one_is_counted_in_the_singular() {
+    let consumers = CONSUMER_RECORDS.replace(
+        ":utility-exponents [0.1 0.2 0.15 0.05]",
+        ":utility-exponents [0.1]",
+    );
+    let path = gzip_file(
+        "one-consumer-exponent",
+        &scenario_text(&consumers, UNIT_RECORDS),
+    );
+
+    let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
+    assert_eq!(
+        err.to_string(),
+        "consumption unit 1: `:utility-exponents` lists 1 exponent, expected 4 to match the \
+         first record"
+    );
+}
+
+#[test]
+fn a_consumer_exponent_count_of_several_is_counted_in_the_plural() {
+    let consumers = CONSUMER_RECORDS.replace(
+        ":utility-exponents [0.1 0.2 0.15 0.05]",
+        ":utility-exponents [0.1 0.2]",
+    );
+    let path = gzip_file(
+        "two-consumer-exponents",
+        &scenario_text(&consumers, UNIT_RECORDS),
+    );
+
+    let err = load_dep1ex(&path, TEST_ENDOWMENT).expect_err("expected a load error");
+    assert_eq!(
+        err.to_string(),
+        "consumption unit 1: `:utility-exponents` lists 2 exponents, expected 4 to match the \
+         first record"
+    );
 }
 
 #[test]

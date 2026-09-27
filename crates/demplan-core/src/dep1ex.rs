@@ -42,7 +42,7 @@ use std::path::Path;
 
 use flate2::read::GzDecoder;
 
-use crate::economy::{Economy, ExtraArray, SchemaError};
+use crate::economy::{counted, Economy, ExtraArray, SchemaError};
 
 /// Marks the start of the production unit vector and the end of the consumption
 /// unit vector.
@@ -164,8 +164,9 @@ pub enum LoadError {
 
     /// One input segment lists a different number of commodities and exponents.
     #[error(
-        "production unit {unit}: the {segment} segment lists {commodities} commodities \
-         but {exponents} exponents"
+        "production unit {unit}: the {segment} segment lists {} but {}",
+        counted(.commodities, "commodity", "commodities"),
+        counted(.exponents, "exponent", "exponents")
     )]
     InputSegmentLength {
         /// Position of the production unit within its vector.
@@ -192,8 +193,9 @@ pub enum LoadError {
     /// The exponents form one rectangle across all consumption units, so every
     /// record has to list as many as the first one.
     #[error(
-        "consumption unit {consumer}: `:{key}` lists {count} exponents, \
-         expected {expected} to match the first record"
+        "consumption unit {consumer}: `:{key}` lists {}, expected {expected} to match the \
+         first record",
+        counted(.count, "exponent", "exponents")
     )]
     ConsumerExponentCount {
         /// Position of the consumption unit within its vector.

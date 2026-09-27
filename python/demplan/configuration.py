@@ -23,7 +23,7 @@ declared" form. This module never runs the procedure and never inspects the plan
 one attribute.
 
 A run over several periods, as :func:`demplan.run_periods` carries it out, adds three keys:
-``periods``, the number of periods; ``advance``, the evolution law; and ``next_procedure``, the
+``periods``, the number of periods; ``advance``, the evolution rule; and ``next_procedure``, the
 slot that builds each period's procedure from the plan of the period before. The two slots are
 recorded as the procedure is, as origin blocks, and are null when the run had none. A
 single-period run writes none of the three, so its document has the same bytes as one written
@@ -31,15 +31,16 @@ by a library that has no multi-period keys, and a document without them reads as
 single-period run.
 
 What a multi-period document reproduces is the whole trajectory: the initial economy, the
-seed, the evolution law, the next-procedure slot and the number of periods, rerun from the
+seed, the evolution rule, the next-procedure slot and the number of periods, rerun from the
 first period. A later period's starting point is not in the document. A warm start's starting
 prices, for example, are arrays computed from the previous period's plan, and the document
 does not record arrays by value; they are recomputed by rerunning the trajectory. The economy
 block is the digest of the economy passed in, which for a trajectory is the first period's.
 
-Writing a document costs an economy-wide sha256 -- 0.064 seconds on the 53.3 MB dep1ex01
-economy -- so it is a function the researcher calls rather than something ``run`` does on
-every call. A parameter scan runs thousands of times and should pay once.
+Writing a document costs an economy-wide sha256, which grows with the size of the economy: on
+the 56 MB dep1ex01 economy it took about 0.06 seconds on one laptop, and the figure depends on
+the machine. It is therefore a function the researcher calls rather than something ``run``
+does on every call. A parameter scan runs thousands of times and should pay once.
 
 The economy digest is byte for byte, at full precision, and is stored per column as well as
 whole. A digest at reduced precision would swallow differences that move the round count,
@@ -90,6 +91,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from demplan._core import core_version
+from demplan._wording import with_article
 
 CONFIGURATION_VERSION = 1
 """Version of the document layout. A new layout takes a new number."""
@@ -357,7 +359,7 @@ def _require_digest_block(label: str, block) -> None:
     """
     if not isinstance(block, Mapping):
         raise ConfigurationError(
-            f"{label}: expected an economy digest block, got a {type(block).__name__}"
+            f"{label}: expected an economy digest block, got {with_article(type(block).__name__)}"
         )
     missing = [key for key in _DIGEST_BLOCK_KEYS if key not in block]
     if missing:
@@ -368,8 +370,8 @@ def _require_digest_block(label: str, block) -> None:
         )
     if not isinstance(block["columns"], Mapping):
         raise ConfigurationError(
-            f"{label}: columns maps a column name to its digest, this one is a "
-            f"{type(block['columns']).__name__}"
+            f"{label}: columns maps a column name to its digest, this one is "
+            f"{with_article(type(block['columns']).__name__)}"
         )
 
 
@@ -395,7 +397,7 @@ class RunConfiguration:
     periods: int = _SINGLE_PERIOD
     """Number of periods the run covers. 1 is a single-period run."""
     advance: Mapping[str, Any] | None = None
-    """Origin block of the evolution law, null when the run had none."""
+    """Origin block of the evolution rule, null when the run had none."""
     next_procedure: Mapping[str, Any] | None = None
     """Origin block of the slot that builds each period's procedure, null when the run had
     none."""
@@ -461,8 +463,8 @@ class RunConfiguration:
             document = json.load(file)
         if not isinstance(document, dict):
             raise ConfigurationError(
-                f"a configuration document is a JSON object, this one is a "
-                f"{type(document).__name__}"
+                "a configuration document is a JSON object, this one is "
+                f"{with_article(type(document).__name__)}"
             )
 
         _require_readable_version(document.get("configuration_version", CONFIGURATION_VERSION))
@@ -512,7 +514,7 @@ def run_configuration(
     ``next_procedure`` are recorded as origin blocks, as the procedure is, and are refused
     when ``periods`` is 1, because a single-period run never calls them.
 
-    The procedure, the evolution law and the next-procedure slot are described, never run.
+    The procedure, the evolution rule and the next-procedure slot are described, never run.
     """
     period_count = _period_count(periods)
     _require_multi_period_for_slots(period_count, advance=advance, next_procedure=next_procedure)
@@ -546,7 +548,7 @@ def _period_count(periods) -> int:
 
 
 def _require_multi_period_for_slots(periods: int, **slots) -> None:
-    """Refuse an evolution law or a next-procedure slot given to a single-period run.
+    """Refuse an evolution rule or a next-procedure slot given to a single-period run.
 
     :func:`demplan.run_periods` calls both only between two periods, so with one period
     neither runs. A document recording them would claim a setting that had no effect, and one
@@ -559,7 +561,7 @@ def _require_multi_period_for_slots(periods: int, **slots) -> None:
     pronoun = "them" if len(given) > 1 else "it"
     raise ConfigurationError(
         f"{' and '.join(given)}: a single-period run never calls {pronoun}, since run_periods "
-        "calls the evolution law and the next-procedure slot only between two periods. Pass "
+        "calls the evolution rule and the next-procedure slot only between two periods. Pass "
         f"periods greater than 1, or leave {pronoun} out."
     )
 
@@ -753,7 +755,7 @@ def _absent_fields(plan) -> tuple[str, ...] | None:
     if fields is None:
         raise ConfigurationError(
             "plan: expected an object carrying absent_fields, which is the one attribute of a "
-            f"plan this document records, and a {type(plan).__name__} has none"
+            f"plan this document records, and {with_article(type(plan).__name__)} has none"
         )
     if isinstance(fields, str):
         raise ConfigurationError(
@@ -765,8 +767,8 @@ def _absent_fields(plan) -> tuple[str, ...] | None:
         names = tuple(fields)
     except TypeError as error:
         raise ConfigurationError(
-            f"plan.absent_fields: expected a sequence of field names, got a "
-            f"{type(fields).__name__}"
+            "plan.absent_fields: expected a sequence of field names, got "
+            f"{with_article(type(fields).__name__)}"
         ) from error
     wrong = [name for name in names if not isinstance(name, str)]
     if wrong:

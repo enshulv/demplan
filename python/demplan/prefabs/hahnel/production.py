@@ -34,10 +34,12 @@ class _EffortCobbDouglas:
         """What the unit's planned inputs and effort deliver, minus its planned output.
 
         Raises ``ValueError`` when the plan records no effort, when the economy carries no
-        effort exponent, or when the unit has more than one output entry.
+        effort exponent, when the unit has more than one output entry, or when its output
+        coefficient is not 1.
         """
         outputs = slice(int(economy.output_offsets[unit]), int(economy.output_offsets[unit + 1]))
         _require_one_output(unit, outputs)
+        _require_unit_output_coefficient(economy, unit, outputs)
         effort = _effort_of(plan)[unit]
         effort_exponent = _effort_exponent_of(economy)[unit]
         inputs = economy.inputs_of(unit)
@@ -58,6 +60,24 @@ def _require_one_output(unit: int, outputs: slice) -> None:
         raise ValueError(
             f"unit {unit} has {entries} output entries, and the Hahnel production function "
             f"{TECHNOLOGY!r} has one output per unit"
+        )
+
+
+def _require_unit_output_coefficient(economy: Economy, unit: int, outputs: slice) -> None:
+    """Refuse an output coefficient other than 1, naming the unit, as the councils do.
+
+    The production function gives the unit's output as ``Q`` itself, so a coefficient would
+    scale nothing: the margin would ignore it and describe a unit the economy does not have.
+    Runs after :func:`_require_one_output`, so ``outputs`` holds one entry.
+    """
+    coefficient = float(economy.output_coefficient[outputs.start])
+    if coefficient != 1.0:
+        raise ValueError(
+            f"the Hahnel production function {TECHNOLOGY!r} reads each unit's output straight "
+            f"off Q = a * e**c * prod(x_j ** b_j), which has no output coefficient, so a "
+            f"coefficient other than 1 would be ignored without a word; unit {unit} carries "
+            f"output_coefficient {coefficient}. Set every output_coefficient to 1, as "
+            "demplan.load_dep1ex does."
         )
 
 

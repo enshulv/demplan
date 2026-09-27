@@ -9,7 +9,8 @@ import warnings
 
 import numpy as np
 
-from demplan.economy import Economy
+from demplan._wording import counted
+from demplan.economy import Economy, SchemaError
 from demplan.plan import AllocatedPlan
 
 _CORE_LOADER = "load_dep1ex"
@@ -31,6 +32,16 @@ _REGION = "region"
 _INDUSTRY = "industry"
 
 
+class LoadError(ValueError):
+    """A data file a loader cannot turn into an economy.
+
+    The file cannot be opened, decompressed or parsed, or it does not have the layout the
+    loader reads. The message is the Rust core's and names the file or the record at fault. An
+    economy that the file describes but that breaches the data model raises
+    :class:`demplan.SchemaError` instead.
+    """
+
+
 def load_dep1ex(path: str | os.PathLike[str], endowment: float = 1000.0) -> Economy:
     """Load one dep1ex archive from the Hahnel-Szczepanczyk-Weisdorf experiments.
 
@@ -46,8 +57,10 @@ def load_dep1ex(path: str | os.PathLike[str], endowment: float = 1000.0) -> Econ
     from the papers' text, where it is 1000 per commodity.
 
     Parsing happens in the Rust core, which reads the file once and hands back a mapping of
-    columns, text columns as lists of ``str``. Raises ``NotImplementedError`` while the core
-    does not export the loader.
+    columns, text columns as lists of ``str``. Raises :class:`LoadError` when the file cannot be
+    read, decompressed or parsed, :class:`demplan.SchemaError` when the economy it describes
+    breaches the data model (a non-finite ``endowment``, for one), and ``NotImplementedError``
+    while the core does not export the loader.
     """
     from demplan import _core
 
@@ -57,7 +70,26 @@ def load_dep1ex(path: str | os.PathLike[str], endowment: float = 1000.0) -> Econ
             f"the demplan core does not provide {_CORE_LOADER} yet; "
             "rebuild the extension module with a core that exports it"
         )
-    return Economy.from_arrays(loader(str(path), float(endowment)))
+    return Economy.from_arrays(_call_core_loader(loader, str(path), float(endowment)))
+
+
+def _call_core_loader(loader, *args):
+    """Call one of the core's loaders, raising its two error types as this package's own.
+
+    The core reports a file it cannot read as ``_core.LoadError`` and a breach of the data
+    model as ``_core.SchemaError``. A researcher catches :class:`LoadError` and
+    :class:`demplan.SchemaError`, the second being the class every schema check of the package
+    raises, so each is raised in place of its core counterpart with the same message and the
+    core's exception as its cause. Every other exception passes through unchanged.
+    """
+    from demplan import _core
+
+    try:
+        return loader(*args)
+    except _core.SchemaError as error:
+        raise SchemaError(str(error)) from error
+    except _core.LoadError as error:
+        raise LoadError(str(error)) from error
 
 
 class WiodLaborGap(UserWarning):
@@ -102,23 +134,33 @@ def load_wiod(
     ``path`` is the release zip ``WIOTS_in_EXCEL.zip``, from which the table
     ``WIOT{year}_Nov16_ROW.xlsb`` is read in memory without extracting it, or one such
     ``.xlsb`` workbook. ``year`` must be an integer from 2000 to 2014; anything else, including
-    ``2014.0`` and ``"2014"``, raises ``ValueError``. The workbook must have a sheet named after
-    ``year``; otherwise ``ValueError``.
+    ``2014.0`` and ``"2014"``, raises ``ValueError``. A workbook without a sheet named after
+    ``year`` raises :class:`LoadError`.
 
     The economy has one commodity per product (44 economies, including the rest of the world
     ``ROW``, times 56 industries, in the table's row order), labelled in
     ``commodity_extra["region"]`` and ``commodity_extra["industry"]``. Every product with
     positive gross output gets one producing unit, labelled ``LEONTIEF``, whose inputs are the
     products it uses that have a producing unit, at intermediate use over its gross output. A
-    negative intermediate-use entry raises ``ValueError`` naming the year, the two products and
-    the value; no year of the release has one. There is one consumer unit per final-demand
-    column (five per economy), labelled in ``consumer_extra["region"]`` and
-    ``consumer_extra["final_demand"]``. ``unit_extra`` carries each unit's region and industry,
-    the rows below the table body (taxes less subsidies, the cif/fob adjustment, purchases by
-    residents abroad and by non-residents, value added and international transport margins),
-    and ``unproduced_input_use``, described next. ``observed`` records gross output,
-    intermediate use and final demand (negative entries, such as inventory draw-downs, kept) as
-    an :class:`AllocatedPlan` of the economy. Values are millions of US$ at current prices.
+    negative intermediate-use entry raises :class:`LoadError` naming the year, the two products
+    and the value; no year of the release has one.
+
+    There is one consumer unit per final-demand column (five per economy), labelled in
+    ``consumer_extra["region"]`` and ``consumer_extra["final_demand"]``. ``unit_extra`` carries
+    each unit's region and industry, the rows below the table body (taxes less subsidies, the
+    cif/fob adjustment, purchases by residents abroad and by non-residents, value added and
+    international transport margins), and ``unproduced_input_use``, described below.
+    ``observed`` records gross output, intermediate use and final demand (negative entries,
+    such as inventory draw-downs, kept) as an :class:`AllocatedPlan` of the economy. Values are
+    millions of US$ at current prices.
+
+    A unit that uses no product of the table has no input entry unless ``labor`` gives it its
+    labour, and a Leontief technology reads a unit without inputs as able to produce any
+    quantity. Every year of the release has 29 to 31 such units: industry ``T`` (activities of
+    households as employers) in 28 or 29 economies, India's public administration ``IND O84``,
+    and, in five of the fifteen years, one unit of Malta. Pass ``labor`` to give them their
+    labour input. The rest of the world's ``ROW T`` stays without one, because ``ROW`` has no
+    labour data.
 
     A product without output keeps its commodity and gets no unit. Units may still use it: such
     a use is not an input entry, because nothing produces the product and nothing holds it, and
@@ -156,19 +198,24 @@ def load_wiod(
     input and not part of the endowment, so each endowment equals the labour input of its
     economy's units; no year of the release has a non-zero figure on such a product. The rest
     of the world ``ROW`` has no data under either measure, China ``CHN`` has no hours, and a
-    figure that is not a number is missing too.
-    The exchange-rate workbook lists Romania as ``ROM``, which the loader reads as the table's
-    ``ROU``; every other economy is matched by its code as written. A workbook that lists one
-    economy twice, under the same code or as both ``ROM`` and ``ROU``, raises ``ValueError``.
+    figure that is not a number is missing too. ``sea`` and ``exchange_rates`` are read only
+    when the measure needs them.
+
     A unit without a figure gets no labour input and ``unit_extra["labor_observed"]`` 0.0
     (1.0 otherwise; the key exists only when a measure is chosen), and the loader emits one
     :class:`WiodLaborGap` naming the economies affected and how many units each has. A figure
-    of 0 is data, not a gap. ``sea`` and ``exchange_rates`` are read only when the measure
-    needs them.
+    of 0 is data, not a gap.
+
+    The exchange-rate workbook lists Romania as ``ROM``, which the loader reads as the table's
+    ``ROU``; every other economy is matched by its code as written. A workbook that lists one
+    economy twice, under the same code or as both ``ROM`` and ``ROU``, raises
+    :class:`LoadError`.
 
     Reading happens in the Rust core, which hands back a mapping of columns. Raises
     ``ValueError`` when an argument is wrong, including a year that is not an integer from 2000
-    to 2014, or when a file cannot be read or does not have the release's layout.
+    to 2014; :class:`LoadError`, itself a ``ValueError``, when a file cannot be read or does not
+    have the release's layout; and :class:`demplan.SchemaError` when the economy the files
+    describe breaches the data model.
     """
     year = _release_year(year)
     _require_labor_sources(labor, sea, exchange_rates)
@@ -180,7 +227,9 @@ def load_wiod(
             f"the demplan core does not provide {_WIOD_LOADER} yet; "
             "rebuild the extension module with a core that exports it"
         )
-    mapping = loader(str(path), year, labor, _path_text(sea), _path_text(exchange_rates))
+    mapping = _call_core_loader(
+        loader, str(path), year, labor, _path_text(sea), _path_text(exchange_rates)
+    )
     economy = Economy.from_arrays(mapping["economy"])
     observed = AllocatedPlan(**mapping["observed"])
     observed.validate(economy)
@@ -272,12 +321,15 @@ def _warn_about_labor_gaps(economy: Economy) -> None:
     regions = economy.unit_extra[_REGION][missing]
     names, first_seen, counts = np.unique(regions, return_index=True, return_counts=True)
     listed = ", ".join(
-        f"{names[i]} ({counts[i]} {'unit' if counts[i] == 1 else 'units'})"
+        f"{names[i]} ({counted(int(counts[i]), 'unit')})"
         for i in np.argsort(first_seen)
     )
+    n_units = int(missing.sum())
+    subject = "unit has" if n_units == 1 else "units have"
+    pronoun = "it has" if n_units == 1 else "they have"
     warnings.warn(
-        f"{int(missing.sum())} producing units have no labour figure, so they have no labour "
-        f"input and unit_extra[{_LABOR_OBSERVED!r}] is 0.0: {listed}",
+        f"{n_units} producing {subject} no labour figure, so {pronoun} no labour input and "
+        f"unit_extra[{_LABOR_OBSERVED!r}] is 0.0: {listed}",
         WiodLaborGap,
         stacklevel=3,
     )

@@ -12,6 +12,13 @@ use std::collections::BTreeMap;
 const COLUMN_MAPPING_EXTRA_KEYS: &[(&str, &str)] =
     &[("consumer_extra", "utility_exponent_commodity")];
 
+/// `count` followed by the noun that agrees with it: the singular for exactly
+/// one, the plural otherwise. Error messages use it for every count they state.
+pub(crate) fn counted(count: &usize, singular: &str, plural: &str) -> String {
+    let noun = if *count == 1 { singular } else { plural };
+    format!("{count} {noun}")
+}
+
 /// A named array stored in one of the three `extra` bags.
 ///
 /// Numeric arrays are row-major, and `shape` gives their dimensions. A
@@ -300,7 +307,10 @@ pub enum SchemaError {
     },
 
     /// The dimensions of an extra array do not multiply out to its data length.
-    #[error("`{bag}[\"{key}\"]` has shape {shape:?} covering {product} values, expected {len}")]
+    #[error(
+        "`{bag}[\"{key}\"]` has shape {shape:?} covering {}, expected {len}",
+        counted(.product, "value", "values")
+    )]
     ExtraShape {
         /// Bag the array belongs to.
         bag: &'static str,

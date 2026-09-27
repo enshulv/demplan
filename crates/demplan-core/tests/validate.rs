@@ -752,6 +752,40 @@ fn validate_rejects_extra_shape_whose_product_differs_from_the_data_length() {
 }
 
 #[test]
+fn an_extra_shape_covering_one_value_counts_it_in_the_singular() {
+    let mut economy = valid_economy();
+    economy.consumer_extra.insert(
+        "utility_exponent".to_string(),
+        ExtraArray::F64 {
+            shape: vec![1],
+            data: vec![0.5, 0.1],
+        },
+    );
+
+    assert_eq!(
+        error_of(economy).to_string(),
+        "`consumer_extra[\"utility_exponent\"]` has shape [1] covering 1 value, expected 2"
+    );
+}
+
+#[test]
+fn an_extra_shape_covering_several_values_counts_them_in_the_plural() {
+    let mut economy = valid_economy();
+    economy.consumer_extra.insert(
+        "utility_exponent".to_string(),
+        ExtraArray::F64 {
+            shape: vec![2, 3],
+            data: vec![0.5, 0.1],
+        },
+    );
+
+    assert_eq!(
+        error_of(economy).to_string(),
+        "`consumer_extra[\"utility_exponent\"]` has shape [2, 3] covering 6 values, expected 2"
+    );
+}
+
+#[test]
 fn validate_rejects_extra_first_dimension_differing_from_the_row_count() {
     let mut economy = valid_economy();
     economy.unit_extra.insert(

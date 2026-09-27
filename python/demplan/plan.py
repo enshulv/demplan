@@ -22,6 +22,7 @@ from typing import Mapping
 
 import numpy as np
 
+from demplan._wording import counted, joined
 from demplan.economy import (
     Economy,
     SchemaError,
@@ -80,11 +81,12 @@ _OPTIONAL_ARRAYS = ("consumption", "consumption_commodity", "shared_use")
 """Fixed fields a mechanism may declare absent, in the order :class:`Plan` declares them."""
 
 _PHYSICAL_VECTORS = (
-    ("output", "n_outputs", "output entries"),
-    ("input_use", "n_inputs", "unit inputs"),
-    ("shared_use", "n_commodities", "commodities"),
+    ("output", "n_outputs", "output entry", "output entries"),
+    ("input_use", "n_inputs", "unit input", "unit inputs"),
+    ("shared_use", "n_commodities", "commodity", "commodities"),
 )
-"""Field, the ``Economy`` count it is as long as, and what that count counts."""
+"""Field, the ``Economy`` count it is as long as, and what that count counts, in the singular
+and the plural."""
 
 
 class PlanFieldAbsent(SchemaError):
@@ -179,7 +181,7 @@ class Plan:
         for name in _PHYSICAL_ARRAYS:
             column = getattr(self, name)
             if column is not None:
-                _require_finite(name, column)
+                _require_finite(f"Plan.{name}", column)
         self._require_valuation_length(economy)
         self._require_extra_rows(economy)
 
@@ -269,8 +271,8 @@ class Plan:
             if getattr(self, name) is None:
                 raise SchemaError(
                     f"Plan.{name} is None, but it is a required field: every mechanism that "
-                    f"plans production has both of {', '.join(_REQUIRED_ARRAYS)}. The fields a "
-                    f"mechanism may declare absent are {', '.join(_OPTIONAL_ARRAYS)}."
+                    f"plans production has both {_field_list(_REQUIRED_ARRAYS)}. The fields a "
+                    f"mechanism may declare absent are {_field_list(_OPTIONAL_ARRAYS)}."
                 )
 
     def _require_consumption_pairing(self) -> None:
@@ -329,8 +331,7 @@ class Plan:
                 if value.ndim < 1 or value.shape[0] not in counts:
                     raise SchemaError(
                         f"{label} has shape {value.shape}, expected a leading dimension of "
-                        f"{economy.n_units} producing units, {economy.n_consumers} consumer "
-                        f"units or {economy.n_commodities} commodities"
+                        f"{_row_counts(economy)}"
                     )
                 continue
             count, singular, plural = registered
@@ -338,7 +339,8 @@ class Plan:
             if value.shape != (expected,):
                 raise SchemaError(
                     f"{label} has shape {value.shape}, but this key is registered as one "
-                    f"entry per {singular} and the economy has {expected} {plural}"
+                    f"entry per {singular} and the economy has "
+                    f"{counted(expected, singular, plural)}"
                 )
 
     def _require_extra_rows(self, economy: Economy) -> None:
@@ -356,8 +358,7 @@ class Plan:
             if value.ndim < 1 or value.shape[0] not in counts:
                 raise SchemaError(
                     f"{label} has shape {value.shape}, expected a leading dimension of "
-                    f"{economy.n_units} producing units, {economy.n_consumers} consumer units "
-                    f"or {economy.n_commodities} commodities"
+                    f"{_row_counts(economy)}"
                 )
             _require_finite(label, value)
 
@@ -373,7 +374,7 @@ class Plan:
         has already refused ``None`` in either, so what reaches the checks below is an array
         whose dtype and length are still open questions.
         """
-        for name, count, subject in _PHYSICAL_VECTORS:
+        for name, count, singular, plural in _PHYSICAL_VECTORS:
             column = getattr(self, name)
             if column is None and name in _OPTIONAL_ARRAYS:
                 continue
@@ -382,8 +383,8 @@ class Plan:
                 raise SchemaError(f"Plan.{name}: expected a float64 array")
             if column.shape != (expected,):
                 raise SchemaError(
-                    f"Plan.{name} has {column.size} entries but the economy has "
-                    f"{expected} {subject}"
+                    f"Plan.{name} has {counted(column.size, 'entry', 'entries')} but the "
+                    f"economy has {counted(expected, singular, plural)}"
                 )
 
         columns = self.consumption_commodity
@@ -407,9 +408,23 @@ class Plan:
         if consumption.shape != (economy.n_consumers, columns.shape[0]):
             raise SchemaError(
                 f"Plan.consumption has shape {consumption.shape} but the economy has "
-                f"{economy.n_consumers} consumer units and the plan has "
-                f"{columns.shape[0]} consumption columns"
+                f"{counted(economy.n_consumers, 'consumer unit')} and the plan has "
+                f"{counted(columns.shape[0], 'consumption column')}"
             )
+
+
+def _field_list(names: tuple[str, ...]) -> str:
+    """``names`` as ``Plan.<name>``, joined by commas and a final ``and``."""
+    return joined([f"Plan.{name}" for name in names])
+
+
+def _row_counts(economy: Economy) -> str:
+    """The three row counts an array of a plan's bags can carry, as a message lists them."""
+    return (
+        f"{counted(economy.n_units, 'producing unit')}, "
+        f"{counted(economy.n_consumers, 'consumer unit')} or "
+        f"{counted(economy.n_commodities, 'commodity', 'commodities')}"
+    )
 
 
 def _commodity_declaration(name: str, indices, n_commodities: int) -> np.ndarray:

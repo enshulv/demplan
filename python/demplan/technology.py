@@ -33,6 +33,7 @@ from typing import Mapping, Protocol, runtime_checkable
 
 import numpy as np
 
+from demplan._wording import counted
 from demplan.economy import COBB_DOUGLAS, LEONTIEF, Economy
 from demplan.plan import Plan
 
@@ -235,7 +236,7 @@ def _margin_of_unit(
     if unit_margin.shape != (entries,):
         raise ValueError(
             f"the technology for {label!r} returned a margin of shape {unit_margin.shape} for "
-            f"unit {unit}, which has {entries} output entries; a margin is one number per "
-            "output entry"
+            f"unit {unit}, which has {counted(entries, 'output entry', 'output entries')}; a "
+            "margin is one number per output entry"
         )
     return unit_margin

@@ -31,7 +31,13 @@ from reference.paths import DATA_DIR
 from reference.wiod_workbooks import read_xlsx_rows
 from test_load_wiod import assert_identical
 
-pytestmark = pytest.mark.slow
+pytestmark = [
+    pytest.mark.slow,
+    # Every load of the release emits both warnings; a test that does not expect one lets
+    # it through to the run's summary, so an unexpected one fails the test instead.
+    pytest.mark.filterwarnings("error::demplan.io.WiodUnproducedInputs"),
+    pytest.mark.filterwarnings("error::demplan.io.WiodLaborGap"),
+]
 
 YEAR = 2014
 WIOD_DIR = DATA_DIR / "wiod"
@@ -77,7 +83,7 @@ def table(loaded_with_warnings):
 @pytest.fixture(scope="module")
 def compensation():
     require(RELEASE_ZIP, SEA, EXCHANGE_RATES)
-    with warnings.catch_warnings():
+    with pytest.warns(WiodUnproducedInputs), warnings.catch_warnings():
         warnings.simplefilter("ignore", WiodLaborGap)
         return load_wiod(
             RELEASE_ZIP, YEAR, labor="compensation", sea=SEA, exchange_rates=EXCHANGE_RATES
@@ -204,10 +210,14 @@ class TestProductsUsedButNotProduced:
 class TestFilesAndRepeatability:
     def test_the_zip_and_the_extracted_workbook_give_identical_arrays(self, table):
         require(EXTRACTED)
-        assert_identical(table, load_wiod(EXTRACTED, YEAR))
+        with pytest.warns(WiodUnproducedInputs):
+            extracted = load_wiod(EXTRACTED, YEAR)
+        assert_identical(table, extracted)
 
     def test_two_loads_give_identical_arrays(self, table):
-        assert_identical(table, load_wiod(RELEASE_ZIP, YEAR))
+        with pytest.warns(WiodUnproducedInputs):
+            again = load_wiod(RELEASE_ZIP, YEAR)
+        assert_identical(table, again)
 
 
 class TestLabor:
@@ -230,7 +240,7 @@ class TestLabor:
 
     def test_compensation_leaves_only_the_rest_of_the_world_without_labour(self):
         require(RELEASE_ZIP, SEA, EXCHANGE_RATES)
-        with pytest.warns(WiodLaborGap) as record:
+        with pytest.warns(WiodUnproducedInputs), pytest.warns(WiodLaborGap) as record:
             loaded = load_wiod(
                 RELEASE_ZIP, YEAR, labor="compensation", sea=SEA, exchange_rates=EXCHANGE_RATES
             )
@@ -250,7 +260,7 @@ class TestLabor:
 
     def test_hours_warn_naming_china_and_the_rest_of_the_world(self):
         require(RELEASE_ZIP, SEA)
-        with pytest.warns(WiodLaborGap) as record:
+        with pytest.warns(WiodUnproducedInputs), pytest.warns(WiodLaborGap) as record:
             loaded = load_wiod(RELEASE_ZIP, YEAR, labor="hours", sea=SEA)
         gaps = [entry for entry in record if issubclass(entry.category, WiodLaborGap)]
         assert len(gaps) == 1

@@ -34,7 +34,14 @@ from demplan.differences import (
 )
 from demplan.economy import COBB_DOUGLAS, LEONTIEF, Economy, SchemaError
 from demplan.indicators import PlanComparison, compare_plans, input_use_on
-from demplan.io import WiodTable, WiodUnproducedInputs, load_dep1ex, load_wiod
+from demplan.io import (
+    LoadError,
+    WiodLaborGap,
+    WiodTable,
+    WiodUnproducedInputs,
+    load_dep1ex,
+    load_wiod,
+)
 from demplan.iterate import IterateResult, iterate
 from demplan.objectives import MaximizeWeightedConsumption, MinimizeLabor, Objective
 from demplan.periods import (
@@ -104,6 +111,7 @@ __all__ = [
     "LABOR_VALUE",
     "LEONTIEF",
     "Leontief",
+    "LoadError",
     "MaterialBalance",
     "MaximizeWeightedConsumption",
     "MinimizeLabor",
@@ -133,6 +141,7 @@ __all__ = [
     "StatedPlan",
     "Technology",
     "TechnologyReport",
+    "WiodLaborGap",
     "WiodTable",
     "WiodUnproducedInputs",
     "check_determinism",

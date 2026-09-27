@@ -21,6 +21,7 @@ import math
 
 import numpy as np
 
+from demplan._wording import counted, with_article
 from demplan.economy import Economy
 from demplan.iterate import iterate
 from demplan.plan import Plan
@@ -177,7 +178,7 @@ def perturb_exponents(economy: Economy, plan: Plan, seed: int) -> Economy:
 
     ``plan`` is not read. The book's technical and preference change is drawn at random and
     does not depend on what the year before planned; the argument is there because an
-    evolution law receives the plan.
+    evolution rule receives the plan.
 
     Returns a new economy with ``period`` one higher and those two arrays replaced. Raises
     ``ValueError`` when ``consumer_extra`` has no ``"utility_exponent"``, and when a perturbed
@@ -215,7 +216,8 @@ def perturb_exponents(economy: Economy, plan: Plan, seed: int) -> Economy:
 def _refuse_non_positive(arrays: dict[str, np.ndarray]) -> None:
     """Raise ``ValueError`` naming every array that holds an entry of zero or below."""
     problems = [
-        f"{int(np.count_nonzero(values <= 0))} of {values.size} entries of {name}"
+        f"{int(np.count_nonzero(values <= 0))} of "
+        f"{counted(values.size, 'entry', 'entries')} of {name}"
         for name, values in arrays.items()
         if np.any(values <= 0)
     ]
@@ -416,8 +418,8 @@ def _require_the_book_procedure(procedure, helper: str) -> None:
     """Refuse a procedure other than :class:`HahnelBook2021`, naming its type."""
     if not isinstance(procedure, HahnelBook2021):
         raise TypeError(
-            f"{helper} rescales the initial price of a HahnelBook2021, and got a "
-            f"{type(procedure).__name__}"
+            f"{helper} rescales the initial price of a HahnelBook2021, and got "
+            f"{with_article(type(procedure).__name__)}"
         )
 
 

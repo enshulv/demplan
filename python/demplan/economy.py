@@ -29,6 +29,8 @@ from typing import Mapping
 
 import numpy as np
 
+from demplan._wording import counted, with_article
+
 LEONTIEF = "leontief"
 """Technology label: fixed input proportions, ``input_coefficient`` read as input per run."""
 
@@ -39,8 +41,9 @@ COBB_DOUGLAS = "cobb_douglas"
 class SchemaError(ValueError):
     """An ``Economy`` or ``Plan`` violates the structural schema.
 
-    It derives from ``ValueError`` because the Rust core reports schema violations across the
-    binding as ``ValueError`` as well, so callers can catch one type either side.
+    :func:`demplan.load_dep1ex` and :func:`demplan.load_wiod` raise it too, for an economy the
+    Rust core finds in breach of the data model, so one class covers a breach found on either
+    side of the binding. It derives from ``ValueError``, as :class:`demplan.LoadError` does.
     """
 
 
@@ -132,7 +135,7 @@ def _text_array_of(name: str, value):
         at = wrong[0]
         raise SchemaError(
             f"{name}: a list is accepted as a text column only when it holds str, and "
-            f"position {at} holds a {type(value[at]).__name__}"
+            f"position {at} holds {with_article(type(value[at]).__name__)}"
         )
     array = np.array(value, dtype=str) if value else np.zeros(0, dtype="<U1")
     shortened = [index for index, label in enumerate(value) if str(array[index]) != label]
@@ -208,7 +211,9 @@ def _encodes_as_utf8(label: str) -> bool:
 
 def _require_length(name: str, value: np.ndarray, expected: int, reason: str) -> None:
     if value.shape[0] != expected:
-        raise SchemaError(f"{name}: has {value.shape[0]} rows, expected {expected} ({reason})")
+        raise SchemaError(
+            f"{name}: has {counted(value.shape[0], 'row')}, expected {expected} ({reason})"
+        )
 
 
 def _require_row_numbering(name: str, column: np.ndarray) -> None:
@@ -285,9 +290,9 @@ def _index_array(name: str, indices) -> np.ndarray:
     """
     if not isinstance(indices, np.ndarray) or indices.dtype != np.int64 or indices.ndim != 1:
         got = (
-            f"dtype {indices.dtype} with {indices.ndim} dimensions"
+            f"dtype {indices.dtype} with {counted(indices.ndim, 'dimension')}"
             if isinstance(indices, np.ndarray)
-            else f"a {type(indices).__name__}"
+            else with_article(type(indices).__name__)
         )
         raise ValueError(
             f"{name}: expected a one-dimensional int64 array of commodity indices, got {got}"
@@ -520,8 +525,8 @@ class Economy:
                     )
                 if value.ndim < 1 or value.shape[0] != rows:
                     raise SchemaError(
-                        f"{label}: leading dimension is {value.shape}, expected {rows} rows "
-                        f"(one per {subject})"
+                        f"{label}: leading dimension is {value.shape}, expected "
+                        f"{counted(rows, 'row')} (one per {subject})"
                     )
                 _require_finite(label, value)
 
@@ -541,6 +546,6 @@ class Economy:
             )
         if base.shape[1] != mapping.shape[0]:
             raise SchemaError(
-                f"{label}: has {mapping.shape[0]} entries, expected one per column of "
-                f"{base_key}, which has {base.shape[1]}"
+                f"{label}: has {counted(mapping.shape[0], 'entry', 'entries')}, expected one "
+                f"per column of {base_key}, which has {base.shape[1]}"
             )

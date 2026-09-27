@@ -162,6 +162,80 @@ class TestRefusals:
             hahnel.technology().margin(economy, plan, 1)
 
 
+def with_output_coefficient(economy: Economy, unit: int, value: float) -> Economy:
+    column = np.asarray(economy.output_coefficient).copy()
+    column[unit] = value
+    return dataclasses.replace(economy, output_coefficient=column)
+
+
+def plan_with_unit_effort(economy: Economy) -> Plan:
+    """Output zero, every input at one and every effort at one: a plan the margin can read."""
+    return Plan(
+        output=np.zeros(economy.n_outputs, dtype=np.float64),
+        input_use=np.ones(economy.n_inputs, dtype=np.float64),
+        consumption=None,
+        consumption_commodity=None,
+        shared_use=None,
+        extra={EFFORT: np.ones(economy.n_units, dtype=np.float64)},
+    )
+
+
+COEFFICIENT_REASON = "which has no output coefficient"
+"""Where the reason in the councils' refusal starts; the technology's refusal has the same text
+from here on."""
+
+
+class TestOutputCoefficientIsOne:
+    """The production function gives output itself, so an output coefficient has no place in it.
+
+    The Hahnel councils refuse such a unit; the technology that reads their plans refuses it in
+    the same words, since a margin computed with the coefficient ignored describes a unit the
+    economy does not have.
+    """
+
+    @pytest.mark.parametrize("value", [2.0, 0.5, 1.0 + 1e-12])
+    def test_a_coefficient_other_than_one_is_refused(self, value):
+        economy = with_output_coefficient(build_economy(), 1, value)
+        with pytest.raises(ValueError) as refused:
+            hahnel.technology().margin(economy, build_plan(), 1)
+        message = str(refused.value)
+        assert f"unit 1 carries output_coefficient {value}" in message
+        assert "Q = a * e**c * prod(x_j ** b_j)" in message
+
+    def test_the_check_tool_passes_the_refusal_on(self):
+        economy = with_output_coefficient(build_economy(), 2, 2.0)
+        with pytest.raises(ValueError, match="unit 2 carries output_coefficient 2.0"):
+            technology_margins(economy, build_plan(), {TECHNOLOGY: hahnel.technology()})
+
+    def test_another_unit_of_the_same_economy_is_still_read(self):
+        """The refusal is about the unit that carries the coefficient, not the economy."""
+        economy = with_output_coefficient(build_economy(), 2, 2.0)
+        margin = hahnel.technology().margin(economy, build_plan(), 0)
+        assert margin[0] == pytest.approx(HAND_MARGINS[0], rel=HAND_RTOL)
+
+    def test_the_refusal_is_the_one_the_councils_give(self):
+        economy = with_output_coefficient(synthetic.build_economy(), 3, 2.0)
+        with pytest.raises(ValueError) as councils:
+            run(HahnelBook2021(), economy, seed=0)
+        with pytest.raises(ValueError) as technology:
+            hahnel.technology().margin(economy, plan_with_unit_effort(economy), 3)
+        councils_reason = str(councils.value).split(COEFFICIENT_REASON, 1)
+        technology_reason = str(technology.value).split(COEFFICIENT_REASON, 1)
+        assert len(councils_reason) == 2
+        assert len(technology_reason) == 2
+        assert technology_reason[1] == councils_reason[1]
+        assert technology_reason[1].endswith(
+            "unit 3 carries output_coefficient 2.0. Set every output_coefficient to 1, as "
+            "demplan.load_dep1ex does."
+        )
+
+    def test_a_coefficient_of_one_is_read(self):
+        economy = synthetic.build_economy()
+        assert np.all(np.asarray(economy.output_coefficient) == 1.0)
+        margin = hahnel.technology().margin(economy, plan_with_unit_effort(economy), 3)
+        assert margin.shape == (1,)
+
+
 def _relative_margin(report, plan: Plan) -> np.ndarray:
     return np.abs(report.margin) / plan.output
 

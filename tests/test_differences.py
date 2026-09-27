@@ -255,7 +255,7 @@ class TestMaterialBalanceWhenUseIsNotKnown:
         assert balance.use is None
         assert balance.difference is None
         assert balance.why_not_computed == (
-            f"Plan.consumption and shared_use are {ABSENT_REASON_TAIL}"
+            f"Plan.consumption and Plan.shared_use are {ABSENT_REASON_TAIL}"
         )
 
     def test_the_components_the_plan_carries_are_still_filled_in(self):

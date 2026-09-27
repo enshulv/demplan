@@ -22,6 +22,7 @@ from typing import Collection, Mapping, Sequence
 
 import numpy as np
 
+from demplan._wording import counted, joined
 from demplan.economy import Economy
 from demplan.plan import (
     EXPENDITURE,
@@ -257,8 +258,9 @@ def period_differences(
     economies, plans = tuple(economies), tuple(plans)
     if len(economies) != len(plans):
         raise ValueError(
-            f"period_differences takes one plan per economy, got {len(economies)} economies "
-            f"and {len(plans)} plans"
+            "period_differences takes one plan per economy, got "
+            f"{counted(len(economies), 'economy', 'economies')} and "
+            f"{counted(len(plans), 'plan')}"
         )
     if not economies:
         raise ValueError("period_differences needs at least one period, got none")
@@ -326,9 +328,9 @@ def _material_balance(economy: Economy, plan: Plan) -> MaterialBalance:
         use = difference = None
         verb = "is" if len(absent) == 1 else "are"
         why_not = (
-            f"Plan.{' and '.join(absent)} {verb} declared absent, so use by consumer units is "
-            "not known and supply minus use cannot be formed; output, input use and endowment "
-            "are still reported"
+            f"{joined([f'Plan.{name}' for name in absent])} {verb} declared absent, so use by "
+            "consumer units is not known and supply minus use cannot be formed; output, input "
+            "use and endowment are still reported"
         )
     else:
         use = total_input_use + total_consumption + shared_use

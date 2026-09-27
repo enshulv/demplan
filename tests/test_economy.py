@@ -339,7 +339,7 @@ class TestTechnologyLabels:
         with pytest.raises(
             SchemaError,
             match=r"technology_kind: a list is accepted as a text column only when it holds "
-            r"str, and position 2 holds a int",
+            r"str, and position 2 holds an int",
         ):
             replaced(synthetic_economy, technology_kind=labels)
 
@@ -458,7 +458,7 @@ class TestTextExtras:
         with pytest.raises(
             SchemaError,
             match=r"unit_extra\['region'\]: a list is accepted as a text column only when it "
-            r"holds str, and position 4 holds a int",
+            r"holds str, and position 4 holds an int",
         ):
             with_extra(synthetic_economy, "unit_extra", "region", values)
 

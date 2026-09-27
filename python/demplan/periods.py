@@ -2,8 +2,8 @@
 
 :func:`run_periods` calls :func:`demplan.run` once per period and keeps every period's economy
 and result together, so the library sees one trajectory instead of unrelated runs. Without an
-evolution law every period solves the same economy (static mode); with one, each period's
-economy is what the law made of the previous period's economy and plan (rolling mode).
+evolution rule every period solves the same economy (static mode); with one, each period's
+economy is what the rule made of the previous period's economy and plan (rolling mode).
 """
 
 from __future__ import annotations
@@ -22,18 +22,18 @@ from demplan.seeds import split_seed
 
 _WORDS_PER_PERIOD = 2
 """Sub-seeds reserved per period: word ``2i`` solves period ``i``, word ``2i + 1`` is passed to
-the evolution law that produces period ``i + 1``. The last period's second word is unused."""
+the evolution rule that produces period ``i + 1``. The last period's second word is unused."""
 
 
 @runtime_checkable
 class Advance(Protocol):
-    """An evolution law: what the economy becomes after one period's plan.
+    """An evolution rule: what the economy becomes after one period's plan.
 
     It belongs to the researcher. Capital accumulation, technical change, resource depletion
-    and population change are theoretical claims, and the law is where a study states them.
-    :func:`run_periods` has no default law: without one it runs in static mode.
+    and population change are theoretical claims, and the rule is where a study states them.
+    :func:`run_periods` has no default rule: without one it runs in static mode.
 
-    It receives a seed so that a random evolution law is reproducible from the run's seed. It
+    It receives a seed so that a random evolution rule is reproducible from the run's seed. It
     must draw all its randomness from that seed and keep no random state of its own between
     calls, because the same object is reused across runs and a second run would otherwise
     continue the first run's random stream.
@@ -60,7 +60,7 @@ class NextProcedure(Protocol):
 
 
 class PeriodWarning(UserWarning):
-    """An evolution law returned an economy whose ``period`` is not one more than the last."""
+    """An evolution rule returned an economy whose ``period`` is not one more than the last."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -76,8 +76,8 @@ class PeriodResult:
     solve_seed: int
     """The seed passed to ``solve``."""
     advance_seed: int | None
-    """The seed passed to the evolution law that produced :attr:`economy`. ``None`` for the
-    first period and for every period of a run without an evolution law."""
+    """The seed passed to the evolution rule that produced :attr:`economy`. ``None`` for the
+    first period and for every period of a run without an evolution rule."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -107,7 +107,7 @@ def run_periods(
     """Run ``procedure`` for ``periods`` periods, starting from ``economy``.
 
     Seeds come from ``split_seed(seed, 2 * periods)``: period ``i`` solves with word ``2i``,
-    and the evolution law that produces period ``i + 1`` gets word ``2i + 1``. The layout is
+    and the evolution rule that produces period ``i + 1`` gets word ``2i + 1``. The layout is
     fixed, so a longer run repeats a shorter one's periods exactly.
 
     Between two periods, ``advance`` (when given) turns the economy and the plan just produced
@@ -200,7 +200,7 @@ def _require_period_declarations(
 def _advanced_economy(
     advance: Advance, economy: Economy, plan: Plan, seed: int, index: int
 ) -> Economy:
-    """Call the evolution law after period ``index``. Raises ``TypeError`` on a non-``Economy``."""
+    """Call the evolution rule after period ``index``. Raises ``TypeError`` on a non-``Economy``."""
     following = advance(economy, plan, seed)
     if not isinstance(following, Economy):
         raise TypeError(

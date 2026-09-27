@@ -10,7 +10,7 @@ use crate::economy::{Economy, ExtraArray};
 use super::grid::Grid;
 use super::labor::LaborFigures;
 use super::layout::{parse_layout, Layout, Product, TOTALS_ROWS};
-use super::{ObservedFlows, WiodError, WiodTable};
+use super::{ObservedFlows, UnproducedInputs, WiodError, WiodTable};
 
 /// Technology label of every producing unit; the Python package names it `LEONTIEF`.
 const TECHNOLOGY_LABEL: &str = "leontief";
@@ -29,6 +29,8 @@ const INDUSTRY_KEY: &str = "industry";
 const FINAL_DEMAND_KEY: &str = "final_demand";
 /// Key of the per-unit flag saying whether the unit has a labour figure.
 const LABOR_OBSERVED_KEY: &str = "labor_observed";
+/// Key of the per-unit total drawn from products that have no producing unit.
+const UNPRODUCED_INPUT_USE_KEY: &str = "unproduced_input_use";
 
 /// Values of the labour flag.
 const OBSERVED: f64 = 1.0;
@@ -79,7 +81,13 @@ pub(crate) fn table_from_grid(
         output_offsets: (0..=units.len() as i64).collect(),
         output_commodity: units.iter().map(|&product| product as i64).collect(),
         output_coefficient: vec![OUTPUT_COEFFICIENT; units.len()],
-        unit_extra: unit_extra(grid, &layout, &units, unit_labor.as_deref()),
+        unit_extra: unit_extra(
+            grid,
+            &layout,
+            &units,
+            unit_labor.as_deref(),
+            inputs.unproduced_by_unit,
+        ),
         consumer_id: (0..layout.final_demand.len() as i64).collect(),
         consumer_extra: consumer_extra(&layout),
     };
@@ -90,7 +98,11 @@ pub(crate) fn table_from_grid(
         consumption_commodity: (0..n_products as i64).collect(),
         shared_use: vec![0.0; n_commodities],
     };
-    Ok(WiodTable { economy, observed })
+    Ok(WiodTable {
+        economy,
+        observed,
+        unproduced_inputs: inputs.unproduced_by_product,
+    })
 }
 
 /// Refuses a negative entry anywhere in the intermediate-use block, naming the
@@ -200,17 +212,27 @@ fn economy_index(layout: &Layout, product: usize) -> usize {
         .expect("every product's economy is listed in the layout")
 }
 
-/// The flat input arrays of all units and the quantity each entry records.
+/// The flat input arrays of all units, the quantity each entry records, and what
+/// units use of products that have no producing unit.
 struct UnitInputs {
     offsets: Vec<i64>,
     commodity: Vec<i64>,
     coefficient: Vec<f64>,
     used: Vec<f64>,
+    /// Per unit, the total of its intermediate use of products without a unit.
+    unproduced_by_unit: Vec<f64>,
+    /// Per product without a unit that some unit uses, the total over units.
+    unproduced_by_product: UnproducedInputs,
 }
 
 /// Lays out each unit's inputs: the positive entries of its intermediate-use
 /// column in row order at `Z / GO`, then its economy's labour commodity at
 /// `labour / GO` when the unit has a non-zero labour figure.
+///
+/// A positive entry on a product that has no producing unit is not an input
+/// entry: nothing produces that product and nothing holds it, so a Leontief unit
+/// needing it could produce nothing. Its value is added to the unit's total in
+/// `unproduced_by_unit` and to the product's total in `unproduced_by_product`.
 fn unit_inputs(
     grid: &Grid,
     layout: &Layout,
@@ -221,11 +243,18 @@ fn unit_inputs(
 ) -> UnitInputs {
     let (start, end) = layout.product_rows();
     let n_products = layout.n_products();
+    let mut has_unit = vec![false; n_products];
+    for &product in units {
+        has_unit[product] = true;
+    }
+    let mut unproduced_by_product = vec![0.0; n_products];
     let mut inputs = UnitInputs {
         offsets: Vec::with_capacity(units.len() + 1),
         commodity: Vec::new(),
         coefficient: Vec::new(),
         used: Vec::new(),
+        unproduced_by_unit: vec![0.0; units.len()],
+        unproduced_by_product: UnproducedInputs::default(),
     };
     inputs.offsets.push(0);
 
@@ -233,11 +262,17 @@ fn unit_inputs(
         let output = gross_output[product];
         let column = grid.column_numbers(layout.product_column(product), start, end);
         for (input, &used) in column.iter().enumerate() {
-            if used > 0.0 {
-                inputs.commodity.push(input as i64);
-                inputs.coefficient.push(used / output);
-                inputs.used.push(used);
+            if used <= 0.0 {
+                continue;
             }
+            if !has_unit[input] {
+                inputs.unproduced_by_unit[unit] += used;
+                unproduced_by_product[input] += used;
+                continue;
+            }
+            inputs.commodity.push(input as i64);
+            inputs.coefficient.push(used / output);
+            inputs.used.push(used);
         }
 
         let labor = unit_labor.and_then(|figures| figures[unit]);
@@ -252,6 +287,13 @@ fn unit_inputs(
             inputs.used.push(used);
         }
         inputs.offsets.push(inputs.commodity.len() as i64);
+    }
+
+    for (product, &used) in unproduced_by_product.iter().enumerate() {
+        if used > 0.0 {
+            inputs.unproduced_by_product.commodity.push(product as i64);
+            inputs.unproduced_by_product.used.push(used);
+        }
     }
     inputs
 }
@@ -299,12 +341,14 @@ fn commodity_extra(layout: &Layout, labor_commodities: &[usize]) -> BTreeMap<Str
     ])
 }
 
-/// Labels, totals rows and, when labour was chosen, the labour flag of each unit.
+/// Labels, totals rows, the use of products without a unit and, when labour was
+/// chosen, the labour flag of each unit.
 fn unit_extra(
     grid: &Grid,
     layout: &Layout,
     units: &[usize],
     unit_labor: Option<&[Option<f64>]>,
+    unproduced_input_use: Vec<f64>,
 ) -> BTreeMap<String, ExtraArray> {
     let n_units = units.len();
     let float = |data: Vec<f64>| ExtraArray::F64 {
@@ -340,6 +384,10 @@ fn unit_extra(
             .collect();
         extra.insert(key.to_string(), float(values));
     }
+    extra.insert(
+        UNPRODUCED_INPUT_USE_KEY.to_string(),
+        float(unproduced_input_use),
+    );
     if let Some(figures) = unit_labor {
         let flags = figures
             .iter()

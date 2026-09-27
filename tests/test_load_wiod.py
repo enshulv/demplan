@@ -22,7 +22,7 @@ import pytest
 
 import demplan
 from demplan import AllocatedPlan, Economy, WiodTable, load_wiod
-from demplan.io import WiodLaborGap
+from demplan.io import WiodLaborGap, WiodUnproducedInputs
 from reference.wiod_workbooks import (
     FINAL_DEMAND,
     TOTALS,
@@ -162,6 +162,11 @@ class TestTheResult:
         assert demplan.load_wiod is load_wiod
         assert issubclass(WiodLaborGap, UserWarning)
 
+    def test_the_package_exports_the_unproduced_inputs_warning(self):
+        assert "WiodUnproducedInputs" in demplan.__all__
+        assert demplan.WiodUnproducedInputs is WiodUnproducedInputs
+        assert issubclass(WiodUnproducedInputs, UserWarning)
+
     def test_the_economy_is_in_the_period_of_the_year(self, xlsb):
         assert load_wiod(xlsb, YEAR).economy.period == YEAR
 
@@ -171,6 +176,20 @@ class TestTheResult:
 
     def test_a_path_given_as_text_is_accepted(self, xlsb):
         assert load_wiod(str(xlsb), YEAR).economy.n_commodities == 6
+
+    def test_the_loader_validates_the_observed_plan_against_the_economy(self, xlsb, monkeypatch):
+        from demplan import _core
+
+        real = _core.load_wiod
+
+        def one_input_use_short(*args):
+            mapping = real(*args)
+            mapping["observed"]["input_use"] = mapping["observed"]["input_use"][:-1]
+            return mapping
+
+        monkeypatch.setattr(_core, "load_wiod", one_input_use_short)
+        with pytest.raises(demplan.SchemaError, match="input_use"):
+            load_wiod(xlsb, YEAR)
 
 
 # ------------------------------------------------------------------------------ economy
@@ -314,6 +333,18 @@ class TestFilesAndYears:
     def test_a_year_outside_the_release_is_refused_before_the_file_is_read(self, tmp_path, year):
         with pytest.raises(ValueError, match="2000 to 2014"):
             load_wiod(tmp_path / "does_not_exist.zip", year)
+
+    @pytest.mark.parametrize(
+        "year",
+        [2**40, -(2**40), 2**32 + YEAR, -1, 2014.0, 2014.5, float("nan"), "2014", None, True],
+        ids=repr,
+    )
+    def test_a_year_that_is_not_an_integer_from_2000_to_2014_is_refused(self, xlsb, year):
+        with pytest.raises(ValueError, match="2000 to 2014"):
+            load_wiod(xlsb, year)
+
+    def test_a_numpy_integer_year_is_accepted(self, xlsb):
+        assert load_wiod(xlsb, np.int64(YEAR)).economy.period == YEAR
 
     def test_a_missing_file_is_refused_with_its_path(self, tmp_path):
         with pytest.raises(ValueError, match="does_not_exist"):
@@ -523,6 +554,26 @@ class TestRomaniaExchangeRate:
         np.testing.assert_array_equal(economy.unit_extra["labor_observed"], [1.0])
 
 
+class TestExchangeRateCodes:
+    @staticmethod
+    def rates_with(tmp_path, *rows) -> Path:
+        return write_xlsx(
+            tmp_path / "Exchange_Rates.xlsx", {"EXR": [*exchange_rate_rows(), *rows]}
+        )
+
+    def test_romania_listed_as_both_rom_and_rou_is_refused(self, tmp_path, xlsb, sea):
+        rates = self.rates_with(
+            tmp_path, ["Romania", "ROM", 0.5, 0.2], ["Romania", "ROU", 0.5, 0.3]
+        )
+        with pytest.raises(ValueError, match=r"ROU.*ROM.*ROU"):
+            load_quietly(xlsb, YEAR, labor="compensation", sea=sea, exchange_rates=rates)
+
+    def test_an_economy_listed_twice_is_refused(self, tmp_path, xlsb, sea):
+        rates = self.rates_with(tmp_path, ["Bland", "BBB", 2.0, 5.0])
+        with pytest.raises(ValueError, match="BBB"):
+            load_quietly(xlsb, YEAR, labor="compensation", sea=sea, exchange_rates=rates)
+
+
 class TestNegativeIntermediateUse:
     def test_a_negative_entry_is_refused_naming_year_products_and_value(self, tmp_path):
         table = standard_table()
@@ -533,3 +584,186 @@ class TestNegativeIntermediateUse:
         message = str(caught.value)
         for part in (str(YEAR), "BBB U", "AAA A01", "-1.5"):
             assert part in message, part
+
+
+# ------------------------------------------------------------------------------ labour wiring
+
+
+def three_economy_table() -> WiotTable:
+    """Economies ``AAA``, ``BBB`` and ``CCC`` with one industry ``A01`` each, all producing."""
+    final_demand = [[0.0] * 15 for _ in range(3)]
+    final_demand[0][0] = 90.0
+    final_demand[1][5] = 180.0
+    final_demand[2][10] = 270.0
+    return WiotTable(
+        economies=["AAA", "BBB", "CCC"],
+        industries=["A01"],
+        z=[[10.0, 0.0, 0.0], [0.0, 20.0, 0.0], [0.0, 0.0, 30.0]],
+        final_demand=final_demand,
+        gross_output=[100.0, 200.0, 300.0],
+    )
+
+
+class TestLaborWiring:
+    """``AAA``, first in the table, has no hours, so ``BBB`` and ``CCC`` hold the first and the
+    second labour commodity while being the second and the third economy."""
+
+    @pytest.fixture
+    def loaded(self, tmp_path) -> WiodTable:
+        path = write_xlsb(tmp_path / "three.xlsb", {str(YEAR): three_economy_table().cells()})
+        sea = write_xlsx(
+            tmp_path / "Socio_Economic_Accounts.xlsx",
+            {"DATA": [
+                ["country", "variable", "description", "code", 2014.0],
+                ["BBB", "H_EMPE", "Hours worked by employees", "A01", 7.0],
+                ["CCC", "H_EMPE", "Hours worked by employees", "A01", 11.0],
+            ]},
+        )
+        return load_quietly(path, YEAR, labor="hours", sea=sea)
+
+    def test_each_unit_uses_the_labour_of_its_own_economy(self, loaded):
+        economy, observed = loaded.economy, loaded.observed
+        region = economy.commodity_extra["region"]
+        labour = economy.commodity_extra["industry"] == "labor"
+        assert list(region[labour]) == ["BBB", "CCC"]
+        entries = {}
+        for unit in range(economy.n_units):
+            entries_of_unit = window(economy, unit)
+            for commodity, used in zip(
+                economy.input_commodity[entries_of_unit], observed.input_use[entries_of_unit]
+            ):
+                if labour[commodity]:
+                    assert region[commodity] == economy.unit_extra["region"][unit], unit
+                    entries[str(region[commodity])] = float(used)
+        assert entries == {"BBB": 7.0, "CCC": 11.0}
+
+    def test_each_labour_endowment_is_its_own_economy_total(self, loaded):
+        economy = loaded.economy
+        labour = np.flatnonzero(economy.commodity_extra["industry"] == "labor")
+        totals = {
+            str(region): float(value)
+            for region, value in zip(
+                economy.commodity_extra["region"][labour], economy.endowment[labour]
+            )
+        }
+        assert totals == {"BBB": 7.0, "CCC": 11.0}
+
+
+class TestLaborEndowmentIsTheLaborUnitsUse:
+    """The accounts give ``AAA U`` compensation 3 and hours 0, but ``AAA U`` has no output and so
+    no unit: its figure is neither an input nor part of the endowment."""
+
+    @pytest.mark.parametrize("measure", ["compensation", "hours"])
+    def test_endowment_equals_the_labour_input_of_the_economy_units(
+        self, xlsb, sea, exchange_rates, measure
+    ):
+        loaded = load_quietly(xlsb, YEAR, labor=measure, sea=sea, exchange_rates=exchange_rates)
+        economy, observed = loaded.economy, loaded.observed
+        used = np.bincount(
+            economy.input_commodity, weights=observed.input_use, minlength=economy.n_commodities
+        )
+        labour = economy.commodity_extra["industry"] == "labor"
+        assert labour.any()
+        np.testing.assert_array_equal(economy.endowment[labour], used[labour])
+
+    def test_the_figure_of_a_product_without_a_unit_is_left_out(self, xlsb, sea, exchange_rates):
+        economy = load_quietly(
+            xlsb, YEAR, labor="compensation", sea=sea, exchange_rates=exchange_rates
+        ).economy
+        # AAA: A01 10 x 0.25; U's 3 x 0.25 is not counted.
+        assert economy.endowment[6] == 10.0 * 0.25
+
+    def test_the_docstring_says_so(self):
+        text = " ".join(load_wiod.__doc__.split())
+        assert "a product without a producing unit" in text
+        assert "not part of the endowment" in text
+
+
+# ------------------------------------------------------------------------------ products used but not produced
+
+
+def table_with_unproduced_inputs() -> WiotTable:
+    """The standard table with products 1 (AAA U) and 5 (ROW U), which have no output, used by
+    units: product 1 by the units making products 0 and 4, product 5 by the unit making product
+    2. Inventory draw-downs keep both rows at zero."""
+    table = standard_table()
+    table.z[1][0] = 4.0
+    table.z[1][4] = 6.0
+    table.z[5][2] = 1.0
+    table.final_demand[1][4] = -10.0
+    table.final_demand[5][14] = -1.0
+    return table
+
+
+def unproduced_warnings(record) -> list[warnings.WarningMessage]:
+    return [entry for entry in record if issubclass(entry.category, WiodUnproducedInputs)]
+
+
+class TestProductsUsedButNotProduced:
+    @pytest.fixture
+    def path(self, tmp_path) -> Path:
+        return write_xlsb(
+            tmp_path / "unproduced.xlsb", {str(YEAR): table_with_unproduced_inputs().cells()}
+        )
+
+    @pytest.fixture
+    def loaded(self, path) -> WiodTable:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", WiodUnproducedInputs)
+            return load_wiod(path, YEAR)
+
+    def test_they_are_not_input_entries(self, loaded):
+        economy = loaded.economy
+        assert not np.isin(economy.input_commodity, [1, 5]).any()
+        np.testing.assert_array_equal(economy.input_offsets, [0, 2, 5, 7, 10])
+
+    def test_each_unit_records_what_it_draws_from_them(self, loaded):
+        extra = loaded.economy.unit_extra["unproduced_input_use"]
+        assert extra.dtype == np.float64
+        np.testing.assert_array_equal(extra, [4.0, 1.0, 0.0, 6.0])
+
+    def test_input_use_stays_aligned_and_consumption_keeps_final_demand(self, loaded):
+        table = table_with_unproduced_inputs()
+        economy, observed = loaded.economy, loaded.observed
+        observed.validate(economy)
+        for unit, j in enumerate(UNIT_PRODUCTS):
+            used = [table.z[i][j] for i in economy.input_commodity[window(economy, unit)]]
+            np.testing.assert_array_equal(observed.input_use[window(economy, unit)], used)
+        np.testing.assert_array_equal(observed.consumption, np.array(table.final_demand).T)
+        assert observed.consumption[4, 1] == -10.0
+        assert observed.consumption[14, 5] == -1.0
+
+    def test_their_rows_balance_through_the_recorded_use(self, loaded):
+        economy, observed = loaded.economy, loaded.observed
+        drawn = economy.unit_extra["unproduced_input_use"].sum()
+        final = observed.consumption[:, [1, 5]].sum()
+        assert drawn + final == 0.0
+
+    def test_one_warning_names_the_products_the_units_and_the_total(self, path):
+        with pytest.warns(WiodUnproducedInputs) as record:
+            load_wiod(path, YEAR)
+        found = unproduced_warnings(record)
+        assert len(found) == 1
+        message = str(found[0].message)
+        assert "AAA U" in message and "ROW U" in message
+        assert "AAA A01" not in message and "BBB" not in message
+        assert "3 producing units" in message
+        assert "11.00 million US$" in message
+
+    def test_the_warning_comes_with_labour_chosen_too(self, path, sea):
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            load_wiod(path, YEAR, labor="hours", sea=sea)
+        assert len(unproduced_warnings(record)) == 1
+
+    def test_a_table_without_such_use_emits_no_warning_and_records_zeros(self, xlsb):
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            economy = load_wiod(xlsb, YEAR).economy
+        assert unproduced_warnings(record) == []
+        np.testing.assert_array_equal(economy.unit_extra["unproduced_input_use"], np.zeros(4))
+
+    def test_the_docstring_explains_the_rule_with_the_release_numbers(self):
+        text = " ".join(load_wiod.__doc__.split())
+        for phrase in ("unproduced_input_use", "WiodUnproducedInputs", "ROW", "M73"):
+            assert phrase in text, phrase

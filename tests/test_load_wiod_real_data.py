@@ -10,9 +10,10 @@ What is checked against what:
 - the table's own identities: every product row's intermediate and final use add up to its gross
   output (the published table satisfies this to 6e-12 relative), and every unit's coefficients
   times its output give back the intermediate use;
-- counts and cells read once from the release with a separate reader (calamine, outside the
-  library): 137 products without output, the negative final-demand entries, and the totals of
-  the first product column;
+- counts and cells hard-coded below, cross-checked by reading the 2014 table with a second xlsb
+  reader, pyxlsb, outside the library: 137 products without output, the two of them that units
+  use and what they use of them, the negative final-demand entries, the negative taxes and value
+  added, and the cells of the first product column;
 - the socio-economic accounts, read here by ``reference.wiod_workbooks.read_xlsx_rows``, which
   shares no code with the loader.
 """
@@ -25,7 +26,7 @@ import numpy as np
 import pytest
 
 from demplan import load_wiod
-from demplan.io import WiodLaborGap
+from demplan.io import WiodLaborGap, WiodUnproducedInputs
 from reference.paths import DATA_DIR
 from reference.wiod_workbooks import read_xlsx_rows
 from test_load_wiod import assert_identical
@@ -44,6 +45,14 @@ N_INDUSTRIES = 56
 N_PRODUCTS = N_ECONOMIES * N_INDUSTRIES
 N_WITHOUT_OUTPUT = 137
 
+UNPRODUCED_USED = {"MLT A02", "ROW M73"}
+"""The products without output that producing units use in 2014."""
+N_UNITS_USING_UNPRODUCED = 2298
+"""Units that use ``MLT A02`` (109) or ``ROW M73`` (2244), counted once each."""
+UNPRODUCED_USE = 6992.498838161189
+"""What producing units use of those two products in 2014, millions of US$: 6992.4988336 of
+``ROW M73`` and 4.55e-6 of ``MLT A02``."""
+
 
 def require(*paths):
     missing = [str(path) for path in paths if not path.is_file()]
@@ -52,9 +61,17 @@ def require(*paths):
 
 
 @pytest.fixture(scope="module")
-def table():
+def loaded_with_warnings():
     require(RELEASE_ZIP)
-    return load_wiod(RELEASE_ZIP, YEAR)
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        table = load_wiod(RELEASE_ZIP, YEAR)
+    return table, record
+
+
+@pytest.fixture(scope="module")
+def table(loaded_with_warnings):
+    return loaded_with_warnings[0]
 
 
 @pytest.fixture(scope="module")
@@ -84,12 +101,49 @@ class TestTheTable:
         assert (observed.output > 0).all()
         without_unit = np.setdiff1d(np.arange(N_PRODUCTS), economy.output_commodity)
         assert without_unit.size == N_WITHOUT_OUTPUT
-        # A product without output is used by no one: its row adds up to zero.
-        used = np.bincount(
-            economy.input_commodity, weights=observed.input_use, minlength=N_PRODUCTS
-        )
-        final = observed.consumption.sum(axis=0)
-        assert np.abs(used + final)[without_unit].max() == 0.0
+
+
+class TestProductsUsedButNotProduced:
+    """Two products without output are used by producing units in 2014; their rows balance
+    through negative final demand."""
+
+    def without_unit(self, economy):
+        return np.setdiff1d(np.arange(N_PRODUCTS), economy.output_commodity)
+
+    def test_no_input_entry_is_on_a_product_without_a_unit(self, table):
+        economy = table.economy
+        assert not np.isin(economy.input_commodity, self.without_unit(economy)).any()
+
+    def test_each_unit_records_what_it_draws_from_them(self, table):
+        drawn = table.economy.unit_extra["unproduced_input_use"]
+        assert drawn.dtype == np.float64 and drawn.shape == (table.economy.n_units,)
+        assert int((drawn > 0).sum()) == N_UNITS_USING_UNPRODUCED
+        assert drawn.sum() == pytest.approx(UNPRODUCED_USE, rel=1e-12)
+
+    def test_what_units_draw_is_what_final_demand_gives_back(self, table):
+        economy, observed = table.economy, table.observed
+        drawn = economy.unit_extra["unproduced_input_use"].sum()
+        final = observed.consumption[:, self.without_unit(economy)].sum()
+        assert abs(drawn + final) <= 1e-9 * UNPRODUCED_USE
+
+    def test_one_warning_names_the_two_products_the_units_and_the_total(
+        self, loaded_with_warnings
+    ):
+        _, record = loaded_with_warnings
+        found = [entry for entry in record if issubclass(entry.category, WiodUnproducedInputs)]
+        assert len(found) == 1
+        message = str(found[0].message)
+        for product in UNPRODUCED_USED:
+            assert product in message, product
+        assert f"{N_UNITS_USING_UNPRODUCED} producing units" in message
+        assert "6,992.50 million US$" in message
+        economy = loaded_with_warnings[0].economy
+        others = {
+            f"{economy.commodity_extra['region'][i]} {economy.commodity_extra['industry'][i]}"
+            for i in self.without_unit(economy)
+        } - UNPRODUCED_USED
+        assert len(others) == N_WITHOUT_OUTPUT - len(UNPRODUCED_USED)
+        assert not any(product in message for product in others)
 
     def test_every_product_row_balances_against_its_gross_output(self, table):
         economy, observed = table.economy, table.observed
@@ -206,4 +260,26 @@ class TestLabor:
         labour_regions = set(regions[loaded.economy.commodity_extra["industry"] == "labor"])
         assert "CHN" not in labour_regions and "ROW" not in labour_regions
         assert len(labour_regions) == N_ECONOMIES - 2
+        assert_labour_is_wired_to_its_own_economy(loaded)
+
+    def test_compensation_is_wired_to_each_unit_own_economy(self, compensation):
+        assert_labour_is_wired_to_its_own_economy(compensation)
+
+
+def assert_labour_is_wired_to_its_own_economy(loaded) -> None:
+    """Every labour entry is on its unit's economy's labour commodity, and every labour
+    endowment is the labour input of that economy's units."""
+    economy, observed = loaded.economy, loaded.observed
+    region = economy.commodity_extra["region"]
+    labour = economy.commodity_extra["industry"] == "labor"
+    owner = np.repeat(np.arange(economy.n_units), np.diff(economy.input_offsets))
+    on_labour = labour[economy.input_commodity]
+    assert on_labour.any()
+    np.testing.assert_array_equal(
+        region[economy.input_commodity[on_labour]], economy.unit_extra["region"][owner[on_labour]]
+    )
+    used = np.bincount(
+        economy.input_commodity, weights=observed.input_use, minlength=economy.n_commodities
+    )
+    np.testing.assert_allclose(economy.endowment[labour], used[labour], rtol=1e-12, atol=0)
 

@@ -57,10 +57,12 @@ const LABOR_COMPENSATION: &str = "compensation";
 /// Labour measure name that reads hours worked by employees.
 const LABOR_HOURS: &str = "hours";
 
-/// Reads one year of the WIOD 2016 release and returns a dictionary with two
-/// entries: `economy`, keyed like the result of `load_dep1ex`, and `observed`,
-/// the recorded flows (`output`, `input_use`, `consumption` as a two-dimensional
-/// array, `consumption_commodity`, `shared_use`).
+/// Reads one year of the WIOD 2016 release and returns a dictionary with three
+/// entries: `economy`, keyed like the result of `load_dep1ex`; `observed`, the
+/// recorded flows (`output`, `input_use`, `consumption` as a two-dimensional
+/// array, `consumption_commodity`, `shared_use`); and `unproduced_inputs`, the
+/// products without a producing unit that units use (`commodity`, and `used`,
+/// the total units use of each).
 ///
 /// `path` is the release zip or one `.xlsb` workbook. `labor` is `None`,
 /// `"compensation"` (which needs `sea` and `exchange_rates`) or `"hours"` (which
@@ -126,6 +128,13 @@ fn wiod_table_to_dict(py: Python<'_>, table: WiodTable) -> PyResult<Bound<'_, Py
         "observed",
         observed_to_dict(py, table.observed, n_consumers)?,
     )?;
+    let unproduced = PyDict::new(py);
+    unproduced.set_item(
+        "commodity",
+        table.unproduced_inputs.commodity.into_pyarray(py),
+    )?;
+    unproduced.set_item("used", table.unproduced_inputs.used.into_pyarray(py))?;
+    dict.set_item("unproduced_inputs", unproduced)?;
     Ok(dict)
 }
 

@@ -12,8 +12,17 @@ every fixture being set up at that moment. A test is also charged when it uses s
 after another test set it up, since a cached fixture is not set up again.
 
 The WIOD release files under ``<DATA_DIR>/wiod`` take about a second each to read and are held
-to the same rule. Every WIOD read goes through the Rust loader ``demplan._core.load_wiod``, and a
-call is charged when any file it is given lies under that directory.
+to the same rule, whichever function reads them. Two watches cover the readers:
+
+- the Rust loader ``demplan._core.load_wiod`` opens its files outside Python, so a call is charged
+  when any path it is given lies under that directory;
+- any Python code that opens a file there -- ``open``, ``zipfile``, ``pathlib``, or a reader built
+  on them such as ``reference.wiod_workbooks.read_xlsx_rows`` -- raises the ``open`` audit event,
+  and an audit hook charges it.
+
+A path counts when it resolves under the directory, so a file in a subdirectory, a relative path
+and a path through ``..`` are caught. A reader in compiled code other than the Rust loader, which
+opens files without the audit event, is not watched.
 """
 
 from __future__ import annotations
@@ -62,6 +71,18 @@ def _archive_in(args, kwargs) -> str | None:
     return None if path is None or not _is_archive(path) else str(path)
 
 
+def _wiod_file_opened(args) -> str | None:
+    """The path of an ``open`` audit event when it lies under ``WIOD_DIR``, or ``None``.
+
+    The event's first argument is the path as given to ``open``, ``io.open`` or ``os.open``:
+    text, bytes, a path object, or a file descriptor, which names no path.
+    """
+    path = args[0] if args else None
+    if isinstance(path, bytes):
+        path = os.fsdecode(path)
+    return _wiod_file_in((path,), {})
+
+
 def _wiod_file_in(args, kwargs) -> str | None:
     """The first argument of a reader call that names a path under ``WIOD_DIR``, or ``None``."""
     for value in (*args, *kwargs.values()):
@@ -92,6 +113,18 @@ class ArchiveReadGuard:
         self.test_being_run: pytest.Item | None = None
         self.tests_that_read_an_archive: dict[str, str] = {}
         """Node id of each test that read an archive while it ran, with what and which path."""
+        self.in_audit_hook = False
+        """Whether :meth:`audit` is running, so that an event raised while it resolves a path
+        is not examined again."""
+
+    def charge(self, what: str, path: str) -> None:
+        """Charge a read of ``path`` to the running test and to every fixture being set up."""
+        for fixture in self.fixtures_being_set_up:
+            self.fixtures_that_read_an_archive.setdefault(fixture, what)
+        if self.test_being_run is not None:
+            self.tests_that_read_an_archive.setdefault(
+                self.test_being_run.nodeid, f"{what} {path}"
+            )
 
     def watch(self, read, file_in, what: str):
         """``read`` with every call on a watched file charged to the running test and fixtures.
@@ -104,15 +137,29 @@ class ArchiveReadGuard:
         def watched(*args, **kwargs):
             path = file_in(args, kwargs)
             if path is not None:
-                for fixture in self.fixtures_being_set_up:
-                    self.fixtures_that_read_an_archive.setdefault(fixture, what)
-                if self.test_being_run is not None:
-                    self.tests_that_read_an_archive.setdefault(
-                        self.test_being_run.nodeid, f"{what} {path}"
-                    )
+                self.charge(what, path)
             return read(*args, **kwargs)
 
         return watched
+
+    def audit(self, event: str, args: tuple) -> None:
+        """Audit hook: charge an ``open`` of a file under ``WIOD_DIR`` made while a test runs or
+        a fixture is set up.
+
+        Every other event, and every open outside a test or fixture, returns at once: the hook
+        runs on every audit event of the process.
+        """
+        if event != "open" or self.in_audit_hook:
+            return
+        if self.test_being_run is None and not self.fixtures_being_set_up:
+            return
+        self.in_audit_hook = True
+        try:
+            path = _wiod_file_opened(args)
+            if path is not None:
+                self.charge(WIOD_FILE, path)
+        finally:
+            self.in_audit_hook = False
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_protocol(self, item, nextitem):
@@ -172,16 +219,19 @@ class ArchiveReadGuard:
 def pytest_configure(config):
     """Install the archive-read guard.
 
-    Every module that reads an archive or a WIOD file looks its reader up as a module attribute
-    at call time (``_core.load_dep1ex``, ``repro.parse``, ``_core.load_wiod``), so replacing
-    them reaches every caller, including ``demplan.load_dep1ex``, ``demplan.load_wiod`` and
-    ``reference.dep1ex_numpy.parse_dep1ex``.
+    Every module that reads an archive or a WIOD file through a reader in compiled code looks
+    the reader up as a module attribute at call time (``_core.load_dep1ex``, ``repro.parse``,
+    ``_core.load_wiod``), so replacing them reaches every caller, including
+    ``demplan.load_dep1ex``, ``demplan.load_wiod`` and ``reference.dep1ex_numpy.parse_dep1ex``.
+    Python code that opens a WIOD file is seen by the audit hook. An audit hook cannot be
+    removed; it stays for the life of the process and does nothing outside a test or fixture.
     """
     guard = ArchiveReadGuard()
     config.pluginmanager.register(guard, "dep1ex-archive-read-guard")
     _core.load_dep1ex = guard.watch(_core.load_dep1ex, _archive_in, DEP1EX_ARCHIVE)
     repro.parse = guard.watch(repro.parse, _archive_in, DEP1EX_ARCHIVE)
     _core.load_wiod = guard.watch(_core.load_wiod, _wiod_file_in, WIOD_FILE)
+    sys.addaudithook(guard.audit)
 
 
 @pytest.fixture(scope="session")

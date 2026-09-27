@@ -93,6 +93,27 @@ impl Synthetic {
         }
     }
 
+    /// Three economies, `AAA`, `BBB` and `CCC`, with one industry `A01` each. Every
+    /// product has output and uses only itself; every row balances.
+    fn three_economies() -> Self {
+        let mut final_demand = vec![vec![0.0; 15]; 3];
+        final_demand[0][0] = 90.0;
+        final_demand[1][5] = 180.0;
+        final_demand[2][10] = 270.0;
+        Self {
+            economies: vec!["AAA", "BBB", "CCC"],
+            industries: vec!["A01"],
+            z: vec![
+                vec![10.0, 0.0, 0.0],
+                vec![0.0, 20.0, 0.0],
+                vec![0.0, 0.0, 30.0],
+            ],
+            final_demand,
+            gross_output: vec![100.0, 200.0, 300.0],
+            totals: vec![vec![1.0; 3]; TOTALS.len()],
+        }
+    }
+
     fn n_products(&self) -> usize {
         self.economies.len() * self.industries.len()
     }
@@ -336,7 +357,7 @@ fn without_labour_the_unit_extra_bag_has_no_labour_flag() {
         .collect();
     keys.sort_unstable();
     let mut expected: Vec<&str> = TOTALS.iter().map(|(_, key)| *key).collect();
-    expected.extend(["region", "industry"]);
+    expected.extend(["region", "industry", "unproduced_input_use"]);
     expected.sort_unstable();
     assert_eq!(keys, expected);
 }
@@ -381,6 +402,92 @@ fn a_product_without_output_that_records_inputs_is_refused() {
         }
         other => panic!("unexpected error {other:?}"),
     }
+}
+
+#[test]
+fn a_product_without_output_that_records_an_input_below_the_first_row_is_refused() {
+    let mut sheet = Synthetic::standard();
+    // Product 3 (ROW A01) used by the industry making product 5 (ROW U), which has no output.
+    sheet.z[3][5] = 1.5;
+    match error_of(&sheet.grid()) {
+        WiodError::InputsWithoutOutput {
+            region, industry, ..
+        } => {
+            assert_eq!((region.as_str(), industry.as_str()), ("ROW", "U"));
+        }
+        other => panic!("unexpected error {other:?}"),
+    }
+}
+
+// ---------------------------------------------------------------- products used but not produced
+
+/// The standard sheet with products 2 (AAA U) and 5 (ROW U), which have no output,
+/// used by units: product 2 by the units making products 0 and 3, product 5 by the
+/// unit making product 3. Negative final demand keeps both rows at zero.
+fn sheet_with_unproduced_inputs() -> Synthetic {
+    let mut sheet = Synthetic::standard();
+    sheet.z[2][0] = 4.0;
+    sheet.z[2][3] = 6.0;
+    sheet.z[5][3] = 1.0;
+    sheet.final_demand[2][4] = -10.0;
+    sheet.final_demand[5][9] = -1.0;
+    sheet
+}
+
+#[test]
+fn a_product_without_a_unit_is_not_an_input_of_the_units_that_use_it() {
+    let table = load(&sheet_with_unproduced_inputs().grid(), None);
+    let economy = &table.economy;
+    assert_eq!(economy.input_offsets, vec![0, 2, 5, 7, 10]);
+    assert_eq!(economy.input_commodity, vec![0, 3, 0, 1, 4, 1, 3, 0, 3, 4]);
+    assert_eq!(
+        table.observed.input_use,
+        vec![10.0, 3.0, 20.0, 30.0, 7.0, 40.0, 25.0, 5.0, 1.0, 2.0]
+    );
+}
+
+#[test]
+fn each_unit_records_what_it_draws_from_products_without_a_unit() {
+    let table = load(&sheet_with_unproduced_inputs().grid(), None);
+    // Unit 0 makes product 0 and uses 4 of product 2; unit 2 makes product 3 and
+    // uses 6 of product 2 and 1 of product 5.
+    assert_eq!(
+        floats(&table.economy.unit_extra, "unproduced_input_use"),
+        vec![4.0, 0.0, 7.0, 0.0]
+    );
+}
+
+#[test]
+fn the_table_lists_each_product_without_a_unit_that_units_use_with_its_total() {
+    let table = load(&sheet_with_unproduced_inputs().grid(), None);
+    assert_eq!(table.unproduced_inputs.commodity, vec![2, 5]);
+    assert_eq!(table.unproduced_inputs.used, vec![10.0, 1.0]);
+}
+
+#[test]
+fn final_demand_on_a_product_without_a_unit_is_kept_as_recorded() {
+    let sheet = sheet_with_unproduced_inputs();
+    let table = load(&sheet.grid(), None);
+    let n = sheet.n_products();
+    assert_eq!(table.observed.consumption[4 * n + 2], -10.0);
+    assert_eq!(table.observed.consumption[9 * n + 5], -1.0);
+}
+
+#[test]
+fn without_products_used_but_not_produced_every_unit_records_zero() {
+    let table = load(&Synthetic::standard().grid(), None);
+    assert_eq!(
+        floats(&table.economy.unit_extra, "unproduced_input_use"),
+        vec![0.0; 4]
+    );
+    assert!(table.unproduced_inputs.commodity.is_empty());
+    assert!(table.unproduced_inputs.used.is_empty());
+}
+
+#[test]
+fn a_sheet_with_products_used_but_not_produced_passes_validation() {
+    let table = load(&sheet_with_unproduced_inputs().grid(), None);
+    table.economy.validate().unwrap();
 }
 
 // ---------------------------------------------------------------- observed flows
@@ -529,6 +636,26 @@ fn labour_commodities_are_in_the_economy_order_of_the_table() {
     // Unit 2 makes ROW A01 and uses ROW's labour, commodity 7.
     let window = economy.input_offsets[2] as usize..economy.input_offsets[3] as usize;
     assert_eq!(economy.input_commodity[window], [1, 3, 7]);
+}
+
+#[test]
+fn labour_goes_to_the_unit_own_economy_when_an_earlier_economy_has_none() {
+    // AAA has no figure, so BBB's labour is the first labour commodity (3) and
+    // CCC's the second (4): an economy's position among the labour commodities
+    // differs from its position in the table.
+    let mut figures = LaborFigures::default();
+    figures.insert("BBB", "A01", 7.0);
+    figures.insert("CCC", "A01", 11.0);
+    let table = load(&Synthetic::three_economies().grid(), Some(&figures));
+    let economy = &table.economy;
+    assert_eq!(
+        labels(&economy.commodity_extra, "region")[3..],
+        strings(&["BBB", "CCC"])
+    );
+    assert_eq!(economy.input_offsets, vec![0, 1, 3, 5]);
+    assert_eq!(economy.input_commodity, vec![0, 1, 3, 2, 4]);
+    assert_eq!(table.observed.input_use, vec![10.0, 20.0, 7.0, 30.0, 11.0]);
+    assert_eq!(economy.endowment, vec![0.0, 0.0, 0.0, 7.0, 11.0]);
 }
 
 #[test]
@@ -1055,6 +1182,92 @@ fn the_rom_alias_is_the_only_code_translated() {
     .unwrap();
     assert_eq!(figures.figure("ROM", "A01"), None);
     assert_eq!(figures.figure("AAA", "A01"), Some(10.0 * 0.25));
+}
+
+fn exchange_rate_error(rates: Vec<Vec<Cell>>) -> WiodError {
+    labor_figures(
+        &grid_of(&sea_rows()),
+        Some(&grid_of(&rates)),
+        2014,
+        LaborMeasure::Compensation,
+    )
+    .unwrap_err()
+}
+
+#[test]
+fn an_economy_listed_twice_in_the_exchange_rates_is_refused() {
+    let mut rates = exchange_rate_rows();
+    rates.push(vec![
+        Cell::Text("Aland again"),
+        Cell::Text("AAA"),
+        Cell::Number(0.5),
+        Cell::Number(0.3),
+    ]);
+    let error = exchange_rate_error(rates);
+    match &error {
+        WiodError::DuplicateExchangeRate {
+            code,
+            first,
+            second,
+        } => {
+            assert_eq!(
+                (code.as_str(), first.as_str(), second.as_str()),
+                ("AAA", "AAA", "AAA")
+            );
+        }
+        other => panic!("unexpected error {other:?}"),
+    }
+    assert!(error.to_string().contains("AAA"));
+}
+
+#[test]
+fn romania_listed_as_both_rom_and_rou_is_refused() {
+    let mut rates = exchange_rate_rows();
+    rates.push(vec![
+        Cell::Text("Romania"),
+        Cell::Text("ROM"),
+        Cell::Number(0.5),
+        Cell::Number(0.2),
+    ]);
+    rates.push(vec![
+        Cell::Text("Romania"),
+        Cell::Text("ROU"),
+        Cell::Number(0.5),
+        Cell::Number(0.3),
+    ]);
+    let error = exchange_rate_error(rates);
+    match &error {
+        WiodError::DuplicateExchangeRate {
+            code,
+            first,
+            second,
+        } => {
+            assert_eq!(
+                (code.as_str(), first.as_str(), second.as_str()),
+                ("ROU", "ROM", "ROU")
+            );
+        }
+        other => panic!("unexpected error {other:?}"),
+    }
+    let message = error.to_string();
+    assert!(
+        message.contains("ROM") && message.contains("ROU"),
+        "{message}"
+    );
+}
+
+#[test]
+fn hours_do_not_read_the_exchange_rates() {
+    let mut rates = exchange_rate_rows();
+    rates.push(vec![Cell::Text("Aland again"), Cell::Text("AAA")]);
+    let figures = labor_figures(
+        &grid_of(&sea_rows()),
+        Some(&grid_of(&rates)),
+        2014,
+        LaborMeasure::Hours,
+    )
+    .unwrap();
+    assert_eq!(figures.figure("AAA", "A01"), Some(40.0));
 }
 
 // ---------------------------------------------------------------- negative intermediate use

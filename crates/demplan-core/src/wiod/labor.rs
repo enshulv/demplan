@@ -172,7 +172,9 @@ fn table_code(code: &str) -> &str {
 ///
 /// The header row is the row holding `Acronym`; the year column is headed
 /// `_{year}` in that row. Rates are keyed by the table's economy code, through
-/// `EXCHANGE_RATE_CODE_ALIASES`.
+/// `EXCHANGE_RATE_CODE_ALIASES`. Two rows that name the same economy, under the
+/// same code or under a code and its alias, are refused: nothing says which of
+/// the two rates applies.
 fn read_exchange_rates(sheet: &Grid, year: i32) -> Result<HashMap<String, Option<f64>>, WiodError> {
     let missing = |column: String| WiodError::LaborHeader {
         sheet: EXCHANGE_RATE_SHEET,
@@ -188,12 +190,20 @@ fn read_exchange_rates(sheet: &Grid, year: i32) -> Result<HashMap<String, Option
         .ok_or_else(|| missing(year_header.clone()))?;
 
     let mut rates = HashMap::new();
+    let mut listed_as: HashMap<&str, &str> = HashMap::new();
     for row in header_row + 1..sheet.n_rows() {
-        if let Some(code) = sheet.text(row, code_column) {
-            rates
-                .entry(table_code(code).to_string())
-                .or_insert_with(|| sheet.number(row, year_column));
+        let Some(code) = sheet.text(row, code_column) else {
+            continue;
+        };
+        let economy = table_code(code);
+        if let Some(first) = listed_as.insert(economy, code) {
+            return Err(WiodError::DuplicateExchangeRate {
+                code: economy.to_string(),
+                first: first.to_string(),
+                second: code.to_string(),
+            });
         }
+        rates.insert(economy.to_string(), sheet.number(row, year_column));
     }
     Ok(rates)
 }

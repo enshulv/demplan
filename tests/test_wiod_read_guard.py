@@ -1,10 +1,12 @@
 """The guard in ``tests/conftest.py`` also keeps WIOD files out of the fast layer.
 
-A test that reads anything under ``<DEMPLAN_DATA_DIR>/wiod`` through the loader
-(``demplan.load_wiod`` or the Rust function ``demplan._core.load_wiod`` it calls) has to carry the
-``slow`` marker: the release tables take about a second each. The guard counts every file the
-loader is given -- the table, the socio-economic accounts and the exchange rates -- so a test that
-reads only the accounts from the data directory is caught as well.
+A test that reads anything under ``<DEMPLAN_DATA_DIR>/wiod`` has to carry the ``slow`` marker:
+the release tables take about a second each. The guard catches a read whichever function makes it:
+the loader (``demplan.load_wiod`` or the Rust function ``demplan._core.load_wiod`` it calls), which
+is charged for every file it is given -- the table, the socio-economic accounts and the exchange
+rates -- and any Python code that opens a file there, such as
+``reference.wiod_workbooks.read_xlsx_rows`` or a plain ``open``. A file in a subdirectory of
+``wiod`` counts, and so does a relative path or a path through ``..`` that leads there.
 
 As in ``test_slow_marker_guard.py``, the guard is checked by running pytest in a subprocess on a
 scratch project whose ``tests/conftest.py`` is a copy of the real one, with ``DEMPLAN_DATA_DIR``
@@ -28,7 +30,7 @@ from test_load_wiod import YEAR, sea_rows, standard_table
 TESTS_DIR = Path(__file__).resolve().parent
 
 INNER_TESTS = '''
-import shutil
+import os
 
 import pytest
 
@@ -36,8 +38,14 @@ import demplan
 from demplan import _core
 from reference.paths import DATA_DIR
 
+from reference.wiod_workbooks import read_xlsx_rows
+
 TABLE = DATA_DIR / "wiod" / "WIOT2014_Nov16_ROW.xlsb"
 SEA = DATA_DIR / "wiod" / "Socio_Economic_Accounts.xlsx"
+TABLE_IN_A_SUBDIRECTORY = DATA_DIR / "wiod" / "xlsb" / "WIOT2014_Nov16_ROW.xlsb"
+COPIES = DATA_DIR.parent / "copies"
+"""The same workbooks outside the data directory, written before pytest starts: copying a WIOD
+file inside a test would read it."""
 
 
 def test_unmarked_python_loader():
@@ -48,10 +56,8 @@ def test_unmarked_rust_loader():
     _core.load_wiod(str(TABLE), 2014, None, None, None)
 
 
-def test_unmarked_accounts_from_the_data_directory(tmp_path):
-    copy = tmp_path / TABLE.name
-    shutil.copyfile(TABLE, copy)
-    demplan.load_wiod(copy, 2014, labor="hours", sea=SEA)
+def test_unmarked_accounts_from_the_data_directory():
+    demplan.load_wiod(COPIES / TABLE.name, 2014, labor="hours", sea=SEA)
 
 
 @pytest.mark.slow
@@ -78,16 +84,56 @@ def test_unmarked_reaches_the_module_fixture_through_another(depends_on_the_modu
     pass
 
 
-def test_unmarked_copies_outside_the_data_directory(tmp_path):
-    table = tmp_path / TABLE.name
-    sea = tmp_path / SEA.name
-    shutil.copyfile(TABLE, table)
-    shutil.copyfile(SEA, sea)
-    demplan.load_wiod(table, 2014, labor="hours", sea=sea)
+def test_unmarked_copies_outside_the_data_directory():
+    demplan.load_wiod(COPIES / TABLE.name, 2014, labor="hours", sea=COPIES / SEA.name)
 
 
 def test_unmarked_without_any_file():
     assert 1 + 1 == 2
+
+
+def test_unmarked_loader_on_a_file_in_a_subdirectory():
+    demplan.load_wiod(TABLE_IN_A_SUBDIRECTORY, 2014)
+
+
+def test_unmarked_loader_on_a_relative_path():
+    demplan.load_wiod(os.path.relpath(TABLE), 2014)
+
+
+def test_unmarked_loader_on_a_path_through_a_sibling_directory():
+    demplan.load_wiod(DATA_DIR / "other" / ".." / "wiod" / TABLE.name, 2014)
+
+
+def test_unmarked_reads_the_accounts_with_the_reference_reader():
+    read_xlsx_rows(SEA, "DATA")
+
+
+def test_unmarked_opens_the_table_with_open():
+    with open(TABLE, "rb") as handle:
+        handle.read(4)
+
+
+def test_unmarked_opens_a_file_in_a_subdirectory_on_a_relative_path():
+    with open(os.path.relpath(TABLE_IN_A_SUBDIRECTORY), "rb") as handle:
+        handle.read(4)
+
+
+def test_unmarked_reads_a_copy_with_the_reference_reader():
+    read_xlsx_rows(COPIES / SEA.name, "DATA")
+
+
+@pytest.fixture(scope="module")
+def accounts_read_in_a_module_fixture():
+    return read_xlsx_rows(SEA, "DATA")
+
+
+@pytest.mark.slow
+def test_marked_sets_up_the_reading_module_fixture(accounts_read_in_a_module_fixture):
+    pass
+
+
+def test_unmarked_uses_the_reading_module_fixture(accounts_read_in_a_module_fixture):
+    pass
 '''
 
 INNER_INI = """[pytest]
@@ -109,6 +155,15 @@ FULL_RUN = {
     "test_unmarked_reaches_the_module_fixture_through_another": "failed by the guard",
     "test_unmarked_copies_outside_the_data_directory": "passed",
     "test_unmarked_without_any_file": "passed",
+    "test_unmarked_loader_on_a_file_in_a_subdirectory": "failed by the guard",
+    "test_unmarked_loader_on_a_relative_path": "failed by the guard",
+    "test_unmarked_loader_on_a_path_through_a_sibling_directory": "failed by the guard",
+    "test_unmarked_reads_the_accounts_with_the_reference_reader": "failed by the guard",
+    "test_unmarked_opens_the_table_with_open": "failed by the guard",
+    "test_unmarked_opens_a_file_in_a_subdirectory_on_a_relative_path": "failed by the guard",
+    "test_unmarked_reads_a_copy_with_the_reference_reader": "passed",
+    "test_marked_sets_up_the_reading_module_fixture": "passed",
+    "test_unmarked_uses_the_reading_module_fixture": "failed by the guard",
 }
 """Every inner test's outcome when the whole inner file runs."""
 
@@ -123,9 +178,15 @@ def run_inner(tmp_path: Path, *arguments: str) -> tuple[dict[str, str], str]:
     inner_tests = project / "tests"
     wiod = tmp_path / "data" / "wiod"
     inner_tests.mkdir(parents=True)
-    wiod.mkdir(parents=True)
-    write_xlsb(wiod / f"WIOT{YEAR}_Nov16_ROW.xlsb", {str(YEAR): standard_table().cells()})
-    write_xlsx(wiod / "Socio_Economic_Accounts.xlsx", {"DATA": sea_rows()})
+    (wiod / "xlsb").mkdir(parents=True)
+    (tmp_path / "data" / "other").mkdir()
+    (tmp_path / "copies").mkdir()
+    for directory in (wiod, wiod / "xlsb", tmp_path / "copies"):
+        write_xlsb(
+            directory / f"WIOT{YEAR}_Nov16_ROW.xlsb", {str(YEAR): standard_table().cells()}
+        )
+    for directory in (wiod, tmp_path / "copies"):
+        write_xlsx(directory / "Socio_Economic_Accounts.xlsx", {"DATA": sea_rows()})
     (project / "pytest.ini").write_text(INNER_INI, encoding="utf-8")
     (inner_tests / "conftest.py").write_text(
         (TESTS_DIR / "conftest.py").read_text(encoding="utf-8"), encoding="utf-8"
@@ -198,6 +259,17 @@ class TestTheGuardOnWiodFiles:
         assert (
             "uses the fixture 'loaded_in_a_module_fixture', which read a WIOD file" in output
         )
+
+    def test_the_failure_names_the_file_a_python_reader_opened(self, whole_file):
+        _, output = whole_file
+        message = next(
+            line for line in output.splitlines()
+            if line.startswith(
+                "tests/test_inner.py::test_unmarked_reads_the_accounts_with_the_reference_reader "
+            )
+        )
+        assert GUARD_FAILURE in message
+        assert "Socio_Economic_Accounts.xlsx" in message
 
 
 def test_the_scratch_workbooks_are_ones_the_loader_accepts(tmp_path):

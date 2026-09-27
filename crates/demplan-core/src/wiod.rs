@@ -26,10 +26,15 @@
 //! - Producing units: one per product whose gross output `GO` is positive, in
 //!   row order, each a Leontief unit making its own product. A product with no
 //!   output keeps its commodity but gets no unit.
-//! - Inputs of the unit making product `j`: every product `i` with `Z[i][j] > 0`
-//!   at coefficient `Z[i][j] / GO[j]`, then its economy's labour commodity at
-//!   coefficient `labour[j] / GO[j]` when the unit has a non-zero labour figure.
-//!   A negative `Z` entry is refused.
+//! - Inputs of the unit making product `j`: every product `i` that has a
+//!   producing unit and `Z[i][j] > 0`, at coefficient `Z[i][j] / GO[j]`, then its
+//!   economy's labour commodity at coefficient `labour[j] / GO[j]` when the unit
+//!   has a non-zero labour figure. A negative `Z` entry is refused.
+//! - Use of a product without a producing unit: `Z[i][j] > 0` on a product `i`
+//!   that has no unit is not an input entry, because nothing produces or holds
+//!   that product and a Leontief unit needing it could produce nothing. The unit
+//!   records the total in `unit_extra["unproduced_input_use"]`, and
+//!   [`WiodTable::unproduced_inputs`] lists each such product with its total.
 //! - Consumer units: one per final-demand column.
 //!
 //! The observed flows record `GO` per unit, `Z` and the labour figures per input
@@ -86,6 +91,20 @@ pub struct WiodTable {
     pub economy: Economy,
     /// The flows the table records for the year, shaped as a plan of `economy`.
     pub observed: ObservedFlows,
+    /// The products without a producing unit that producing units use.
+    pub unproduced_inputs: UnproducedInputs,
+}
+
+/// Products without a producing unit that producing units use as inputs.
+///
+/// Such a use is not an input entry of the unit; the unit records its total in
+/// `unit_extra["unproduced_input_use"]`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UnproducedInputs {
+    /// Commodity index of each such product, in row order.
+    pub commodity: Vec<i64>,
+    /// Total intermediate use of each by producing units.
+    pub used: Vec<f64>,
 }
 
 /// The year's recorded flows, laid out like the physical layer of a plan.
@@ -291,6 +310,20 @@ pub enum WiodError {
         variable: &'static str,
         /// Industry of the row.
         industry: String,
+    },
+
+    /// The exchange-rate workbook lists one economy twice.
+    #[error(
+        "the exchange-rate workbook lists a rate for {code} twice, under the codes `{first}` \
+         and `{second}`"
+    )]
+    DuplicateExchangeRate {
+        /// The table's code of the economy.
+        code: String,
+        /// Code of the first row listing it.
+        first: String,
+        /// Code of the second row listing it.
+        second: String,
     },
 
     /// The assembled economy breaches the data model.

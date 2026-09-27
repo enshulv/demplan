@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 dependencies = ["numpy>=1.26", "scipy>=1.11"]
 
 [project.optional-dependencies]
-dev = ["pytest", "hypothesis", "pyarrow", "psutil"]
+dev = ["pytest", "pytest-xdist", "hypothesis", "pyarrow", "psutil"]
 
 [tool.maturin]
 python-source = "python"

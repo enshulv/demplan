@@ -40,6 +40,18 @@ def scale_price(procedure, economy, factor):
     return dataclasses.replace(procedure, price=procedure.price * factor), economy
 
 
+class EndowmentProcedure:
+    """Output is ``[8, 4, 2]`` times commodity 2's endowment divided by 10."""
+
+    def solve(self, economy, seed):
+        return small_plan(output=np.array([8.0, 4.0, 2.0]) * economy.endowment[2] / 10.0)
+
+
+def scale_endowment(procedure, economy, factor):
+    """The same procedure on :func:`small_economy` with commodity 2's endowment times ``factor``."""
+    return procedure, small_economy(endowment=(0.0, 0.0, float(economy.endowment[2]) * factor))
+
+
 class TestValues:
     def test_a_homogeneous_procedure_gives_zero_on_every_field(self):
         report = check_homogeneity(
@@ -64,6 +76,14 @@ class TestValues:
         report = check_homogeneity(PricedProcedure(), small_economy(), 0, scale_price, 2)
         assert report.factor == 2.0
         assert report.rescale == "scale_price"
+
+    def test_the_rescaled_run_solves_the_economy_rescale_returns(self):
+        """Endowment 10 against 20: output ``[8, 4, 2]`` against ``[16, 8, 4]``, 1/2 apart."""
+        report = check_homogeneity(
+            EndowmentProcedure(), small_economy(), 0, scale_endowment, 2.0
+        )
+        assert report.comparison.max_relative_difference["output"] == 0.5
+        assert report.comparison.max_relative_difference["input_use"] == 0.0
 
     def test_both_runs_use_the_seed_and_the_rescaled_procedure(self):
         procedure = PricedProcedure(price=1.5)
@@ -98,6 +118,26 @@ class TestRounds:
         assert report.rounds_rescaled == 7
         assert report.converged is True
         assert report.converged_rescaled is True
+
+    @pytest.mark.parametrize(
+        "original_rounds, rescaled_rounds, converged, converged_rescaled",
+        [(4, 60, True, False), (60, 4, False, True)],
+    )
+    def test_convergence_comes_from_each_run(
+        self, original_rounds, rescaled_rounds, converged, converged_rescaled
+    ):
+        """A loop asked for 60 rounds stops at its cap of 50 without converging."""
+
+        def rescale(procedure, economy, factor):
+            return dataclasses.replace(procedure, loop_rounds=rescaled_rounds), economy
+
+        report = check_homogeneity(
+            PricedProcedure(loop_rounds=original_rounds), small_economy(), 0, rescale, 2.0
+        )
+        assert report.converged is converged
+        assert report.converged_rescaled is converged_rescaled
+        assert report.rounds == min(original_rounds, 50)
+        assert report.rounds_rescaled == min(rescaled_rounds, 50)
 
 
 class TestRefusals:

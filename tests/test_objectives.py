@@ -391,3 +391,102 @@ class TestMinimizeLabor:
             consumption, np.tile([[3.0, 0.75]], (N_CONSUMERS, 1)), atol=TOLERANCE
         )
         np.testing.assert_array_equal(shared_use, np.zeros(N_COMMODITIES))
+
+
+class TestDeclarationsAreCopied:
+    """An objective keeps its own read-only copy of every array or mapping it is given.
+
+    A caller who edits a declaration after building the objective has made a new statement,
+    and the objective already carries the old one; reading the caller's buffer would let the
+    edit change a result the run records as the old statement's.
+    """
+
+    def test_editing_minimize_labor_targets_afterwards_changes_nothing(self):
+        economy = build_economy()
+        targets = np.zeros(N_COMMODITIES)
+        targets[PRIVATE_A] = 4.0
+        objective = MinimizeLabor(targets, LABOR_ONLY)
+        targets[PRIVATE_A] = 0.0
+        targets[PRIVATE_B] = 9.0
+        assert objective.final_demand_lower_bound[PRIVATE_A] == 4.0
+        assert objective.final_demand_lower_bound[PRIVATE_B] == 0.0
+        _, columns, _ = objective.allocate(economy, aggregate_of(private_a=8.0))
+        np.testing.assert_array_equal(columns, [PRIVATE_A])
+
+    def test_editing_minimize_labor_counted_afterwards_changes_nothing(self):
+        counted = np.array([LABOR], dtype=np.int64)
+        objective = MinimizeLabor(np.zeros(N_COMMODITIES), counted)
+        counted[0] = NATURAL
+        np.testing.assert_array_equal(objective.counted_commodities, [LABOR])
+
+    @pytest.mark.parametrize("build", ["minimize_labor", "maximize_weighted_consumption"])
+    def test_editing_shared_afterwards_changes_nothing(self, build):
+        economy = build_economy()
+        shared = np.array([PUBLIC_A], dtype=np.int64)
+        declared = np.zeros(N_COMMODITIES)
+        declared[[PRIVATE_A, PUBLIC_A]] = 1.0
+        if build == "minimize_labor":
+            objective = MinimizeLabor(declared, LABOR_ONLY, shared=shared)
+        else:
+            objective = MaximizeWeightedConsumption(declared, shared=shared)
+        shared[0] = PRIVATE_A
+        np.testing.assert_array_equal(objective.shared_commodities, [PUBLIC_A])
+        _, columns, shared_use = objective.allocate(
+            economy, aggregate_of(private_a=4.0, public_a=2.0)
+        )
+        np.testing.assert_array_equal(columns, [PRIVATE_A])
+        np.testing.assert_array_equal(shared_use, aggregate_of(public_a=2.0))
+
+    def test_editing_a_weight_vector_afterwards_changes_nothing(self):
+        economy = build_economy()
+        weights = np.zeros(N_COMMODITIES)
+        weights[PRIVATE_A] = 2.5
+        objective = MaximizeWeightedConsumption(weights)
+        weights[PRIVATE_A] = 0.0
+        weights[PRIVATE_B] = 7.0
+        expected = np.zeros(N_COMMODITIES)
+        expected[PRIVATE_A] = 2.5
+        np.testing.assert_array_equal(objective.weights(economy), expected)
+
+    def test_editing_a_weight_mapping_afterwards_changes_nothing(self):
+        economy = build_economy()
+        weights = {PRIVATE_A: 2.5}
+        objective = MaximizeWeightedConsumption(weights)
+        weights[PRIVATE_A] = 0.0
+        weights[PRIVATE_B] = 7.0
+        expected = np.zeros(N_COMMODITIES)
+        expected[PRIVATE_A] = 2.5
+        np.testing.assert_array_equal(objective.weights(economy), expected)
+
+    def test_the_stored_arrays_are_read_only(self):
+        minimize = MinimizeLabor(np.zeros(N_COMMODITIES), LABOR_ONLY, shared=SHARED)
+        maximize = MaximizeWeightedConsumption(np.ones(N_COMMODITIES), shared=SHARED)
+        for stored in (
+            minimize.final_demand_lower_bound,
+            minimize.counted_commodities,
+            minimize.shared_commodities,
+            maximize.declared_weights,
+            maximize.shared_commodities,
+        ):
+            with pytest.raises(ValueError):
+                stored[0] = 1
+
+    def test_a_stored_weight_mapping_is_read_only(self):
+        objective = MaximizeWeightedConsumption({PRIVATE_A: 2.5})
+        with pytest.raises(TypeError):
+            objective.declared_weights[PRIVATE_B] = 1.0
+
+    def test_the_stored_arrays_share_no_memory_with_the_callers(self):
+        targets, counted, shared = np.zeros(N_COMMODITIES), LABOR_ONLY.copy(), SHARED.copy()
+        weights = np.ones(N_COMMODITIES)
+        minimize = MinimizeLabor(targets, counted, shared=shared)
+        maximize = MaximizeWeightedConsumption(weights, shared=shared)
+        pairs = (
+            (minimize.final_demand_lower_bound, targets),
+            (minimize.counted_commodities, counted),
+            (minimize.shared_commodities, shared),
+            (maximize.declared_weights, weights),
+            (maximize.shared_commodities, shared),
+        )
+        for stored, given in pairs:
+            assert not np.shares_memory(stored, given)

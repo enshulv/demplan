@@ -38,7 +38,7 @@ import time
 
 import numpy as np
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from demplan import (
@@ -562,6 +562,32 @@ class TestTheCountedCommoditiesAreCommodityIndices:
         result = self.solve_with(np.array([FLOUR], dtype=np.int64))
         assert result.objective_value == pytest.approx(3.0, abs=EXACT)
 
+    def test_an_empty_declaration_is_refused(self):
+        """Counting no commodity makes the cost zero for every plan, so the optimum says nothing."""
+        with pytest.raises(ValueError, match="pair_declared: counted_commodities: lists no"):
+            self.solve_with(np.zeros(0, dtype=np.int64))
+
+    def test_the_empty_declaration_is_refused_in_the_words_minimize_labor_uses(self):
+        with pytest.raises(ValueError) as at_the_program:
+            self.solve_with(np.zeros(0, dtype=np.int64))
+        with pytest.raises(ValueError) as at_construction:
+            MinimizeLabor(self.targets(), np.zeros(0, dtype=np.int64))
+        program_label = "pair_declared: counted_commodities: "
+        construction_label = "counted: "
+        assert str(at_the_program.value).startswith(program_label)
+        assert str(at_construction.value).startswith(construction_label)
+        assert str(at_the_program.value)[len(program_label):] == (
+            str(at_construction.value)[len(construction_label):]
+        )
+
+    def test_editing_the_callers_counted_array_after_construction_changes_nothing(self):
+        """MinimizeLabor keeps its own copy, so the program still totals labour, not bread."""
+        counted = COUNT_LABOUR.copy()
+        objective = MinimizeLabor(self.targets(), counted)
+        counted[0] = BREAD
+        result = reference_solution(build_bread_economy(labor_endowment=20.0), objective)
+        assert result.objective_value == pytest.approx(12.0, abs=EXACT)
+
 
 class DeclaredWeightingObjective:
     """A researcher's own maximisation: the weights it declared, handed over unchecked.
@@ -821,11 +847,48 @@ def leontief_economy(draw, scaled_outputs: bool = False):
 
 
 GENERATED = settings(
-    max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow]
+    max_examples=60,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+    derandomize=True,
 )
+"""Derandomised, so every run of the suite draws the same economies and a failure repeats."""
+
+
+def negative_final_use_case() -> tuple[Economy, np.ndarray, int]:
+    """An economy on which the optimum reports final use of about -1.6e-14 for commodity 2.
+
+    Commodity 2 carries weight and the optimum consumes none of it; the solver returns that
+    zero as a value a few ulp below it, within its tolerance. Commodity 4 is labour.
+    """
+    economy = Economy(
+        period=0,
+        commodity_id=np.arange(5, dtype=np.int64),
+        endowment=np.array([0.0, 0.0, 0.0, 1.0, 39.0]),
+        unit_id=np.arange(6, dtype=np.int64),
+        technology_kind=[LEONTIEF] * 6,
+        technology_scale=np.ones(6),
+        input_offsets=np.array([0, 1, 4, 5, 9, 10, 13], dtype=np.int64),
+        input_commodity=np.array([4, 0, 3, 4, 4, 0, 2, 3, 4, 4, 0, 1, 4], dtype=np.int64),
+        input_coefficient=np.array(
+            [0.0625, 0.5625, 0.5, 0.625, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.25, 0.25]
+        ),
+        output_offsets=np.arange(7, dtype=np.int64),
+        output_commodity=np.array([0, 1, 1, 0, 2, 2], dtype=np.int64),
+        output_coefficient=np.ones(6),
+        consumer_id=np.arange(1, dtype=np.int64),
+    )
+    return economy, np.array([1.0, 1.0, 1.0, 0.0, 0.0]), 4
 
 
 class TestGeneratedEconomies:
+    def test_the_example_below_still_reports_a_final_use_just_under_zero(self):
+        """The ``@example`` of the half-optimum test exercises the clip only while this holds."""
+        economy, weights, _ = negative_final_use_case()
+        best = reference_solution(economy, MaximizeWeightedConsumption(weights))
+        final_use = final_use_of(economy, best.plan)
+        assert -1e-12 < final_use.min() < 0.0
+
     @given(leontief_economy())
     @GENERATED
     def test_the_plan_balances_every_commodity(self, case):
@@ -934,11 +997,18 @@ class TestGeneratedEconomies:
             assert commodity_slack(economy, raised, final).min() < -PERTURBATION_FLOOR / 2
 
     @given(leontief_economy())
+    @example(negative_final_use_case())
     @GENERATED
     def test_meeting_half_the_optimum_costs_at_most_half_the_labour(self, case):
+        """The optimum's final use is clipped at zero before it becomes a floor.
+
+        The reference solution reports quantities within the solver's tolerance, so a zero can
+        come back as about -1e-14, and a floor cannot be negative.
+        """
         economy, weights, labor = case
         best = reference_solution(economy, MaximizeWeightedConsumption(weights))
-        targets = np.where(weights != 0.0, 0.5 * final_use_of(economy, best.plan), 0.0)
+        final_use = np.maximum(final_use_of(economy, best.plan), 0.0)
+        targets = np.where(weights != 0.0, 0.5 * final_use, 0.0)
         cheapest = reference_solution(
             economy, MinimizeLabor(targets, np.array([labor], dtype=np.int64))
         )

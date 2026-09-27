@@ -177,7 +177,7 @@ class CouncilModel:
     Measured on dep1ex01, at 30000 consumer units, under the rule of
     :class:`~demplan.prefabs.hahnel.Book2021Rule`, at the 5 percent and at the 3 percent
     threshold: the run converges in 12 rounds and in 19 rounds either way. Every array the plan
-    carries -- ``output``, ``input_use``, ``consumption``, the public-good supply, both prices in
+    carries -- ``output``, ``input_use``, ``consumption``, ``shared_use``, both prices in
     ``valuation``, ``extra["effort"]`` and ``extra["consumer_demand"]`` -- stays within 6e-14
     relative of the run that applies the rule, and ``extra["price_rule_state"]``, a relative
     imbalance and so a difference of two nearly equal totals, within 1.1e-12. That is rounding
@@ -205,8 +205,9 @@ class CouncilModel:
     number of consumer units.
 
     The economy has to label every unit :data:`~demplan.prefabs.hahnel.TECHNOLOGY`, give
-    every unit exactly one output entry, and carry ``commodity_extra["hahnel_kind"]`` holding
-    the five class labels; ``__init__`` raises ``ValueError`` saying which is missing.
+    every unit exactly one output entry with an ``output_coefficient`` of 1, and carry
+    ``commodity_extra["hahnel_kind"]`` holding the five class labels; ``__init__`` raises
+    ``ValueError`` saying which is missing.
 
     Everything that does not change with the price is computed once in ``__init__``: the flat
     input layout, the price-independent part of the worker councils' closed form, and the split
@@ -220,6 +221,7 @@ class CouncilModel:
     def __init__(self, economy: Economy, threshold_pct: float, price_rule: PriceRule):
         _require_the_hahnel_technology(economy)
         _require_one_output_per_unit(economy, "CouncilModel")
+        _require_unit_output_coefficients(economy)
         kinds = kind_labels(economy, "CouncilModel")
         _require_keys(economy.unit_extra, _REQUIRED_UNIT_KEYS, "unit_extra")
         _require_keys(economy.consumer_extra, _REQUIRED_CONSUMER_KEYS, "consumer_extra")
@@ -490,6 +492,25 @@ def _require_the_hahnel_technology(economy: Economy) -> None:
             f"unit {unit} carries technology_kind {str(economy.technology_kind[unit])!r}. "
             "If that unit's technology is this one, label it "
             "demplan.prefabs.hahnel.TECHNOLOGY, as demplan.load_dep1ex does."
+        )
+
+
+def _require_unit_output_coefficients(economy: Economy) -> None:
+    """Refuse an output coefficient other than 1, naming the unit.
+
+    The worker councils' closed form gives each unit's output as ``Q`` itself, so a coefficient
+    would scale nothing: the model would ignore it and report a plan the economy does not
+    describe. Every unit has one output entry by the time this runs, so entry and unit agree.
+    """
+    wrong = np.flatnonzero(np.asarray(economy.output_coefficient) != 1.0)
+    if wrong.size:
+        unit = int(wrong[0])
+        raise ValueError(
+            f"CouncilModel reads each unit's output straight off the production function "
+            f"Q = a * e**c * prod(x_j ** b_j), which has no output coefficient, so a coefficient "
+            f"other than 1 would be ignored without a word; unit {unit} carries "
+            f"output_coefficient {float(economy.output_coefficient[unit])}. Set every "
+            "output_coefficient to 1, as demplan.load_dep1ex does."
         )
 
 

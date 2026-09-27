@@ -28,6 +28,7 @@ Every technology here is a theoretical claim about production, which is why this
 from __future__ import annotations
 
 import dataclasses
+from types import MappingProxyType
 from typing import Mapping, Protocol, runtime_checkable
 
 import numpy as np
@@ -174,14 +175,14 @@ class TechnologyReport:
     ``margin`` is ``f64[n_outputs]``: the technology's margin where it was computed and 0.0
     where it was not. ``computed`` is ``bool[n_outputs]`` and says which. ``missing`` maps each
     label that had no implementation to the number of producing units carrying it. Both arrays
-    are read-only.
+    and the mapping are read-only.
 
     Equality is identity, since the fields are numpy arrays.
     """
 
     margin: np.ndarray
     computed: np.ndarray
-    missing: dict[str, int]
+    missing: Mapping[str, int]
 
 
 def technology_margins(
@@ -220,7 +221,9 @@ def technology_margins(
 
     margin.flags.writeable = False
     computed.flags.writeable = False
-    return TechnologyReport(margin=margin, computed=computed, missing=missing)
+    return TechnologyReport(
+        margin=margin, computed=computed, missing=MappingProxyType(missing)
+    )
 
 
 def _margin_of_unit(

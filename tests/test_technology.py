@@ -11,6 +11,7 @@ part ways from there on and a check that reads one entry per unit misfiles every
 from __future__ import annotations
 
 import dataclasses
+from typing import Mapping
 
 import numpy as np
 import pytest
@@ -392,9 +393,17 @@ class TestTechnologyReport:
         assert report.computed.shape == (N_OUTPUTS,)
         assert report.computed.dtype == np.bool_
 
-    def test_missing_is_a_dict_of_label_to_unit_count(self, report):
-        assert isinstance(report.missing, dict)
+    def test_missing_is_a_read_only_mapping_of_label_to_unit_count(self, report):
+        assert isinstance(report.missing, Mapping)
         assert all(type(label) is str for label in report.missing)
+        assert all(type(count) is int for count in report.missing.values())
+        with pytest.raises(TypeError):
+            report.missing["another_label"] = 1
+        label = next(iter(report.missing))
+        with pytest.raises(TypeError):
+            report.missing[label] = 0
+        with pytest.raises(TypeError):
+            del report.missing[label]
 
 
 class TestExports:

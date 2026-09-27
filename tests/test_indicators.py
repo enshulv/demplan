@@ -7,6 +7,7 @@ Expected values are written out by hand. The economy and plan are the three-comm
 from __future__ import annotations
 
 import dataclasses
+import warnings
 
 import numpy as np
 import pytest
@@ -78,6 +79,36 @@ class TestCompareValues:
         )
         assert np.isnan(comparison.max_relative_difference["output"])
         assert comparison.max_relative_difference["input_use"] == 0.0
+
+    @pytest.mark.parametrize("infinite", [np.inf, -np.inf])
+    def test_equal_infinite_entries_compare_at_zero_without_a_warning(self, infinite):
+        plan = small_plan(output=np.array([infinite, 4.0, 2.0]))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            comparison = compare_plans(plan, plan)
+        assert comparison.max_relative_difference["output"] == 0.0
+
+    def test_a_plan_with_an_infinite_entry_compared_with_itself_is_zero_on_every_field(self):
+        plan = small_plan(
+            output=np.array([np.inf, 4.0, 2.0]), shared_use=np.array([0.0, -np.inf, 0.0])
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            comparison = compare_plans(plan, plan)
+        assert dict(comparison.max_relative_difference) == {name: 0.0 for name in FIELDS}
+
+    def test_opposite_infinities_are_not_equal_and_give_nan(self):
+        """``|inf - -inf| / inf`` is NaN, which S2 allows to come from an infinite entry."""
+        comparison = compare_plans(
+            small_plan(output=np.array([np.inf, 4.0, 2.0])),
+            small_plan(output=np.array([-np.inf, 4.0, 2.0])),
+        )
+        assert np.isnan(comparison.max_relative_difference["output"])
+
+    def test_a_nan_entry_compared_with_itself_still_propagates(self):
+        """NaN is not equal to itself, so the rule for equal entries does not reach it."""
+        plan = small_plan(output=np.array([np.nan, 4.0, 2.0]))
+        assert np.isnan(compare_plans(plan, plan).max_relative_difference["output"])
 
     def test_the_comparison_is_symmetric(self):
         first = small_plan(output=np.array([8.0, 1.0, -2.0]), input_use=np.array([3.0, 7.0, 0.5]))

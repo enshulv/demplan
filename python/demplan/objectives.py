@@ -12,10 +12,14 @@ the same weights can be shared out equally, by entitlement, or by any other rule
 
 Which commodities carry weight, which ones a labour count totals, and which ones consumer
 units use in common are all declared here by commodity index. The economy says none of it.
+
+An objective keeps its own read-only copy of every declaration it is given, so editing the
+caller's array or mapping afterwards changes nothing the objective reports.
 """
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import Mapping, Protocol, runtime_checkable
 
 import numpy as np
@@ -94,6 +98,36 @@ def _require_finite_declaration(values, label: str) -> None:
         raise ValueError(f"{label}: every entry must be finite")
 
 
+def _read_only_copy(values: np.ndarray) -> np.ndarray:
+    """A read-only array of the objective's own, holding the same numbers as ``values``."""
+    copied = np.array(values, copy=True)
+    copied.flags.writeable = False
+    return copied
+
+
+def _declaration_copy(values: np.ndarray | Mapping[int, float]):
+    """A weight or target declaration the caller can no longer edit through.
+
+    A mapping is copied into a read-only mapping and an array into a read-only float64 array.
+    """
+    if isinstance(values, Mapping):
+        return MappingProxyType(dict(values))
+    return _read_only_copy(np.asarray(values, dtype=np.float64))
+
+
+def _require_a_counted_commodity(counted: np.ndarray, label: str) -> None:
+    """Refuse a labour count that lists no commodity. Raises ``ValueError`` naming ``label``.
+
+    :class:`MinimizeLabor` and :func:`demplan.reference.reference_solution` both refuse it, in
+    these words, so a researcher's own objective hears the same thing as the shipped one.
+    """
+    if counted.size == 0:
+        raise ValueError(
+            f"{label}: lists no commodity, so the labour the objective minimises is zero for "
+            "every plan; name the commodities whose input use it totals"
+        )
+
+
 def _require_non_negative(values: np.ndarray, label: str) -> None:
     """Refuse a negative entry in a floor on final consumption.
 
@@ -111,10 +145,11 @@ def _require_non_negative(values: np.ndarray, label: str) -> None:
 
 
 def _shared_commodities(shared) -> np.ndarray:
-    """The ``shared`` declaration as an index array: empty for ``None``, checked otherwise."""
+    """The ``shared`` declaration as a read-only index array of the objective's own: empty for
+    ``None``, checked otherwise."""
     if shared is None:
-        return np.zeros(0, dtype=np.int64)
-    return _index_array("shared", shared)
+        return _read_only_copy(np.zeros(0, dtype=np.int64))
+    return _read_only_copy(_index_array("shared", shared))
 
 
 def _split_equally(
@@ -181,7 +216,7 @@ class MaximizeWeightedConsumption:
         if split != EQUAL_SPLIT:
             raise ValueError(f"split: {split!r} is not implemented, only {EQUAL_SPLIT!r} is")
         _require_finite_declaration(weights, "weights")
-        self.declared_weights = weights
+        self.declared_weights = _declaration_copy(weights)
         self.split = split
         self.shared_commodities = _shared_commodities(shared)
 
@@ -227,14 +262,10 @@ class MinimizeLabor:
         self, targets: np.ndarray, counted: np.ndarray, shared: np.ndarray | None = None
     ) -> None:
         _require_finite_declaration(targets, "targets")
-        self.final_demand_lower_bound = np.asarray(targets, dtype=np.float64)
+        self.final_demand_lower_bound = _read_only_copy(np.asarray(targets, dtype=np.float64))
         _require_non_negative(self.final_demand_lower_bound, "targets")
-        self.counted_commodities = _index_array("counted", counted)
-        if self.counted_commodities.size == 0:
-            raise ValueError(
-                "counted: lists no commodity, so the labour the objective minimises is zero "
-                "for every plan; name the commodities whose input use it totals"
-            )
+        self.counted_commodities = _read_only_copy(_index_array("counted", counted))
+        _require_a_counted_commodity(self.counted_commodities, "counted")
         self.shared_commodities = _shared_commodities(shared)
 
     def weights(self, economy: Economy) -> np.ndarray:

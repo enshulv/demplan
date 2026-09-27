@@ -15,8 +15,10 @@ caller who kept a handle on the underlying buffer can still write through it. Ev
 economy with :func:`dataclasses.replace`, which revalidates the result.
 
 Text columns -- ``technology_kind`` and any text array in an ``extra`` bag -- are numpy arrays
-of dtype kind ``U``, one label per row. A Python list of ``str`` is accepted in their place and
-stored as such an array, which is the form the Rust loaders hand text over in.
+of dtype kind ``U``, one label per row, each label non-empty and encodable as UTF-8. A Python
+list of ``str`` is accepted in their place and stored as such an array, which is the form the
+Rust loaders hand text over in. Every other ``extra`` array holds numbers; an object array or
+a bytes array is refused.
 """
 
 from __future__ import annotations
@@ -76,6 +78,17 @@ _ALL_COLUMNS = {
 }
 
 _TEXT_COLUMNS = tuple(name for name, dtype in _ALL_COLUMNS.items() if dtype is _TEXT)
+
+_TEXT_DTYPE_KIND = "U"
+
+_NUMERIC_DTYPE_KINDS = "biufc"
+"""Dtype kinds an ``extra`` array may hold numbers in: boolean, integer, unsigned, float, complex.
+
+These are the kinds whose bytes are their values. An object array holds references to
+arbitrary Python objects, among them the empty string and ``None``, and a bytes array holds
+text in no stated encoding, so neither is a column the Rust core or the run configuration
+digest can read.
+"""
 
 _EXTRA_BAGS = ("commodity_extra", "unit_extra", "consumer_extra")
 
@@ -149,7 +162,7 @@ def _require_text_column(name: str, value) -> np.ndarray:
         raise SchemaError(
             f"{name}: expected a numpy text array or a list of str, got {type(value).__name__}"
         )
-    if value.dtype.kind != "U":
+    if value.dtype.kind != _TEXT_DTYPE_KIND:
         raise SchemaError(
             f"{name}: expected text labels (a numpy array of dtype kind 'U' or a list of "
             f"str), got dtype {value.dtype}"
@@ -162,7 +175,35 @@ def _require_text_column(name: str, value) -> np.ndarray:
     empty = np.flatnonzero(value == "")
     if empty.size:
         raise SchemaError(f"{name}: the label at row {int(empty[0])} is empty")
+    _require_utf8_labels(name, value)
     return value
+
+
+def _require_utf8_labels(name: str, value: np.ndarray) -> None:
+    """Refuse a label UTF-8 cannot encode, naming its row.
+
+    A lone surrogate is a valid Python ``str`` and a valid numpy text label, and UTF-8 has no
+    encoding for it, so the Rust core, a file and the run configuration digest would each
+    refuse the column later. The whole column is encoded at once; the rows are searched only
+    when that fails.
+    """
+    labels = value.tolist()
+    try:
+        "".join(labels).encode("utf-8")
+    except UnicodeEncodeError:
+        row = next(row for row, label in enumerate(labels) if not _encodes_as_utf8(label))
+        raise SchemaError(
+            f"{name}: the label at row {row} holds a lone surrogate, which cannot be encoded as "
+            "UTF-8"
+        ) from None
+
+
+def _encodes_as_utf8(label: str) -> bool:
+    try:
+        label.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _require_length(name: str, value: np.ndarray, expected: int, reason: str) -> None:
@@ -212,6 +253,24 @@ def _require_offsets(name: str, offsets: np.ndarray, n_units: int, n_entries: in
         raise SchemaError(
             f"{name}: must not decrease, drops from {int(offsets[row])} "
             f"to {int(offsets[row + 1])} at row {row}"
+        )
+
+
+def _require_positive_output_coefficients(offsets: np.ndarray, coefficient: np.ndarray) -> None:
+    """Refuse an output coefficient of zero or below, naming the entry and the unit owning it.
+
+    An output coefficient is what one unit of activity delivers of that output entry. Zero
+    lists an output the unit never delivers, and the tools that recover a unit's activity from
+    its output divide by the coefficient. Runs after the finiteness check, so NaN never gets
+    here.
+    """
+    wrong = np.flatnonzero(~(coefficient > 0.0))
+    if wrong.size:
+        entry = int(wrong[0])
+        unit = int(np.searchsorted(offsets, entry, side="right")) - 1
+        raise SchemaError(
+            f"output_coefficient: entry {entry} (unit {unit}) is {float(coefficient[entry])}; "
+            "an output coefficient has to be above zero"
         )
 
 
@@ -266,11 +325,13 @@ class Economy:
     one output entry and lists a commodity at most once among its outputs; a unit with two or
     more is a unit with joint products. What ``input_coefficient`` and ``output_coefficient``
     mean is set by the unit's technology, which ``technology_kind`` names with a text label;
-    the data model records no ratio between a unit's outputs and assumes none.
+    the data model records no ratio between a unit's outputs and assumes none. Every output
+    coefficient is above zero.
 
     ``commodity_extra``, ``unit_extra`` and ``consumer_extra`` carry named arrays whose leading
-    dimension is the row count of their table, numeric or text. Key names are a convention the
-    prefabs that write them interpret; nothing here requires any key to be present.
+    dimension is the row count of their table, numeric or text; an object or bytes array is
+    refused. Key names are a convention the prefabs that write them interpret; nothing here
+    requires any key to be present.
 
     Equality is identity: the fields are numpy arrays, which have no scalar ``==``.
     """
@@ -387,7 +448,8 @@ class Economy:
         """Check the flat output layout.
 
         Beyond what the input layout is held to, every unit owns at least one output entry,
-        and no unit lists one commodity twice among its outputs.
+        no unit lists one commodity twice among its outputs, and every output coefficient is
+        above zero.
         """
         offsets = columns["output_offsets"]
         commodity = columns["output_commodity"]
@@ -403,6 +465,7 @@ class Economy:
             )
         _require_commodity_index("output_commodity", commodity, n_commodities)
         _require_finite("output_coefficient", columns["output_coefficient"])
+        _require_positive_output_coefficients(offsets, columns["output_coefficient"])
         self._require_distinct_outputs_per_unit(offsets, commodity, n_units)
 
     @staticmethod
@@ -448,8 +511,13 @@ class Economy:
                 if key in mappings:
                     self._validate_column_mapping(bag, key, mappings[key], n_commodities)
                     continue
-                if value.dtype.kind == "U":
+                if value.dtype.kind == _TEXT_DTYPE_KIND:
                     _require_text_column(label, value)
+                elif value.dtype.kind not in _NUMERIC_DTYPE_KINDS:
+                    raise SchemaError(
+                        f"{label}: expected numbers, text labels of dtype kind 'U' or a list of "
+                        f"str, got dtype {value.dtype}"
+                    )
                 if value.ndim < 1 or value.shape[0] != rows:
                     raise SchemaError(
                         f"{label}: leading dimension is {value.shape}, expected {rows} rows "

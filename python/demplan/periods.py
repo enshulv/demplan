@@ -14,9 +14,9 @@ from typing import Collection, Protocol, runtime_checkable
 
 import numpy as np
 
-from demplan.differences import PeriodDifferences, period_differences
+from demplan.differences import PeriodDifferences, _declared_constraints, period_differences
 from demplan.economy import Economy
-from demplan.plan import Plan
+from demplan.plan import Plan, _commodity_declaration
 from demplan.procedure import Procedure, RunResult, run
 from demplan.seeds import split_seed
 
@@ -131,11 +131,13 @@ def run_periods(
     outside ``[0, 2**64)``; the errors :func:`demplan.run` and :func:`demplan.period_differences`
     raise for the declarations passed on to them; ``TypeError`` when ``advance`` returns
     something other than an ``Economy`` or ``next_procedure`` returns something without a
-    callable ``solve``.
+    callable ``solve``. ``resources`` and ``constraints`` are checked against ``economy`` before
+    the first period runs, with ``differences`` on or off, so a malformed one costs no solve.
     Exceptions from ``solve``, ``advance`` and ``next_procedure`` propagate unchanged, and no
     partial result is returned.
     """
     periods = _period_count(periods)
+    _require_period_declarations(economy, resources, constraints)
     words = split_seed(seed, _WORDS_PER_PERIOD * periods)
 
     recorded: list[PeriodResult] = []
@@ -180,6 +182,19 @@ def _period_count(periods: object) -> int:
     if not is_integer or periods < 1:
         raise ValueError(f"periods must be an integer of at least 1, got {periods!r}")
     return int(periods)
+
+
+def _require_period_declarations(
+    economy: Economy, resources: np.ndarray | None, constraints: Collection[str]
+) -> None:
+    """Refuse ``resources`` or ``constraints`` that :func:`demplan.period_differences` would.
+
+    ``resources`` is checked against the first period's commodities, as
+    :func:`demplan.period_differences` checks it. Raises ``ValueError``.
+    """
+    if resources is not None:
+        _commodity_declaration("resources", resources, economy.n_commodities)
+    _declared_constraints(constraints)
 
 
 def _advanced_economy(

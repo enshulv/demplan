@@ -1,7 +1,8 @@
 """Properties of the difference report over generated Leontief economies.
 
-Economies have at most six commodities, six producing units and four consumer units, and units
-may list several output entries. Every number is an integer-valued float small enough that
+Economies have at most six commodities, six producing units and four consumer units, units
+may list several output entries, and a plan's consumption columns may name one commodity more
+than once. Every number is an integer-valued float small enough that
 sums and products are exact, so each property is asserted with ``==`` rather than a tolerance.
 
 The feasible plans are built from the definition of feasibility, not from the report: an
@@ -15,7 +16,7 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
-from hypothesis import given, settings
+from hypothesis import find, given, settings
 from hypothesis import strategies as st
 
 from demplan import (
@@ -82,7 +83,8 @@ def feasible_cases(draw) -> tuple[Case, np.ndarray]:
     )
     leftover = produced + endowment - used
 
-    columns = draw(st.lists(commodity, max_size=n_commodities, unique=True))
+    # Columns may repeat a commodity: a plan may split one commodity over several columns.
+    columns = draw(st.lists(commodity, max_size=n_commodities + 2))
     consumption = np.zeros((n_consumers, len(columns)))
     shared_use = np.zeros(n_commodities)
     unallocated = np.zeros(n_commodities)
@@ -90,8 +92,7 @@ def feasible_cases(draw) -> tuple[Case, np.ndarray]:
         remaining = int(leftover[c])
         shared_use[c] = draw(st.integers(0, remaining))
         remaining -= int(shared_use[c])
-        if c in columns:
-            column = columns.index(c)
+        for column in [index for index, named in enumerate(columns) if named == c]:
             for unit in range(n_consumers):
                 take = draw(st.integers(0, remaining))
                 consumption[unit, column] = take
@@ -224,3 +225,14 @@ def test_the_differences_reconcile_with_the_plan_totals(drawn):
 
     every = np.arange(economy.n_commodities, dtype=np.int64)
     assert input_use_on(economy, plan, every) == plan.input_use.sum()
+
+
+def test_the_generator_draws_repeated_consumption_columns():
+    """Property 1 sees repeated columns only if the generator produces them."""
+
+    def repeats_a_column(drawn):
+        columns = drawn[0].plan.consumption_commodity.tolist()
+        return len(set(columns)) < len(columns)
+
+    drawn = find(feasible_cases(), repeats_a_column, settings=settings(database=None))
+    assert repeats_a_column(drawn)

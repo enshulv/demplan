@@ -36,6 +36,7 @@ from scipy.sparse import coo_matrix
 from demplan.economy import LEONTIEF, Economy, _index_array, _require_indices_in_range
 from demplan.objectives import (
     Objective,
+    _require_a_counted_commodity,
     _require_finite_declaration,
     _require_non_negative,
 )
@@ -144,16 +145,19 @@ def _require_a_well_formed_weighting(objective, economy: Economy, weights: np.nd
 
 
 def _counted_commodity_indices(objective, counted, n_commodities: int) -> np.ndarray:
-    """``counted_commodities`` checked as distinct commodity indices, whoever declared it.
+    """``counted_commodities`` checked as distinct commodity indices, at least one, whoever
+    declared it.
 
     The cost vector counts an input when its commodity is listed, so an index outside the
-    commodity table matches nothing: a list of them makes the program minimise an all-zero
-    cost and report an objective value of zero for a plan that spends whatever it likes.
+    commodity table matches nothing, and neither does an empty list: either makes the program
+    minimise an all-zero cost and report an objective value of zero for a plan that spends
+    whatever it likes.
     """
     _, counted_attribute = MINIMISATION_ATTRIBUTES
     label = f"{objective.name}: {counted_attribute}"
     indices = _index_array(label, counted)
     _require_indices_in_range(label, indices, n_commodities)
+    _require_a_counted_commodity(indices, label)
     return indices
 
 
@@ -318,6 +322,10 @@ def reference_solution(economy: Economy, objective: Objective) -> ReferenceResul
     output entry, or when the objective does not fit the economy, and
     :class:`ReferenceInfeasible` when the program has no optimum. A result is only ever
     returned with status ``"optimal"``.
+
+    The plan's quantities can be slightly negative within the solver's tolerance (of the
+    order of 1e-14), so a caller who feeds them back into a declaration that refuses negative
+    entries, such as the targets of :class:`demplan.MinimizeLabor`, clips them at zero first.
     """
     _require_leontief(economy)
     _require_one_output_per_unit(economy, REFERENCE_SOLUTION)

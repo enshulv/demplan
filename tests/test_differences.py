@@ -190,6 +190,14 @@ class TestMaterialBalance:
         balance = plan_differences(small_economy(), plan).material_balance
         np.testing.assert_array_equal(balance.total_consumption, [0.0, 3.0, 0.0])
 
+    def test_repeated_consumption_columns_add_up_on_their_commodity(self):
+        """Both columns name commodity 1: 3 + 1 and 4 + 2 make 10, and use of it is 0 + 10 + 2."""
+        plan = small_plan(consumption_commodity=np.array([1, 1], dtype=np.int64))
+        balance = plan_differences(small_economy(), plan).material_balance
+        np.testing.assert_array_equal(balance.total_consumption, [0.0, 10.0, 0.0])
+        np.testing.assert_array_equal(balance.use, [1.0, 12.0, 6.0])
+        np.testing.assert_array_equal(balance.difference, [3.0, -2.0, 4.0])
+
     def test_the_arrays_are_read_only_float64(self):
         balance = plan_differences(small_economy(), small_plan()).material_balance
         for name in (
@@ -409,6 +417,20 @@ class TestBudgetDifference:
         with pytest.raises(ValueError, match="income"):
             plan_differences(small_economy(), priced_plan(), price=INCOME)
 
+    @pytest.mark.parametrize("key", [INCOME, EXPENDITURE])
+    def test_a_per_consumer_key_is_refused_as_a_price_even_when_the_counts_coincide(self, key):
+        """Three consumer units and three commodities: the shape check alone would pass it."""
+        plan = small_plan(
+            consumption=np.ones((3, 2)),
+            valuation={INCOME: np.array([1.0, 2.0, 3.0]), EXPENDITURE: np.zeros(3)},
+        )
+        with pytest.raises(ValueError, match=rf"price='{key}'.*one entry per consumer unit"):
+            plan_differences(small_economy(n_consumers=3), plan, price=key)
+
+    def test_a_per_consumer_key_is_refused_as_a_price_when_the_plan_lacks_it(self):
+        with pytest.raises(ValueError, match="price='income'"):
+            plan_differences(small_economy(), small_plan(), price=INCOME)
+
     def test_the_arrays_are_read_only_float64(self):
         budget = plan_differences(small_economy(), priced_plan(), price=INDICATIVE_PRICE).budget
         for name in ("income", "expenditure", "difference", "priced_consumption"):
@@ -536,6 +558,16 @@ class TestNonNegativity:
         assert report.minimum["consumption"] == -3.0
         assert report.negative_count["consumption"] == 1
 
+    def test_bads_never_exempt_shared_use(self):
+        """``shared_use`` is one entry per commodity like a price, and still a quantity."""
+        plan = small_plan(shared_use=np.array([0.0, -2.0, 0.0]))
+        report = plan_differences(
+            small_economy(), plan, bads=np.array([1], dtype=np.int64)
+        ).non_negativity
+        assert report.minimum["shared_use"] == -2.0
+        assert report.negative_count["shared_use"] == 1
+        assert "shared_use" not in report.not_checked
+
     def test_no_bads_means_every_price_is_checked(self):
         plan = small_plan(valuation={INDICATIVE_PRICE: np.array([-2.0, -30.0, 5.0])})
         report = plan_differences(small_economy(), plan).non_negativity
@@ -566,6 +598,31 @@ class TestNonNegativity:
         assert report.minimum[f"valuation.{INDICATIVE_PRICE}"] is None
         assert report.negative_count[f"valuation.{INDICATIVE_PRICE}"] == 0
         assert report.not_checked[f"valuation.{INDICATIVE_PRICE}"] == "no entries to check"
+
+    def test_an_all_nan_quantity_has_no_minimum_and_says_every_entry_is_nan(self):
+        plan = small_plan(shared_use=np.full(3, np.nan))
+        report = plan_differences(small_economy(), plan).non_negativity
+        assert report.minimum["shared_use"] is None
+        assert report.negative_count["shared_use"] == 0
+        assert report.not_checked["shared_use"] == "every entry is NaN"
+
+    def test_a_price_whose_every_entry_left_after_bads_is_nan_says_so(self):
+        plan = small_plan(valuation={INDICATIVE_PRICE: np.array([np.nan, -5.0, np.nan])})
+        report = plan_differences(
+            small_economy(), plan, bads=np.array([1], dtype=np.int64)
+        ).non_negativity
+        entry = f"valuation.{INDICATIVE_PRICE}"
+        assert report.minimum[entry] is None
+        assert report.negative_count[entry] == 0
+        assert report.not_checked[entry] == "every entry is NaN"
+
+    def test_a_quantity_with_no_entries_has_no_entries_to_check(self):
+        """No consumer unit: the consumption block has no entry at all."""
+        plan = small_plan(consumption=np.zeros((0, 2)))
+        report = plan_differences(small_economy(n_consumers=0), plan).non_negativity
+        assert report.minimum["consumption"] is None
+        assert report.negative_count["consumption"] == 0
+        assert report.not_checked["consumption"] == "no entries to check"
 
     def test_income_and_expenditure_are_not_prices(self):
         plan = small_plan(valuation={INCOME: np.array([-1.0, 1.0]), EXPENDITURE: np.zeros(2)})
@@ -891,3 +948,56 @@ class TestRunPeriods:
 
     def test_periods_result_defaults_differences_to_none(self):
         assert PeriodsResult(periods=()).differences is None
+
+
+class CountingProcedure:
+    """:func:`small_plan` every period, counting the periods that ran."""
+
+    def __init__(self):
+        self.solves = 0
+
+    def solve(self, economy, seed):
+        self.solves += 1
+        return small_plan()
+
+
+@pytest.mark.parametrize("differences", [True, False])
+class TestRunPeriodsChecksItsDeclarationsFirst:
+    """A declaration that would be refused after the last period is refused before the first."""
+
+    @pytest.mark.parametrize(
+        "resources, match",
+        [
+            (np.array([7], dtype=np.int64), r"resources.*\b7\b"),
+            (np.array([2, 2], dtype=np.int64), r"resources.*\b2\b"),
+            (np.array([2.0]), "resources"),
+        ],
+    )
+    def test_malformed_resources_are_refused_before_any_period_runs(
+        self, differences, resources, match
+    ):
+        procedure = CountingProcedure()
+        with pytest.raises(ValueError, match=match):
+            run_periods(
+                small_economy(), procedure, 3, seed=1, resources=resources,
+                differences=differences,
+            )
+        assert procedure.solves == 0
+
+    def test_an_unknown_constraint_is_refused_before_any_period_runs(self, differences):
+        procedure = CountingProcedure()
+        with pytest.raises(ValueError, match="nonsense"):
+            run_periods(
+                small_economy(), procedure, 3, seed=1, constraints=("nonsense",),
+                differences=differences,
+            )
+        assert procedure.solves == 0
+
+    def test_well_formed_declarations_let_every_period_run(self, differences):
+        procedure = CountingProcedure()
+        result = run_periods(
+            small_economy(), procedure, 3, seed=1, resources=np.array([2], dtype=np.int64),
+            constraints=(CUMULATIVE_RESOURCE_USE,), differences=differences,
+        )
+        assert procedure.solves == 3
+        assert (result.differences is None) is (not differences)

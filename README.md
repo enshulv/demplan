@@ -161,7 +161,35 @@ magnitude, not a ratio.
 
 On dep1ex01, the iterative procedure converges in 12 rounds and uses 96,539.3 units of labour.
 The linear-programming reference solution, asked to deliver the same final consumption at
-minimum labour, needs 53,493.7. The ratio is 1.80.
+minimum labour, needs 53,493.7. The ratio is 1.80. The two numbers come from this:
+
+```python
+from demplan import MinimizeLabor, input_use_on, load_dep1ex, reference_solution, run
+from demplan.prefabs import HahnelBook2021, hahnel
+from demplan.tools.linearize import linearize
+
+economy = load_dep1ex("dep1ex01.clj.gz")
+result = run(HahnelBook2021(), economy, seed=0)
+plan = result.plan
+labor = hahnel.labor(economy)
+public_goods = hahnel.shared_goods(economy)
+
+floor = plan.total_consumption(economy)
+floor[public_goods] += plan.total_output(economy)[public_goods]
+objective = MinimizeLabor(floor, counted=labor, shared=public_goods)
+reference = reference_solution(linearize(economy, plan), objective)
+
+labor_spent = input_use_on(economy, plan, labor)
+print(result.summary.rounds, labor_spent, reference.objective_value)
+```
+
+"The same final consumption" is a floor on each commodity. For a private good it is the plan's
+consumption summed over the consumer councils; for a public good it is what the worker councils
+produced of it, `plan.total_output(economy)`, and not `plan.shared_use`, which holds the level
+the councils stated: a run that stops at a 5% threshold leaves the two apart. No other
+commodity carries a floor. The reference solution runs on the economy linearised at the
+iterative plan, totals the input use of the labour commodities, and treats the public goods as
+used in common.
 
 That number is an upper bound on the gap, not an estimate of it. The reference solution needs
 Leontief technology, dep1ex is entirely Cobb-Douglas, and `linearize` turns decreasing returns

@@ -280,8 +280,9 @@ class TestScaleStartingPrice:
 
 
 class TestScaleNominalQuantities:
-    def test_price_and_entitlement_are_multiplied_and_nothing_else(self):
+    def test_price_entitlement_and_effort_s_are_multiplied_and_nothing_else(self):
         economy = synthetic.build_economy_with_unordered_private_columns()
+        effort_s = np.asarray(economy.unit_extra["effort_s"]).copy()
         procedure = HahnelBook2021(initial_price=700.0)
         scaled_procedure, scaled = hahnel.scale_nominal_quantities(procedure, economy, 3.0)
         assert scaled_procedure.initial_price == 2100.0
@@ -291,11 +292,16 @@ class TestScaleNominalQuantities:
         np.testing.assert_array_equal(
             economy.consumer_extra["entitlement"], synthetic.UNEVEN_ENTITLEMENT
         )
+        np.testing.assert_array_equal(scaled.unit_extra["effort_s"], effort_s * 3.0)
+        np.testing.assert_array_equal(economy.unit_extra["effort_s"], effort_s)
         for key in ("utility_exponent", "utility_exponent_commodity"):
             np.testing.assert_array_equal(scaled.consumer_extra[key], economy.consumer_extra[key])
+        assert set(scaled.unit_extra) == set(economy.unit_extra)
+        for key in set(economy.unit_extra) - {"effort_s"}:
+            np.testing.assert_array_equal(scaled.unit_extra[key], economy.unit_extra[key])
         assert scaled.period == economy.period
         for field in dataclasses.fields(economy):
-            if field.name in ("period", "consumer_extra"):
+            if field.name in ("period", "consumer_extra", "unit_extra"):
                 continue
             left, right = getattr(scaled, field.name), getattr(economy, field.name)
             if isinstance(left, np.ndarray):
@@ -318,6 +324,18 @@ class TestScaleNominalQuantities:
         np.testing.assert_array_equal(
             plan.valuation[INCOME], np.full(economy.n_consumers, 2.0 * synthetic.ENTITLEMENT)
         )
+
+    @pytest.mark.parametrize("factor", [2.0, 0.5, 7.0])
+    def test_the_rescaled_plan_matches_the_original_on_the_synthetic_economy(self, factor):
+        """The three nominal quantities scaled together leave every plan field in place."""
+        report = check_homogeneity(
+            HahnelBook2021(), synthetic.build_economy(), 0, hahnel.scale_nominal_quantities,
+            factor,
+        )
+        assert dict(report.comparison.not_compared) == {}
+        for field, gap in report.comparison.max_relative_difference.items():
+            assert gap <= 1e-12, field
+        assert report.rounds == report.rounds_rescaled
 
     def test_check_homogeneity_runs_with_either_helper(self):
         economy = synthetic.build_economy()

@@ -27,8 +27,9 @@ class PlanComparison:
     """How far two plans lie apart on each physical field.
 
     ``max_relative_difference`` maps each compared field to the largest
-    ``|a - b| / max(|a|, |b|)`` over its entries, counting an entry where both are zero as 0.
-    A NaN in either plan makes the field's value NaN. ``not_compared`` maps every other field
+    ``|a - b| / max(|a|, |b|)`` over its entries, counting an entry where the two are equal,
+    zero or the same infinity, as 0. A NaN in either plan makes the field's value NaN, and so
+    does an infinity against any other value. ``not_compared`` maps every other field
     to the reason it was left out. Fields appear in the order ``output``, ``input_use``,
     ``consumption``, ``shared_use``.
     """
@@ -38,7 +39,11 @@ class PlanComparison:
 
 
 def compare_plans(plan: Plan, other: Plan) -> PlanComparison:
-    """Compare two plans field by field. The result does not depend on the argument order.
+    """Compare two plans field by field.
+
+    The numbers do not depend on the argument order. The one reason that does is the
+    ``consumption`` reason for a stated plan against an allocated one, which names the two plan
+    types in the order they were passed.
 
     A field is not compared when either plan declares it absent. ``consumption`` is also not
     compared when the two plans read it differently (a stated plan against an allocated one,
@@ -84,17 +89,20 @@ def _why_not_compared(name: str, plan: Plan, other: Plan) -> str | None:
 
 
 def _max_relative_difference(first: np.ndarray, second: np.ndarray) -> float:
-    """``max |a - b| / max(|a|, |b|)`` over matching entries, 0 for an entry where both are 0.
+    """``max |a - b| / max(|a|, |b|)`` over matching entries, 0 for an entry where ``a == b``.
 
-    The maximum of no entries is 0.0: there is no entry on which the two plans differ.
+    Equal entries differ by nothing, which covers two zeros (``0 / 0``) and the same infinity
+    on both sides (``inf - inf`` is NaN). NaN equals nothing, itself included, so it still
+    reaches the maximum. The maximum of no entries is 0.0: there is no entry on which the two
+    plans differ.
     """
     if first.size == 0:
         return 0.0
-    gap = np.abs(first - second)
-    magnitude = np.maximum(np.abs(first), np.abs(second))
-    both_zero = magnitude == 0.0
+    equal = first == second
     with np.errstate(invalid="ignore", divide="ignore"):
-        relative = np.where(both_zero, 0.0, gap / np.where(both_zero, 1.0, magnitude))
+        gap = np.abs(first - second)
+        magnitude = np.maximum(np.abs(first), np.abs(second))
+        relative = np.where(equal, 0.0, gap / np.where(equal, 1.0, magnitude))
     return float(np.max(relative))
 
 

@@ -154,6 +154,9 @@ UTILITY_EXPONENT = "utility_exponent"
 
 ENTITLEMENT = "entitlement"
 
+EFFORT_DISUTILITY_SCALE = "effort_s"
+"""``unit_extra`` key of each worker council's disutility-of-effort scale, in the unit of account."""
+
 
 def perturb_exponents(economy: Economy, plan: Plan, seed: int) -> Economy:
     """The book's change between two years: every input and utility exponent moves a little.
@@ -381,22 +384,32 @@ def scale_starting_price(
 def scale_nominal_quantities(
     procedure: HahnelBook2021, economy: Economy, factor: float
 ) -> tuple[HahnelBook2021, Economy]:
-    """The initial price and every consumer council's entitlement multiplied by ``factor``.
+    """The initial price, every consumer council's entitlement and every worker council's
+    ``effort_s`` multiplied by ``factor``.
 
-    A ``rescale`` for :func:`demplan.check_homogeneity` that tests zero-degree homogeneity:
-    the nominal quantities of the model are the prices and the entitlements, so scaling both
-    changes the unit of account and nothing real. The returned economy differs from
-    ``economy`` in ``consumer_extra["entitlement"]`` alone.
+    A ``rescale`` for :func:`demplan.check_homogeneity` that tests zero-degree homogeneity.
+    The three are the model's nominal quantities: the prices, the entitlements, and
+    ``unit_extra["effort_s"]``, the scale of each worker council's disutility of effort, which
+    the council subtracts from the value of its output and so is in the unit of account. The
+    returned economy differs from ``economy`` in ``consumer_extra["entitlement"]`` and
+    ``unit_extra["effort_s"]`` alone.
+
+    With these three scaled the model is homogeneous of degree zero on the synthetic economy
+    of the test suite: at factors 0.5, 2 and 7, from an initial price of 700, every field of
+    the rescaled plan lies within 6.1e-15 relative of the original's and both runs take 20
+    rounds.
 
     Raises ``TypeError`` naming the type when ``procedure`` is not a :class:`HahnelBook2021`.
     """
     _require_the_book_procedure(procedure, "scale_nominal_quantities")
     entitlement = np.asarray(economy.consumer_extra[ENTITLEMENT]) * factor
+    effort_s = np.asarray(economy.unit_extra[EFFORT_DISUTILITY_SCALE]) * factor
     scaled = dataclasses.replace(
-        economy, consumer_extra={**economy.consumer_extra, ENTITLEMENT: entitlement}
+        economy,
+        consumer_extra={**economy.consumer_extra, ENTITLEMENT: entitlement},
+        unit_extra={**economy.unit_extra, EFFORT_DISUTILITY_SCALE: effort_s},
     )
     return _with_initial_price_times(procedure, factor), scaled
-
 
 
 def _require_the_book_procedure(procedure, helper: str) -> None:

@@ -80,6 +80,7 @@ _PRICE_KEYS = frozenset(
 _DECLARED_ABSENT = "declared absent by the plan"
 _UNREGISTERED = "unregistered valuation key: the library does not know what it holds"
 _NOTHING_TO_CHECK = "no entries to check"
+_EVERY_ENTRY_NAN = "every entry is NaN"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -142,7 +143,8 @@ class NonNegativity:
     ``minimum`` and ``negative_count`` hold every entry that was read; ``minimum`` is ``None``
     for one with nothing left to check. ``not_checked`` holds every entry that was not checked,
     with the reason: a field the plan declares absent, a valuation key the library does not
-    know, or an entry with nothing left to check.
+    know, an entry with nothing left to check (``"no entries to check"``), or an entry whose
+    every value left to check is NaN (``"every entry is NaN"``).
     """
 
     minimum: Mapping[str, float | None]
@@ -216,7 +218,9 @@ def plan_differences(
     Raises ``TypeError`` when ``plan`` is not a :class:`demplan.Plan`; :class:`demplan.SchemaError`
     when the plan is not shaped for ``economy``, a malformed plan being an error rather than a
     missing number; ``ValueError`` when ``bads`` is not a declaration of distinct commodities
-    in range, or when ``price`` names a valuation array that is not one entry per commodity.
+    in range, or when ``price`` names a valuation key registered as one entry per consumer unit
+    (:data:`demplan.INCOME`, :data:`demplan.EXPENDITURE`) or an array that is not one entry per
+    commodity.
     Non-finite values in the plan are not refused; IEEE arithmetic carries them into the
     result.
     """
@@ -355,6 +359,7 @@ def _budget_difference(economy: Economy, plan: Plan, price: str | None) -> Budge
     not in the plan), then income, then expenditure.
     """
     valuation = plan.valuation
+    _require_a_price_key(price)
     missing = []
     if price is None:
         carried = ", ".join(f"'{key}'" for key in sorted(valuation)) or "no valuation key"
@@ -399,6 +404,22 @@ def _budget_difference(economy: Economy, plan: Plan, price: str | None) -> Budge
     )
 
 
+def _require_a_price_key(price: str | None) -> None:
+    """Refuse a declared price that names a registered key holding something other than prices.
+
+    The library knows what its registered keys hold, and income and expenditure are one entry
+    per consumer unit. On an economy with as many consumer units as commodities the shape
+    check below would pass either of them, so the key itself is refused. Raises ``ValueError``.
+    """
+    if price is None or price in _PRICE_KEYS or price not in _VALUATION_ROWS:
+        return
+    _, singular, _ = _VALUATION_ROWS[price]
+    raise ValueError(
+        f"price={price!r} names a valuation key registered as one entry per {singular}; a "
+        "price is one entry per commodity"
+    )
+
+
 def _require_one_price_per_commodity(economy: Economy, key: str, prices: np.ndarray) -> None:
     """Refuse a declared price that is not one entry per commodity. Raises ``ValueError``."""
     if prices.shape != (economy.n_commodities,):
@@ -417,11 +438,11 @@ def _non_negativity(plan: Plan, exempt: np.ndarray) -> NonNegativity:
     def record(entry: str, values: np.ndarray) -> None:
         readable = values[~np.isnan(values)]
         negative_count[entry] = int(np.count_nonzero(readable < 0.0))
-        if readable.size == 0:
-            minimum[entry] = None
-            not_checked[entry] = _NOTHING_TO_CHECK
-        else:
+        if readable.size:
             minimum[entry] = float(readable.min())
+            return
+        minimum[entry] = None
+        not_checked[entry] = _NOTHING_TO_CHECK if values.size == 0 else _EVERY_ENTRY_NAN
 
     for name in _QUANTITIES:
         values = getattr(plan, name)

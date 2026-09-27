@@ -1207,6 +1207,11 @@ class TestEndowmentUseTakesTheCommoditiesToCount:
         with pytest.raises(ValueError, match="resources"):
             plan.endowment_use(synthetic_economy, RESOURCES.astype(np.float64))
 
+    @pytest.mark.parametrize("dtype", [np.int32, np.uint64])
+    def test_an_integer_array_of_another_dtype_is_refused(self, plan, synthetic_economy, dtype):
+        with pytest.raises(ValueError, match="resources: expected a one-dimensional int64"):
+            plan.endowment_use(synthetic_economy, RESOURCES.astype(dtype))
+
     def test_a_plan_of_another_size_is_still_refused_first(self, plan, synthetic_economy):
         broken = dataclasses.replace(plan, input_use=np.zeros(2))
         with pytest.raises(SchemaError, match=r"Plan\.input_use"):
@@ -1214,7 +1219,7 @@ class TestEndowmentUseTakesTheCommoditiesToCount:
 
 
 class TestSharedUse:
-    """``shared_use`` is a use per commodity, shared by consumers; ``provision`` is gone."""
+    """``shared_use`` is a use per commodity, shared by consumers; ``Plan`` has no ``provision``."""
 
     def test_provision_is_not_a_field(self):
         assert "provision" not in {field.name for field in dataclasses.fields(Plan)}

@@ -484,6 +484,38 @@ class TestOneOutputPerUnit:
             run(HahnelBook2021(), synthetic.build_joint_product_economy(), seed=0)
 
 
+def with_output_coefficient(economy, unit, value):
+    column = np.asarray(economy.output_coefficient).copy()
+    column[unit] = value
+    return dataclasses.replace(economy, output_coefficient=column)
+
+
+class TestOutputCoefficientIsOne:
+    """The production function sets output itself, so an output coefficient has no place in it."""
+
+    @pytest.mark.parametrize("value", [2.0, 0.5, 1.0 + 1e-12])
+    def test_a_coefficient_other_than_one_is_refused(self, synthetic_economy, value):
+        with pytest.raises(ValueError, match="output_coefficient"):
+            model_of(with_output_coefficient(synthetic_economy, 3, value))
+
+    def test_the_message_names_the_unit_the_value_and_why(self, synthetic_economy):
+        with pytest.raises(ValueError) as refused:
+            model_of(with_output_coefficient(synthetic_economy, 3, 2.0))
+        message = str(refused.value)
+        assert "unit 3" in message
+        assert "output_coefficient 2.0" in message
+        assert "ignored" in message
+        assert "Q = a * e**c * prod(x_j ** b_j)" in message
+
+    def test_the_prefab_refuses_it_too(self, synthetic_economy):
+        with pytest.raises(ValueError, match="output_coefficient"):
+            run(HahnelBook2021(), with_output_coefficient(synthetic_economy, 0, 2.0), seed=0)
+
+    def test_every_coefficient_at_one_is_accepted(self, synthetic_economy):
+        assert np.all(np.asarray(synthetic_economy.output_coefficient) == 1.0)
+        model_of(synthetic_economy)
+
+
 def without_kind_labels(economy):
     bag = {key: value for key, value in economy.commodity_extra.items() if key != "hahnel_kind"}
     return dataclasses.replace(economy, commodity_extra=bag)

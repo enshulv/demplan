@@ -9,6 +9,7 @@ import pytest
 
 import demplan
 from demplan import Economy, SchemaError
+from demplan.economy import _index_array
 from reference import synthetic
 
 
@@ -332,6 +333,27 @@ class TestTechnologyLabels:
         with pytest.raises(SchemaError, match="technology_kind"):
             replaced(synthetic_economy, technology_kind=labels)
 
+    def test_the_list_refusal_names_the_position_and_the_type_found(self, synthetic_economy):
+        labels = ["leontief"] * synthetic_economy.n_units
+        labels[2] = 1
+        with pytest.raises(
+            SchemaError,
+            match=r"technology_kind: a list is accepted as a text column only when it holds "
+            r"str, and position 2 holds a int",
+        ):
+            replaced(synthetic_economy, technology_kind=labels)
+
+    @pytest.mark.parametrize("as_array", [False, True])
+    def test_a_label_utf8_cannot_encode_is_refused_and_the_row_named(
+        self, synthetic_economy, as_array
+    ):
+        """A lone surrogate is a Python ``str`` and a numpy text label, but no UTF-8 text."""
+        labels = ["leontief"] * synthetic_economy.n_units
+        labels[3] = "leon\ud800tief"
+        given = np.array(labels) if as_array else labels
+        with pytest.raises(SchemaError, match=r"technology_kind: the label at row 3 .*UTF-8"):
+            replaced(synthetic_economy, technology_kind=given)
+
 
 class TestTextExtras:
     """An ``extra`` array may be one text label per row, as an array or as a list of ``str``."""
@@ -428,6 +450,79 @@ class TestTextExtras:
         labels[0] = "edited"
         assert economy.consumer_extra["region"][0] == "x"
 
+    def test_the_list_refusal_names_the_key_the_position_and_the_type_found(
+        self, synthetic_economy
+    ):
+        values = ["x"] * synthetic_economy.n_units
+        values[4] = 3
+        with pytest.raises(
+            SchemaError,
+            match=r"unit_extra\['region'\]: a list is accepted as a text column only when it "
+            r"holds str, and position 4 holds a int",
+        ):
+            with_extra(synthetic_economy, "unit_extra", "region", values)
+
+    @pytest.mark.parametrize("as_array", [False, True])
+    def test_a_label_utf8_cannot_encode_is_refused_and_the_row_named(
+        self, synthetic_economy, as_array
+    ):
+        labels = ["x"] * synthetic_economy.n_commodities
+        labels[5] = "\udfff"
+        given = np.array(labels) if as_array else labels
+        with pytest.raises(
+            SchemaError, match=r"commodity_extra\['region'\]: the label at row 5 .*UTF-8"
+        ):
+            with_extra(synthetic_economy, "commodity_extra", "region", given)
+
+
+class TestExtraDtypes:
+    """An ``extra`` array is numeric or text; an object or bytes array is neither."""
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            pytest.param(lambda n: np.array(["x"] * n, dtype=object), id="object-of-str"),
+            pytest.param(lambda n: np.array([1.0] * n, dtype=object), id="object-of-float"),
+            pytest.param(lambda n: np.array([""] * n, dtype=object), id="object-of-empty-str"),
+            pytest.param(lambda n: np.array([None] * n, dtype=object), id="object-of-none"),
+        ],
+    )
+    @pytest.mark.parametrize("bag", ["commodity_extra", "unit_extra", "consumer_extra"])
+    def test_an_object_array_is_refused(self, synthetic_economy, bag, values):
+        rows = {
+            "commodity_extra": synthetic_economy.n_commodities,
+            "unit_extra": synthetic_economy.n_units,
+            "consumer_extra": synthetic_economy.n_consumers,
+        }[bag]
+        with pytest.raises(SchemaError, match=rf"{bag}\['region'\]: .*dtype object"):
+            with_extra(synthetic_economy, bag, "region", values(rows))
+
+    @pytest.mark.parametrize("labels", [["x", "y"], ["", "y"]])
+    def test_a_bytes_array_is_refused(self, synthetic_economy, labels):
+        values = np.array([label.encode() for label in labels] * 4 + [b"z"])
+        assert values.shape == (synthetic_economy.n_units,)
+        with pytest.raises(SchemaError, match=r"unit_extra\['region'\]: .*dtype \|S"):
+            with_extra(synthetic_economy, "unit_extra", "region", values)
+
+    @pytest.mark.parametrize("dtype", [np.int64, np.float64])
+    def test_a_numeric_array_is_accepted(self, synthetic_economy, dtype):
+        values = np.arange(synthetic_economy.n_units).astype(dtype)
+        economy = with_extra(synthetic_economy, "unit_extra", "count", values)
+        np.testing.assert_array_equal(economy.unit_extra["count"], values)
+
+
+class TestIndexArray:
+    """``_index_array`` takes a one-dimensional int64 array and no other integer dtype."""
+
+    @pytest.mark.parametrize("dtype", [np.int32, np.int16, np.uint64, np.uint32])
+    def test_another_integer_dtype_is_refused(self, dtype):
+        with pytest.raises(ValueError, match=r"counted: expected a one-dimensional int64 array"):
+            _index_array("counted", np.array([0, 2], dtype=dtype))
+
+    def test_an_int64_array_is_returned_as_given(self):
+        given = np.array([2, 0], dtype=np.int64)
+        assert _index_array("counted", given) is given
+
 
 class TestOutputEntries:
     """Outputs are a flat array per output entry, laid out like the inputs."""
@@ -449,6 +544,12 @@ class TestOutputEntries:
         offsets = synthetic_economy.output_offsets.copy()
         offsets[0] = 1
         with pytest.raises(SchemaError, match="output_offsets"):
+            replaced(synthetic_economy, output_offsets=offsets)
+
+    def test_output_offsets_starting_below_zero_are_refused(self, synthetic_economy):
+        offsets = synthetic_economy.output_offsets.copy()
+        offsets[0] = -1
+        with pytest.raises(SchemaError, match="output_offsets: must start at 0, starts at -1"):
             replaced(synthetic_economy, output_offsets=offsets)
 
     def test_output_offsets_must_end_at_the_output_count(self, synthetic_economy):
@@ -504,14 +605,33 @@ class TestOutputEntries:
         with pytest.raises(SchemaError, match="output_coefficient"):
             replaced(joint, output_coefficient=joint.output_coefficient[:-1])
 
-    def test_a_zero_or_negative_coefficient_is_a_number_the_schema_leaves_alone(
-        self, synthetic_economy
-    ):
-        """What an output coefficient means is set by the unit's technology, not the schema."""
+    @pytest.mark.parametrize("bad", [0.0, -0.0, -2.0, -np.finfo(np.float64).tiny])
+    def test_a_coefficient_of_zero_or_below_is_refused(self, synthetic_economy, bad):
         column = synthetic_economy.output_coefficient.copy()
-        column[0], column[1] = 0.0, -2.0
+        column[3] = bad
+        with pytest.raises(SchemaError, match="output_coefficient"):
+            replaced(synthetic_economy, output_coefficient=column)
+
+    def test_the_refusal_names_the_entry_and_the_unit_that_owns_it(self):
+        """Entry 6 of the joint-product economy is unit 4's second output entry."""
+        joint = synthetic.build_joint_product_economy()
+        column = joint.output_coefficient.copy()
+        column[6] = -1.5
+        with pytest.raises(SchemaError, match=r"output_coefficient: entry 6 \(unit 4\) is -1\.5"):
+            replaced(joint, output_coefficient=column)
+
+    def test_the_first_entry_of_zero_or_below_is_the_one_named(self):
+        joint = synthetic.build_joint_product_economy()
+        column = joint.output_coefficient.copy()
+        column[9], column[2] = 0.0, -3.0
+        with pytest.raises(SchemaError, match=r"entry 2 \(unit 1\)"):
+            replaced(joint, output_coefficient=column)
+
+    def test_the_smallest_positive_coefficient_is_accepted(self, synthetic_economy):
+        column = synthetic_economy.output_coefficient.copy()
+        column[0] = np.nextafter(0.0, 1.0)
         economy = replaced(synthetic_economy, output_coefficient=column)
-        assert economy.output_coefficient[1] == -2.0
+        assert economy.output_coefficient[0] > 0.0
 
 
 class TestValidateCommodityIndices:
@@ -528,6 +648,13 @@ class TestValidateOffsets:
         offsets = synthetic_economy.input_offsets.copy()
         offsets[0] = 1
         with pytest.raises(SchemaError, match="input_offsets"):
+            replaced(synthetic_economy, input_offsets=offsets)
+
+    def test_a_first_offset_below_zero_is_refused(self, synthetic_economy):
+        """Unit 0 would own ``[-1, 1)``, an empty window, or wrap to the end of the arrays."""
+        offsets = synthetic_economy.input_offsets.copy()
+        offsets[0] = -1
+        with pytest.raises(SchemaError, match="input_offsets: must start at 0, starts at -1"):
             replaced(synthetic_economy, input_offsets=offsets)
 
     def test_last_offset_must_equal_the_input_count(self, synthetic_economy):

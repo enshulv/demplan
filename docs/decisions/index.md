@@ -165,3 +165,4 @@
 | 2026-09-28 | Data model | WIOD loader: one economy per year, the unit of labour chosen by the caller, each of five final-demand categories a consumer unit, plus an observed plan | [data-model.md](data-model.md) |
 | 2026-09-28 | Publication | Go public after opening the kinds, Stage 2 and the WIOD loader (narrows 2026-09-26 "publish early") | [publication.md](publication.md) |
 | 2026-09-28 | Publication | The wiki follows documentation-site conventions, with a from-zero tutorial and a full configuration reference | [publication.md](publication.md) |
+| 2026-09-28 | Data model | The WIOD loader creates no labour commodity by default; labour data comes from the SEA (partially supersedes point 2 of the same day's WIOD entry) | [data-model.md](data-model.md) |

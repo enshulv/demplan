@@ -2,6 +2,26 @@
 
 ## 2026-09-28
 
+### The WIOD loader creates no labour commodity by default (partially supersedes point 2 of the same day's entry)
+
+**Decision**: `load_wiod`'s `labor=` defaults to `None`: with only the WIOT file, no labour commodity is created.
+`"compensation"` takes compensation of employees (`COMP`) from the socio-economic accounts (SEA), converted to millions of US dollars with the release's exchange-rate file; `"hours"` takes employees' hours worked (`H_EMPE`) from the SEA.
+Units without the figure (always the rest of the world; China as well under hours) get no labour input, no zero and no estimate; `unit_extra["labor_observed"]` records 0 for them and a `WiodLaborGap` warning names the economies. There is one labour commodity per economy, and its endowment is the year's observed total labour input.
+
+**Why**: Point 2 of the same day's entry recommended "compensation by default, from the WIOT file alone", which assumed WIOT's value-added rows include compensation of employees.
+Checked against the 2016 release files: below the intermediate block WIOT has only eight rows, `II_fob`, `TXSP`, `EXP_adj`, `PURR`, `PURNR`, `VA`, `IntTTM` and `GO`; value added is a single total row, with no compensation of employees.
+Both halves cannot hold, so the half kept is "loads from the WIOT file alone", and all labour data comes from the SEA.
+The SEA covers 43 economies and not the rest of the world, and China's hours are all `NA`; the exchange-rate file codes Romania `ROM` (WIOT uses `ROU`), and the loader accepts exactly that one alias.
+
+**Rejected alternatives**:
+- Compensation by default, requiring the SEA and exchange-rate files as well — the simplest one-line call would no longer load
+- Use total value added (`VA`) as labour — value added includes capital compensation and operating surplus; calling it labour is a theoretical claim
+- Fill missing units with zero or an industry average — invents figures nobody observed
+
+**Supersedes**: partially supersedes the default in point 2 of the same day's "WIOD loader: one economy per year, with an observed plan" and its phrase "compensation of employees in WIOT's value added"; the principle that the caller chooses the unit of labour stands.
+
+---
+
 ### WIOD loader: one economy per year, with an observed plan
 
 **Decision** (five recommendations the maintainer accepted on 2026-09-28):

@@ -719,6 +719,49 @@ fn validate_accepts_the_column_to_commodity_mapping_key() {
     assert_eq!(economy.validate(), Ok(()));
 }
 
+/// The mapping key is registered for the consumer table only. Under the same
+/// name in the commodity table it is an ordinary extra array, one row per
+/// commodity.
+#[test]
+fn validate_holds_the_mapping_key_to_the_row_count_in_the_commodity_table() {
+    let mut economy = valid_economy();
+    economy.commodity_extra.insert(
+        "utility_exponent_commodity".to_string(),
+        ExtraArray::I64 {
+            shape: vec![1],
+            data: vec![0],
+        },
+    );
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraFirstDimension { bag, ref key, first, expected }
+            if bag == "commodity_extra" && key == "utility_exponent_commodity"
+                && first == 1 && expected == 3
+    ));
+}
+
+/// Under the mapping key's name in the producing unit table, an array is one
+/// row per unit like any other.
+#[test]
+fn validate_holds_the_mapping_key_to_the_row_count_in_the_unit_table() {
+    let mut economy = valid_economy();
+    economy.unit_extra.insert(
+        "utility_exponent_commodity".to_string(),
+        ExtraArray::I64 {
+            shape: vec![3],
+            data: vec![0, 1, 2],
+        },
+    );
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraFirstDimension { bag, ref key, first, expected }
+            if bag == "unit_extra" && key == "utility_exponent_commodity"
+                && first == 3 && expected == 2
+    ));
+}
+
 // ---- text extra arrays ----
 
 #[test]

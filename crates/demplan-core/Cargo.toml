@@ -9,6 +9,8 @@ repository.workspace = true
 [dependencies]
 thiserror = { workspace = true }
 flate2 = { workspace = true }
+calamine = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
 flate2 = { workspace = true }

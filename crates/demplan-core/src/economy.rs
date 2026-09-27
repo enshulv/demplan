@@ -2,12 +2,15 @@
 
 use std::collections::BTreeMap;
 
-/// Extra keys whose first dimension counts exponent columns rather than table rows.
+/// Extra keys whose first dimension counts exponent columns rather than table
+/// rows, each with the one bag it is registered in.
 ///
-/// `utility_exponent_commodity` maps the columns of `utility_exponent` to
-/// commodities, so it is as long as there are columns. The consumption unit table
-/// has a different row count, and the row-count rule cannot hold for this key.
-const COLUMN_MAPPING_EXTRA_KEYS: &[&str] = &["utility_exponent_commodity"];
+/// `utility_exponent_commodity` maps the columns of `consumer_extra["utility_exponent"]`
+/// to commodities, so it is as long as there are columns. The consumption unit
+/// table has a different row count, and the row-count rule cannot hold for this
+/// key there. In any other bag the key is an ordinary extra array.
+const COLUMN_MAPPING_EXTRA_KEYS: &[(&str, &str)] =
+    &[("consumer_extra", "utility_exponent_commodity")];
 
 /// A named array stored in one of the three `extra` bags.
 ///
@@ -694,7 +697,7 @@ fn check_extra_bag(
 
         check_extra_values(bag, key, array)?;
 
-        if COLUMN_MAPPING_EXTRA_KEYS.contains(&key.as_str()) {
+        if COLUMN_MAPPING_EXTRA_KEYS.contains(&(bag, key.as_str())) {
             continue;
         }
         if shape[0] != n_rows {

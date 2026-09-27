@@ -715,6 +715,29 @@ class TestRealGdpGrowth:
         with pytest.raises(ValueError, match="commodity_kind"):
             real_gdp_growth(economy_1, plan_1, economy_2, plan_2)
 
+    def test_year_one_without_final_goods_is_refused_naming_the_year(self):
+        """Year one's goods are worth 0 at either price vector: nothing to grow from."""
+        no_goods = (0.0, 0.0, 100.0, 0.0)
+        with pytest.raises(ValueError) as refused:
+            real_gdp_growth(*two_years(year_1_output=no_goods))
+        message = str(refused.value)
+        assert "year one's final goods are worth 0 at year one's final prices" in message
+        assert "undefined" in message
+
+    def test_goods_worth_nothing_at_year_twos_prices_are_refused_naming_the_year(self):
+        """Year one's goods are worth 40 at year one's prices and 0 at year two's."""
+        free_goods = (0.0, 0.0, 1.0, 1.0, 1.0)
+        with pytest.raises(ValueError) as refused:
+            real_gdp_growth(*two_years(year_2_price=free_goods))
+        message = str(refused.value)
+        assert "year one's final goods are worth 0 at year two's final prices" in message
+        assert "undefined" in message
+
+    def test_year_two_without_final_goods_is_minus_a_hundred_percent(self):
+        """Only year one's value divides, so a year two that produced no goods is allowed."""
+        no_goods = (0.0, 0.0, 100.0, 0.0)
+        assert real_gdp_growth(*two_years(year_2_output=no_goods)) == -100.0
+
     @pytest.mark.parametrize("which", [1, 2])
     def test_a_plan_without_the_final_price_is_refused(self, which):
         economy, plan_1, _, plan_2 = two_years()

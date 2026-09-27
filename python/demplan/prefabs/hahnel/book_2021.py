@@ -311,8 +311,13 @@ def real_gdp_growth(
     and the growth reported is the mean of ``g(p_1)`` and ``g(p_2)``.
 
     The goods are the commodities whose ``commodity_kind`` is a private or a public good in
-    ``economy_1``. Raises ``ValueError`` when the two economies differ in ``n_commodities``
-    or in ``commodity_kind``, or when either plan has no ``"next_indicative_price"``.
+    ``economy_1``.
+
+    Raises ``ValueError`` when the two economies differ in ``n_commodities`` or in
+    ``commodity_kind``, when either plan has no ``"next_indicative_price"``, or when year
+    one's goods are worth 0 at either price vector: ``p . q_1`` is the denominator of
+    ``g(p)``, so the growth is undefined. The message names the price vector, year one's or
+    year two's.
     """
     if economy_1.n_commodities != economy_2.n_commodities:
         raise ValueError(
@@ -330,13 +335,24 @@ def real_gdp_growth(
     quantity_2 = plan_2.total_output(economy_2)[goods]
     price_1 = np.asarray(plan_1.valuation[NEXT_INDICATIVE_PRICE])[goods]
     price_2 = np.asarray(plan_2.valuation[NEXT_INDICATIVE_PRICE])[goods]
-    growth_1 = _growth_at(price_1, quantity_1, quantity_2)
-    growth_2 = _growth_at(price_2, quantity_1, quantity_2)
+    growth_1 = _growth_at(price_1, quantity_1, quantity_2, "year one's")
+    growth_2 = _growth_at(price_2, quantity_1, quantity_2, "year two's")
     return float((growth_1 + growth_2) / 2.0)
 
 
-def _growth_at(price: np.ndarray, quantity_1: np.ndarray, quantity_2: np.ndarray) -> float:
-    """``100 * (p . q_2 - p . q_1) / (p . q_1)``: growth valued at one price vector."""
+def _growth_at(
+    price: np.ndarray, quantity_1: np.ndarray, quantity_2: np.ndarray, whose_prices: str
+) -> float:
+    """``100 * (p . q_2 - p . q_1) / (p . q_1)``: growth valued at one price vector.
+
+    ``whose_prices`` names the price vector in the ``ValueError`` raised when year one's goods
+    are worth 0 at it.
+    """
     value_1 = float(np.dot(price, quantity_1))
+    if value_1 == 0.0:
+        raise ValueError(
+            f"year one's final goods are worth 0 at {whose_prices} final prices; growth is "
+            "measured relative to that value, so the ratio is undefined"
+        )
     value_2 = float(np.dot(price, quantity_2))
     return PERCENT * (value_2 - value_1) / value_1

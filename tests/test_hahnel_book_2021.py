@@ -17,17 +17,20 @@ import dataclasses
 import gc
 import math
 import time
+from decimal import ROUND_DOWN, Decimal
 
 import numpy as np
 import pytest
 
-from demplan import INDICATIVE_PRICE, check_determinism, run
+from demplan import INDICATIVE_PRICE, StatedPlan, check_determinism, run
 from demplan.prefabs.hahnel import (
     NEXT_INDICATIVE_PRICE,
     PRICE_RULE_STATE,
     Book2021Rule,
     HahnelBook2021,
+    WarmStart,
     book_2021_rule,
+    real_gdp_growth,
 )
 from reference import synthetic
 from reference.dep1ex_numpy import (
@@ -39,7 +42,7 @@ from reference.dep1ex_numpy import (
     unified_price,
 )
 from reference.paths import dep1ex_available, dep1ex_path
-from reference.pequod_cljs import read_first_year, upstream_csv
+from reference.pequod_cljs import read_first_year, read_years, upstream_csv
 
 TIMING_ALLOWANCE = 1.3
 
@@ -78,6 +81,14 @@ PRICE_RTOL = 1e-13
 
 MULTIPLIER_ATOL = 1e-12
 """Measured agreement of the carried multiplier (``pdlist``) after every round: 4.1e-14."""
+
+TABLE_9_4_GDP = {1: "2.6", 2: "2.549", 3: "2.528", 4: "2.271", 5: "2.32"}
+"""Real GDP growth in percent from year one to year two, dep1ex01 to 05.
+
+Hahnel (2021), ch. 9, Table 9.4, p. 183, as printed. Measured against the program's own output
+for these runs (2.60078..., 2.54957..., 2.52815..., 2.27138..., 2.32095...), each printed value is
+the growth truncated to three decimals, not rounded, with trailing zeros dropped.
+"""
 
 
 def program_step(imbalance: float, multiplier: float) -> float:
@@ -445,6 +456,7 @@ class TestSyntheticAgainstTheReference:
         )
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not dep1ex_available(1), reason="dep1ex01 archive not available")
 class TestDep1ex01:
     def test_round_count_matches_the_reference(self, dep1ex01_parsed, dep1ex01_economy):
@@ -618,3 +630,102 @@ class TestAgainstTheProgramsOwnOutput:
                 err_msg=f"round {number}",
             )
             state = row.pdlist
+
+
+@pytest.fixture(scope="module")
+def program_years(experiment):
+    """Both years the program ran on this experiment, or a skip."""
+    index, layout, _, _, _ = experiment
+    path = upstream_csv(index)
+    if path is None:
+        pytest.skip(f"pequod-cljs output dep1ex6{index}.csv not available")
+    years = read_years(path, layout)
+    assert len(years) == 2
+    return years
+
+
+def year_end_plan(economy, year) -> StatedPlan:
+    """The program's last round of ``year`` as a plan: each unit's output, the final price and
+    ``pdlist``. Nothing else of the round is read by what these tests call."""
+    last = year.rounds[-1]
+    return StatedPlan(
+        output=year.last_unit_output,
+        input_use=np.zeros(economy.n_inputs),
+        consumption=None,
+        consumption_commodity=None,
+        provision=None,
+        valuation={NEXT_INDICATIVE_PRICE: last.price_after},
+        extra={PRICE_RULE_STATE: last.pdlist},
+    )
+
+
+@pytest.mark.slow
+class TestAgainstTheProgramsSecondYear:
+    """Year two of the program: a warm start from year one's end, and the book's GDP growth.
+
+    Between the years the program perturbed the exponents with random draws that are not
+    recoverable, so year two is not rerun here; its printed balance is taken as given.
+    """
+
+    def test_year_twos_first_round_repeats_the_programs_update_from_year_ones_end(
+        self, experiment, program_years
+    ):
+        """``WarmStart`` on year one's last round, then one update on year two's first balance.
+
+        The rule gets year two's first-round balance as the program printed it, and the price
+        and multiplier the warm-started procedure starts from.
+        """
+        _, _, _, _, economy = experiment
+        first_year, second_year = program_years
+        procedure = WarmStart()(year_end_plan(economy, first_year))
+        rule = book_2021_rule if procedure.price_rule is None else procedure.price_rule
+        opening = second_year.rounds[0]
+        imbalance = np.abs(2 * opening.surplus) / (opening.supply + opening.demand)
+
+        next_price, next_state = rule(
+            read_only(procedure.initial_price),
+            read_only(opening.surplus),
+            read_only(imbalance),
+            read_only(procedure.initial_rule_state),
+        )
+
+        np.testing.assert_array_equal(next_state, opening.pdlist)
+        np.testing.assert_allclose(next_price, opening.price_after, rtol=1e-15, atol=0)
+
+    def test_year_twos_first_step_is_the_one_the_program_printed(
+        self, experiment, program_years
+    ):
+        """The step, read off a unit price so that no other factor is in the product."""
+        _, layout, _, _, economy = experiment
+        first_year, second_year = program_years
+        procedure = WarmStart()(year_end_plan(economy, first_year))
+        rule = book_2021_rule if procedure.price_rule is None else procedure.price_rule
+        opening = second_year.rounds[0]
+        imbalance = np.abs(2 * opening.surplus) / (opening.supply + opening.demand)
+        moved = opening.surplus != 0
+
+        next_price, _ = rule(
+            read_only(np.ones(layout.n_commodities)),
+            read_only(opening.surplus),
+            read_only(imbalance),
+            read_only(procedure.initial_rule_state),
+        )
+
+        assert moved.sum() > 0
+        np.testing.assert_allclose(
+            np.abs(next_price - 1.0)[moved], opening.step[moved], rtol=1e-12, atol=0
+        )
+
+    def test_real_gdp_growth_of_the_programs_two_years_is_table_9_4(
+        self, experiment, program_years
+    ):
+        index, _, _, _, economy = experiment
+        first_year, second_year = program_years
+        growth = real_gdp_growth(
+            economy,
+            year_end_plan(economy, first_year),
+            economy,
+            year_end_plan(economy, second_year),
+        )
+        truncated = Decimal(repr(growth)).quantize(Decimal("0.001"), rounding=ROUND_DOWN)
+        assert truncated == Decimal(TABLE_9_4_GDP[index]), f"growth {growth!r}"

@@ -1729,6 +1729,7 @@ class TestAnEditedDocumentIsReportedBothWays:
         assert not report.digest_contradicts_columns
 
 
+@pytest.mark.slow
 class TestARealEconomy:
     """The digest, once, on an economy nobody wrote for a test.
 

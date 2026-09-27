@@ -17,6 +17,7 @@ SAMPLE_UNITS = (0, 1, 7, 1234, 15000, 29999)
 SAMPLE_CONSUMERS = (0, 3, 9999, 29999)
 
 
+@pytest.mark.slow
 class TestDep1exLayout:
     def test_sections_are_contiguous_and_cover_everything(self, dep1ex01_parsed):
         _, _, layout = dep1ex01_parsed
@@ -32,6 +33,7 @@ class TestDep1exLayout:
         assert layout.n_commodities == 500
 
 
+@pytest.mark.slow
 class TestCommodityTable:
     def test_counts(self, dep1ex01_parsed, dep1ex01_economy):
         wc, cc, layout = dep1ex01_parsed
@@ -66,6 +68,7 @@ class TestCommodityTable:
         assert np.all(np.asarray(economy.endowment)[layout.section("labor")] == 250.0)
 
 
+@pytest.mark.slow
 class TestProducingUnits:
     def test_output_commodity_matches_industry_and_product(self, dep1ex01_parsed, dep1ex01_economy):
         wc, _, layout = dep1ex01_parsed
@@ -91,6 +94,7 @@ class TestProducingUnits:
         np.testing.assert_array_equal(dep1ex01_economy.unit_extra["effort_k"], wc["k"])
 
 
+@pytest.mark.slow
 class TestFlatInputs:
     def test_offsets_follow_the_padding_mask(self, dep1ex01_parsed, dep1ex01_economy):
         wc, _, _ = dep1ex01_parsed
@@ -123,6 +127,7 @@ class TestFlatInputs:
         assert commodities.max() < layout.n_commodities
 
 
+@pytest.mark.slow
 class TestConsumerUnits:
     def test_entitlement_is_the_reference_income(self, dep1ex01_parsed, dep1ex01_economy):
         _, cc, _ = dep1ex01_parsed
@@ -152,6 +157,7 @@ class TestConsumerUnits:
         assert np.all(kinds[layout.n_priv :] == CommodityKind.PUBLIC_GOOD)
 
 
+@pytest.mark.slow
 class TestUnifiedPrice:
     def test_round_trips_through_the_sections(self, dep1ex01_parsed):
         _, _, layout = dep1ex01_parsed

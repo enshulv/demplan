@@ -1252,6 +1252,7 @@ class TestConfigurationRecordsTheRule:
         ).to_json(tmp_path / "configuration.json")
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not dep1ex_available(1), reason="dep1ex01 archive not available")
 class TestDep1ex01:
     def test_the_plan_reproduces_its_own_production_function(self, dep1ex01_economy):

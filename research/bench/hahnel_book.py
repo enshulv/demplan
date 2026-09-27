@@ -121,23 +121,35 @@ def first_round_below(worst: list[float], threshold: float) -> int | None:
     return None
 
 
+def threshold_readings(worst: list[float]) -> dict:
+    """What one cold run's worst imbalance per round is read as in Tables 9.1, 9.2 and 9.5.
+
+    ``first_below_10``, ``first_below_5`` and ``first_below_3`` are the first rounds below
+    10%, 5% and 3%. ``rounds_10_to_5`` is the Table 9.5 count, the rounds from the first one
+    below 10% to the first one below 5%; it is ``None`` when either of those two is ``None``.
+    """
+    below = {threshold: first_round_below(worst, threshold) for threshold in COLD_THRESHOLDS}
+    ten_to_five = None
+    if below[10.0] is not None and below[5.0] is not None:
+        ten_to_five = below[5.0] - below[10.0]
+    return {
+        "first_below_10": below[10.0],
+        "first_below_5": below[5.0],
+        "first_below_3": below[3.0],
+        "rounds_10_to_5": ten_to_five,
+    }
+
+
 def cold_start(economy) -> dict:
     """Tables 9.1, 9.2 and 9.5: one run from 700 to 3%, read at three thresholds."""
     result = run(
         HahnelBook2021(threshold_pct=YEAR_THRESHOLD, record_trajectory=True), economy, seed=0
     )
     worst = worst_imbalance_pct(economy, result.summary.trajectory)
-    below = {threshold: first_round_below(worst, threshold) for threshold in COLD_THRESHOLDS}
-    ten_to_five = None
-    if below[10.0] is not None and below[5.0] is not None:
-        ten_to_five = below[5.0] - below[10.0]
     return {
         "rounds": result.summary.rounds,
         "converged": result.summary.converged,
-        "first_below_10": below[10.0],
-        "first_below_5": below[5.0],
-        "first_below_3": below[3.0],
-        "rounds_10_to_5": ten_to_five,
+        **threshold_readings(worst),
         "worst_pct_per_round": worst,
     }
 

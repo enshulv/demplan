@@ -39,10 +39,15 @@ LOAD_SECONDS_LIMIT = 1.5
 #: Number of timed loads; the fastest one is compared against the limit.
 TIMED_LOADS = 3
 
-requires_data = pytest.mark.skipif(
+_skip_without_data = pytest.mark.skipif(
     not DEP1EX01.exists(),
     reason=f"scenario file not found: {DEP1EX01}",
 )
+
+
+def requires_data(test):
+    """Skip ``test`` without dep1ex01, and mark it slow: reading the archive takes seconds."""
+    return pytest.mark.slow(_skip_without_data(test))
 
 
 @pytest.fixture(scope="module")

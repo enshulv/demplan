@@ -10,9 +10,10 @@ The program's inputs ``dep1ex61`` .. ``dep1ex65`` are the szcz.org archives ``de
 ``dep1ex05`` under another namespace line, so ``dep1ex6N.csv`` is the run on ``dep1ex0N``.
 
 Each file is a header row and then one row per round. The first column is the round number,
-counted from 1, and the first year ends at a row whose first column is ``exponent-sum``; the
-rows after it are a second year started from the first year's prices, which nothing here
-reads. Per commodity class a row carries, for commodities 1 to 100 of that class:
+counted from 1, and each year ends at a row whose first column is ``exponent-sum``: the first
+year, then a second year started from the first year's prices and ``pdlist`` on an economy
+whose exponents the program perturbed in between. Per commodity class a row carries, for
+commodities 1 to 100 of that class:
 
 ``:<class>-prices-<j>``
     the price after the round's update, the price the next round's proposals use;
@@ -24,6 +25,9 @@ reads. Per commodity class a row carries, for commodities 1 to 100 of that class
     the balance measured at the round's price;
 ``:threshold-report-<classes>-<j>``
     the relative imbalance in percent.
+
+and, per worker council ``k`` from 1, in the order of the archive's units, ``wc_<k>_output``,
+the council's output in that round.
 """
 
 from __future__ import annotations
@@ -37,8 +41,8 @@ import numpy as np
 
 UPSTREAM_DIR_VARIABLE = "DEMPLAN_UPSTREAM_DIR"
 
-FIRST_YEAR_END = "exponent-sum"
-"""First column of the row that closes the first year."""
+YEAR_END = "exponent-sum"
+"""First column of the row that closes a year."""
 
 _CLASSES = (
     # (Dep1exLayout section, price column prefix, prefix of every other column)
@@ -81,10 +85,39 @@ def read_first_year(path: Path, layout) -> list[ProgramRound]:
         column = {name: at for at, name in enumerate(header)}
         rounds = []
         for row in rows:
-            if row[0] == FIRST_YEAR_END:
+            if row[0] == YEAR_END:
                 break
             rounds.append(_program_round(row, column, layout))
     return rounds
+
+
+@dataclasses.dataclass(frozen=True)
+class ProgramYear:
+    """One year of the program: every round, and each worker council's output in the last."""
+
+    rounds: list[ProgramRound]
+    last_unit_output: np.ndarray
+
+
+def read_years(path: Path, layout) -> list[ProgramYear]:
+    """Every year of one output file, in order, mapped onto ``layout``'s commodity ids."""
+    csv.field_size_limit(2**31 - 1)
+    with open(path, newline="", encoding="utf-8") as source:
+        rows = csv.reader(source)
+        header = next(rows)
+        column = {name: at for at, name in enumerate(header)}
+        n_units = sum(1 for name in header if name.startswith("wc_") and name.endswith("_output"))
+        unit_output_columns = [column[f"wc_{k}_output"] for k in range(1, n_units + 1)]
+        years, rounds, last_row = [], [], None
+        for row in rows:
+            if row[0] != YEAR_END:
+                rounds.append(_program_round(row, column, layout))
+                last_row = row
+                continue
+            last_unit_output = np.array([float(last_row[at]) for at in unit_output_columns])
+            years.append(ProgramYear(rounds=rounds, last_unit_output=last_unit_output))
+            rounds = []
+    return years
 
 
 def _program_round(row, column, layout) -> ProgramRound:

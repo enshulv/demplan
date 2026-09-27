@@ -1,17 +1,17 @@
-# 可再生的实验产物
+# Experiment output that can be regenerated
 __pycache__/
 *.pyc
 *.db
 *.output
 research/bench/rows.txt
 
-# 原始实验数据：体积大且可从 szcz.org/depexperiments 重新下载
+# Raw data: large, and downloadable again (dep1ex from szcz.org/depexperiments, WIOD from dataverse.nl)
 research/data/
 
-# 上游仓库有自己的 .git，不纳入本仓
+# Upstream repositories carry their own .git and are not tracked here
 upstream/
 
-# maturin develop 的构建产物
+# Build output of maturin develop
 python/demplan/*.pyd
 python/demplan/*.pdb
 python/demplan/*.so

@@ -6,7 +6,7 @@ __pycache__/
 research/bench/rows.txt
 
 # 原始实验数据：体积大且可从 szcz.org/depexperiments 重新下载
-research/data/*.gz
+research/data/
 
 # 上游仓库有自己的 .git，不纳入本仓
 upstream/

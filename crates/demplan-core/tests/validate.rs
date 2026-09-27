@@ -233,9 +233,51 @@ fn validate_rejects_an_empty_technology_label() {
 
 #[test]
 fn validate_accepts_a_whitespace_technology_label() {
-    // Only the empty string is refused; the data model does not interpret labels.
+    // The data model does not interpret labels; whitespace is text like any other.
     let mut economy = valid_economy();
     economy.technology_kind[0] = " ".to_string();
+
+    assert_eq!(economy.validate(), Ok(()));
+}
+
+// A numpy text array drops trailing NUL characters, so the Python side cannot
+// hold a label that ends in one. Both sides refuse it; a NUL elsewhere in the
+// label survives numpy and is accepted.
+
+#[test]
+fn validate_rejects_a_technology_label_ending_in_nul() {
+    let mut economy = valid_economy();
+    economy.technology_kind[1] = "leontief\0".to_string();
+
+    let error = error_of(economy);
+    assert!(
+        matches!(
+            error,
+            SchemaError::LabelEndsInNul { column, row } if column == "technology_kind" && row == 1
+        ),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(message.contains("technology_kind[1]"), "{message}");
+    assert!(message.contains("NUL"), "{message}");
+}
+
+#[test]
+fn validate_rejects_a_technology_label_that_is_only_nul() {
+    // "\0" is not empty, but numpy would store it as the empty string.
+    let mut economy = valid_economy();
+    economy.technology_kind[0] = "\0".to_string();
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::LabelEndsInNul { column, row } if column == "technology_kind" && row == 0
+    ));
+}
+
+#[test]
+fn validate_accepts_a_technology_label_with_a_nul_before_its_last_character() {
+    let mut economy = valid_economy();
+    economy.technology_kind = vec!["a\0b".to_string(), "\0a".to_string()];
 
     assert_eq!(economy.validate(), Ok(()));
 }
@@ -317,6 +359,19 @@ fn validate_rejects_input_offsets_not_starting_at_zero() {
 }
 
 #[test]
+fn validate_rejects_input_offsets_starting_below_zero() {
+    // Still non-decreasing and still ending at the input count: only the start
+    // is wrong.
+    let mut economy = valid_economy();
+    economy.input_offsets = vec![-1, 2, 3];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::InputOffsetsStart { value } if value == -1
+    ));
+}
+
+#[test]
 fn validate_rejects_decreasing_input_offsets() {
     let mut economy = valid_economy();
     economy.input_offsets = vec![0, 3, 2];
@@ -372,6 +427,30 @@ fn validate_rejects_output_offsets_not_starting_at_zero() {
     assert!(matches!(
         error_of(economy),
         SchemaError::OutputOffsetsStart { value } if value == 1
+    ));
+}
+
+#[test]
+fn validate_rejects_output_offsets_starting_below_zero() {
+    // The output windows are sliced after the offsets are accepted, so a
+    // negative start let through would panic there instead of being reported.
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![-1, 1, 3];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::OutputOffsetsStart { value } if value == -1
+    ));
+}
+
+#[test]
+fn validate_rejects_output_offsets_starting_at_the_smallest_integer() {
+    let mut economy = valid_economy();
+    economy.output_offsets = vec![i64::MIN, 1, 3];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::OutputOffsetsStart { value } if value == i64::MIN
     ));
 }
 
@@ -583,11 +662,71 @@ fn validate_rejects_infinite_output_coefficient() {
     ));
 }
 
+// ---- rule: every output coefficient is positive ----
+
 #[test]
-fn validate_accepts_zero_and_negative_output_coefficients() {
-    // Sign and magnitude belong to the technology, not to the data model.
+fn validate_rejects_a_zero_output_coefficient() {
     let mut economy = valid_economy();
-    economy.output_coefficient = vec![0.0, -1.5, 0.5];
+    economy.output_coefficient[0] = 0.0;
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::NonPositiveOutputCoefficient { unit, entry, value }
+            if unit == 0 && entry == 0 && value == 0.0
+    ));
+}
+
+#[test]
+fn validate_rejects_a_negative_output_coefficient_in_the_second_entry_of_a_joint_unit() {
+    // Entry 2 is the second output of unit 1: the unit and the flat entry
+    // index differ, and so do the entry index and the position inside the unit.
+    let mut economy = valid_economy();
+    economy.output_coefficient[2] = -1.5;
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::NonPositiveOutputCoefficient { unit, entry, value }
+            if unit == 1 && entry == 2 && value == -1.5
+    ));
+}
+
+#[test]
+fn validate_rejects_a_negative_zero_output_coefficient() {
+    let mut economy = valid_economy();
+    economy.output_coefficient[1] = -0.0;
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::NonPositiveOutputCoefficient { unit, entry, .. } if unit == 1 && entry == 1
+    ));
+}
+
+#[test]
+fn validate_reports_the_first_non_positive_output_coefficient() {
+    let mut economy = valid_economy();
+    economy.output_coefficient = vec![1.0, -2.0, 0.0];
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::NonPositiveOutputCoefficient { entry, .. } if entry == 1
+    ));
+}
+
+#[test]
+fn validate_names_the_unit_and_entry_of_a_non_positive_output_coefficient() {
+    let mut economy = valid_economy();
+    economy.output_coefficient[2] = -1.5;
+
+    let message = error_of(economy).to_string();
+    assert!(message.contains("output_coefficient[2]"), "{message}");
+    assert!(message.contains("production unit 1"), "{message}");
+    assert!(message.contains("-1.5"), "{message}");
+}
+
+#[test]
+fn validate_accepts_the_smallest_and_largest_positive_output_coefficients() {
+    let mut economy = valid_economy();
+    economy.output_coefficient = vec![f64::from_bits(1), f64::MIN_POSITIVE, f64::MAX];
 
     assert_eq!(economy.validate(), Ok(()));
 }
@@ -663,6 +802,45 @@ fn validate_rejects_integer_extra_shape_whose_product_differs_from_the_data_leng
         error_of(economy),
         SchemaError::ExtraShape { ref key, product, len, .. }
             if key == "group_label" && product == 4 && len == 2
+    ));
+}
+
+#[test]
+fn validate_rejects_float_extra_data_longer_than_its_shape() {
+    // The first dimension still matches the table, so only the shape rule can
+    // catch the extra value.
+    let mut economy = valid_economy();
+    economy.unit_extra.insert(
+        "effort_c".to_string(),
+        ExtraArray::F64 {
+            shape: vec![2],
+            data: vec![0.61, 0.62, 0.63],
+        },
+    );
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraShape { bag, ref key, ref shape, product, len }
+            if bag == "unit_extra" && key == "effort_c" && *shape == vec![2]
+                && product == 2 && len == 3
+    ));
+}
+
+#[test]
+fn validate_rejects_integer_extra_data_longer_than_its_shape() {
+    let mut economy = valid_economy();
+    economy.consumer_extra.insert(
+        "group_label".to_string(),
+        ExtraArray::I64 {
+            shape: vec![2, 1],
+            data: vec![0, 1, 2],
+        },
+    );
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraShape { bag, ref key, product, len, .. }
+            if bag == "consumer_extra" && key == "group_label" && product == 2 && len == 3
     ));
 }
 
@@ -830,6 +1008,52 @@ fn validate_rejects_an_empty_label_in_a_text_extra_array() {
         SchemaError::ExtraEmptyText { bag, ref key, index }
             if bag == "consumer_extra" && key == "region" && index == 1
     ));
+}
+
+#[test]
+fn validate_rejects_a_text_extra_label_ending_in_nul() {
+    let mut economy = valid_economy();
+    economy
+        .consumer_extra
+        .insert("region".to_string(), text(&["north", "south\0\0"]));
+
+    let error = error_of(economy);
+    assert!(
+        matches!(
+            error,
+            SchemaError::ExtraTextEndsInNul { bag, ref key, index }
+                if bag == "consumer_extra" && key == "region" && index == 1
+        ),
+        "{error:?}"
+    );
+    let message = error.to_string();
+    assert!(message.contains("region"), "{message}");
+    assert!(message.contains("NUL"), "{message}");
+}
+
+#[test]
+fn validate_rejects_a_text_extra_label_that_is_only_nul() {
+    let mut economy = valid_economy();
+    economy.commodity_extra.insert(
+        "hahnel_kind".to_string(),
+        text(&["\0", "intermediate", "labor"]),
+    );
+
+    assert!(matches!(
+        error_of(economy),
+        SchemaError::ExtraTextEndsInNul { bag, ref key, index }
+            if bag == "commodity_extra" && key == "hahnel_kind" && index == 0
+    ));
+}
+
+#[test]
+fn validate_accepts_a_text_extra_label_with_a_nul_before_its_last_character() {
+    let mut economy = valid_economy();
+    economy
+        .unit_extra
+        .insert("sector".to_string(), text(&["st\0eel", "\0coal"]));
+
+    assert_eq!(economy.validate(), Ok(()));
 }
 
 #[test]

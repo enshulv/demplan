@@ -36,7 +36,8 @@ pub enum ExtraArray {
     },
     /// Text labels, one per table row.
     Text {
-        /// One label per table row; the empty string is not a label.
+        /// One label per table row. The empty string is not a label, and a
+        /// label does not end in a NUL character.
         data: Vec<String>,
     },
 }
@@ -76,10 +77,11 @@ impl ExtraArray {
 /// rectangle.
 ///
 /// Every column of a table has the same length, and each identifier column
-/// equals its row index. `validate` checks that and the other structural rules;
-/// it deliberately checks nothing about economic meaning, because sign and
-/// magnitude conventions differ between schools. The data model records no
-/// ratio between a unit's outputs and assumes none.
+/// equals its row index. `validate` checks that and the other structural rules.
+/// Apart from requiring positive output coefficients, it checks nothing about
+/// economic meaning, because sign and magnitude conventions differ between
+/// schools. The data model records no ratio between a unit's outputs and
+/// assumes none.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Economy {
     /// Which period this state describes.
@@ -94,7 +96,8 @@ pub struct Economy {
 
     /// Stable production unit identifier, equal to the row index.
     pub unit_id: Vec<i64>,
-    /// Label naming each production unit's technology; any non-empty text.
+    /// Label naming each production unit's technology; any non-empty text that
+    /// does not end in a NUL character.
     pub technology_kind: Vec<String>,
     /// Scale coefficient of the technology.
     pub technology_scale: Vec<f64>,
@@ -108,7 +111,7 @@ pub struct Economy {
     pub output_offsets: Vec<i64>,
     /// Commodity produced by each output entry.
     pub output_commodity: Vec<i64>,
-    /// A number per output entry whose meaning the unit's technology sets.
+    /// A positive number per output entry whose meaning the unit's technology sets.
     pub output_coefficient: Vec<f64>,
     /// Named arrays over the production unit table.
     pub unit_extra: BTreeMap<String, ExtraArray>,
@@ -152,6 +155,18 @@ pub enum SchemaError {
         /// Name of the label column.
         column: &'static str,
         /// Row that carries the empty label.
+        row: usize,
+    },
+
+    /// A label column carries a label that ends in a NUL character.
+    ///
+    /// A numpy text array drops trailing NUL characters, so the Python package
+    /// could not hold the label as given.
+    #[error("`{column}[{row}]` ends in a NUL character, which a numpy text array cannot hold")]
+    LabelEndsInNul {
+        /// Name of the label column.
+        column: &'static str,
+        /// Row that carries the label.
         row: usize,
     },
 
@@ -271,6 +286,19 @@ pub enum SchemaError {
         value: f64,
     },
 
+    /// An output entry carries a coefficient that is zero or negative.
+    #[error(
+        "`output_coefficient[{entry}]` of production unit {unit} is {value}, expected a positive number"
+    )]
+    NonPositiveOutputCoefficient {
+        /// Row of the production unit that owns the entry.
+        unit: usize,
+        /// Index of the entry in the flat output arrays.
+        entry: usize,
+        /// Value found.
+        value: f64,
+    },
+
     /// The dimensions of an extra array do not multiply out to its data length.
     #[error("`{bag}[\"{key}\"]` has shape {shape:?} covering {product} values, expected {len}")]
     ExtraShape {
@@ -322,6 +350,22 @@ pub enum SchemaError {
         /// Key the array is stored under.
         key: String,
         /// Position of the empty label.
+        index: usize,
+    },
+
+    /// A text extra array holds a label that ends in a NUL character.
+    ///
+    /// A numpy text array drops trailing NUL characters, so the Python package
+    /// could not hold the label as given.
+    #[error(
+        "`{bag}[\"{key}\"]` holds a label ending in a NUL character at index {index}, which a numpy text array cannot hold"
+    )]
+    ExtraTextEndsInNul {
+        /// Bag the array belongs to.
+        bag: &'static str,
+        /// Key the array is stored under.
+        key: String,
+        /// Position of the label.
         index: usize,
     },
 
@@ -444,10 +488,12 @@ impl Economy {
     /// The checks run in this order: column lengths, identifier columns,
     /// technology labels, commodity references, the shape of `input_offsets`,
     /// the shape of `output_offsets` and the output entries of each unit,
-    /// finiteness of the floating-point columns, and the shape of every extra
-    /// array.
+    /// finiteness of the floating-point columns, positivity of
+    /// `output_coefficient`, and the shape and values of every extra array.
     ///
-    /// Economic meaning is out of scope. Non-negativity, for one, is a theoretical
+    /// Economic meaning is out of scope apart from one rule: an output
+    /// coefficient is output per unit of activity, and zero or a negative number
+    /// cannot be one. Non-negativity of the other columns is a theoretical
     /// commitment rather than a property of the data model, so it belongs to the
     /// optional invariant toolbox instead. Technology labels are not checked
     /// against any list: which technologies exist is the researcher's statement.
@@ -470,6 +516,7 @@ impl Economy {
         )?;
         self.check_output_entries()?;
         self.check_finite_columns()?;
+        self.check_output_coefficients()?;
         self.check_extra_bags()
     }
 
@@ -515,13 +562,22 @@ impl Economy {
     }
 
     fn check_technology_labels(&self) -> Result<(), SchemaError> {
-        match self.technology_kind.iter().position(String::is_empty) {
-            Some(row) => Err(SchemaError::EmptyLabel {
-                column: "technology_kind",
-                row,
-            }),
-            None => Ok(()),
+        const COLUMN: &str = "technology_kind";
+        for (row, label) in self.technology_kind.iter().enumerate() {
+            if label.is_empty() {
+                return Err(SchemaError::EmptyLabel {
+                    column: COLUMN,
+                    row,
+                });
+            }
+            if ends_in_nul(label) {
+                return Err(SchemaError::LabelEndsInNul {
+                    column: COLUMN,
+                    row,
+                });
+            }
         }
+        Ok(())
     }
 
     fn check_commodity_references(&self) -> Result<(), SchemaError> {
@@ -558,6 +614,26 @@ impl Economy {
         check_finite("technology_scale", &self.technology_scale)?;
         check_finite("input_coefficient", &self.input_coefficient)?;
         check_finite("output_coefficient", &self.output_coefficient)
+    }
+
+    /// Checks that every output coefficient is greater than zero and names the
+    /// first entry that is not, with the unit that owns it.
+    ///
+    /// Runs after `check_offsets` has accepted `output_offsets` and after the
+    /// finiteness check, so NaN and the infinities are already reported as
+    /// non-finite. Negative zero is not greater than zero and is refused.
+    fn check_output_coefficients(&self) -> Result<(), SchemaError> {
+        for unit in 0..self.n_units() {
+            let start = self.output_offsets[unit] as usize;
+            let end = self.output_offsets[unit + 1] as usize;
+            for entry in start..end {
+                let value = self.output_coefficient[entry];
+                if value <= 0.0 {
+                    return Err(SchemaError::NonPositiveOutputCoefficient { unit, entry, value });
+                }
+            }
+        }
+        Ok(())
     }
 
     fn check_extra_bags(&self) -> Result<(), SchemaError> {
@@ -712,8 +788,9 @@ fn check_extra_bag(
     Ok(())
 }
 
-/// Checks the values of one extra array: floating-point values are finite and
-/// text labels are non-empty. Integer arrays have no value rule.
+/// Checks the values of one extra array: floating-point values are finite, and
+/// text labels are non-empty and do not end in a NUL character. Integer arrays
+/// have no value rule.
 fn check_extra_values(bag: &'static str, key: &str, array: &ExtraArray) -> Result<(), SchemaError> {
     match array {
         ExtraArray::F64 { data, .. } => {
@@ -727,14 +804,33 @@ fn check_extra_values(bag: &'static str, key: &str, array: &ExtraArray) -> Resul
                 None => Ok(()),
             }
         }
-        ExtraArray::Text { data } => match data.iter().position(String::is_empty) {
-            Some(index) => Err(SchemaError::ExtraEmptyText {
-                bag,
-                key: key.to_string(),
-                index,
-            }),
-            None => Ok(()),
-        },
+        ExtraArray::Text { data } => {
+            for (index, label) in data.iter().enumerate() {
+                if label.is_empty() {
+                    return Err(SchemaError::ExtraEmptyText {
+                        bag,
+                        key: key.to_string(),
+                        index,
+                    });
+                }
+                if ends_in_nul(label) {
+                    return Err(SchemaError::ExtraTextEndsInNul {
+                        bag,
+                        key: key.to_string(),
+                        index,
+                    });
+                }
+            }
+            Ok(())
+        }
         ExtraArray::I64 { .. } => Ok(()),
     }
+}
+
+/// Reports whether `label` ends in a NUL character.
+///
+/// A numpy text array drops trailing NUL characters, so such a label would reach
+/// Python shorter than it was given. A NUL anywhere else survives numpy.
+fn ends_in_nul(label: &str) -> bool {
+    label.ends_with('\0')
 }

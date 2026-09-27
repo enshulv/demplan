@@ -39,7 +39,9 @@ maturin develop --release
 ```
 
 Published economies are downloaded separately, for example
-`curl -sSL -o dep1ex01.clj.gz https://www.szcz.org/depexperiments/dep1ex01.clj.gz` (56 MB).
+`curl -sSL -o dep1ex01.clj.gz https://www.szcz.org/depexperiments/dep1ex01.clj.gz` (56 MB); in
+Windows PowerShell 5.1 type `curl.exe`, since `curl` there is an alias for `Invoke-WebRequest`.
+The WIOD files come from a browser, see below.
 
 ## Reproduce a published result
 
@@ -66,6 +68,37 @@ print(result.summary.rounds, result.summary.converged, result.summary.diverged)
   `research/bench/hahnel_book.py` runs all five tables.
 - The endowment of natural resources and labour is a parameter of `load_dep1ex` because it
   matters: the round count changes with it.
+
+## Load real input-output data (WIOD)
+
+`load_wiod(path, year, labor=None, sea=None, exchange_rates=None)` reads one year (2000 to 2014) of
+the WIOD 2016 release and returns a `WiodTable` with `economy` and `observed`. The researcher
+downloads the files in a browser from <https://doi.org/10.34894/PJ2M1C> (the site serves a bot
+check to `curl`): `WIOTS_in_EXCEL.zip` (`path`; leave it packed), and for labour
+`Socio_Economic_Accounts.xlsx` (`sea=`) and `Exchange_Rates.xlsx` (`exchange_rates=`). The data is
+CC BY 4.0; cite Timmer et al. (2015), as the release asks (entry in the README's references).
+
+- **The economy.** One commodity per product (44 economies times 56 industries), one Leontief unit
+  per product with positive output, one consumer unit per final-demand column. Every value is
+  millions of US dollars at current prices; say so before a result is read in physical terms.
+- **Labour is the researcher's choice; ask, do not pick.** `labor=None` (the default) builds no
+  labour commodity. `"hours"` reads hours worked by employees from the SEA; `"compensation"` reads
+  compensation of employees and needs the exchange rates too. Both leave out the self-employed.
+  Units without a figure (the rest of the world always, China under hours) get no labour input,
+  and `unit_extra["labor_observed"]` is 0 for them: a labour total or a labour-minimising plan
+  treats their output as free. Some units record output and no intermediate purchases (29 in
+  2014), so without labour they need no input at all.
+- **The observed plan.** `observed` is an `AllocatedPlan` of the year's recorded flows: gross
+  output, intermediate use, final demand with its negative entries (inventory draw-downs) kept,
+  `shared_use` all 0. Compare a mechanism's plan with it through `compare_plans`. Before running
+  `reference_solution` on a year, the researcher has to state what negative final demand means,
+  because a floor on final consumption cannot be negative.
+- **Two warnings, both `UserWarning` subclasses in `demplan.io`.** `WiodUnproducedInputs`: units
+  use products that have no producing unit (the rest of the world's `M73` in every year); those
+  uses are not input entries, each unit's total is in `unit_extra["unproduced_input_use"]`, and
+  the observed plan's supply minus use on those products equals what the units drew.
+  `WiodLaborGap` names the economies whose units have no labour figure. Report both warnings to
+  the researcher rather than silencing them.
 
 ## Change one part of a published procedure
 
@@ -173,7 +206,8 @@ report.non_negativity.negative_count   # per field and per price key
   library only echoes it.
 - `check_homogeneity(procedure, economy, seed, rescale, factor)` runs twice and compares the plans
   with `compare_plans`. `rescale` states what is nominal: `hahnel.scale_starting_price` tests
-  start-independence, `hahnel.scale_nominal_quantities` scales prices and entitlements together.
+  start-independence, `hahnel.scale_nominal_quantities` scales the initial price, the entitlements and the
+  workers' `effort_s` together.
   The report has no tolerance.
 - `input_use_on(economy, plan, hahnel.labor(economy))` is the labour total of a plan, and
   `compare_plans(a, b)` gives the largest relative difference per physical field. Other

@@ -3,6 +3,21 @@
 > "Reference solution" corresponds to `reference_solution` and `ReferenceProcedure` in the code; "objective" corresponds to `Objective`.
 > The definition itself (parameterized by the objective) is in [invariants-and-metrics.md](invariants-and-metrics.md) 2026-09-05. This document records implementation-layer decisions.
 
+## 2026-09-28
+
+### The reference solution does not clip solver noise; a caller who feeds its quantities back clips them
+
+**Decision**: `reference_solution` hands over the quantities the solver returns as they are, and does not clip small negative values within the solver's tolerance to 0. A caller who feeds the reference solution's quantities back into a declaration that refuses negative entries, such as the floor of `MinimizeLabor`, clips them at 0 first. The reference solution's docstring says so; the noise is of the order of 1e-14.
+
+**Why**: A property test failed now and then: the reference solution reported −1.6e-14 within the solver's tolerance, the test fed it back as a floor of `MinimizeLabor`, and the floor refuses negative values. The behaviour had been there since `77917f8`. Clipping inside the library would change the numbers the solver returned, so the plan handed over would no longer be the solver's solution.
+The noise differs between platforms: on macOS in CI the same example reports no negative value, so the test that checks for the noise skips when there is none.
+The test now clips at 0 before feeding the quantities back, and fixes its random seed. This came out of a non-blocking finding of adversarial review.
+
+**Rejected alternatives**:
+- Clip negative quantities within the solver's tolerance to 0 inside the library — the plan handed over would no longer be the solver's solution
+
+---
+
 ## 2026-09-05
 
 ### The objective fixes both the weights and the allocation; both are theoretical commitments

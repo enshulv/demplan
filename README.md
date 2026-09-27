@@ -54,8 +54,8 @@ plain arrays, raw enough that any metric can be recomputed from it afterwards. T
 covers democratic and participatory planning; the benchmark it offers against a mechanism is a
 centrally computed optimum under an objective function you declare, not a market.
 
-MIT licensed. Status: early. What exists today is the data model, the dep1ex loader, one
-published procedure, the loop and seed tools, the determinism self-test, the run configuration
+MIT licensed. Status: early. What exists today is the data model, loaders for the dep1ex
+archives and the WIOD world input-output tables, one published procedure, the loop and seed tools, the determinism self-test, the run configuration
 document, the report of what a plan leaves over or short that every run carries, a check of
 plans against technologies, and the linear-programming reference optimum for Leontief economies
 with a `linearize` tool for Cobb-Douglas ones. What is missing is listed under
@@ -193,8 +193,9 @@ used in common.
 
 That number is an upper bound on the gap, not an estimate of it. The reference solution needs
 Leontief technology, dep1ex is entirely Cobb-Douglas, and `linearize` turns decreasing returns
-to scale (median total elasticity 0.875 in dep1ex01, none at 1) into constant returns, so the
-optimum it finds is too good. Linearization is also anchored on the iterative procedure's own
+to scale into constant returns, so the optimum it finds is too good. In dep1ex01 a unit's input
+exponents plus its effort exponent `effort_c` sum to a median of 0.875, and to less than 1 in
+every unit; the input exponents alone sum to a median of 0.80. Linearization is also anchored on the iterative procedure's own
 plan. The reference result does not yet report these assumptions; until it does, the ratio
 should not be quoted. See
 [docs/research/related-implementations.md](docs/research/related-implementations.md).
@@ -203,8 +204,9 @@ should not be quoted. See
 
 Honest status, roughly in the order these will be addressed:
 
-- **One data source.** Only the dep1ex archives load. Real input-output tables (WIOD, EXIOBASE)
-  with labour and emission accounts are the next data milestone.
+- **Two data sources.** The dep1ex archives and the WIOD 2016 release, one year at a time, load.
+  EXIOBASE, emission accounts (the WIOD release has none; the environmental accounts published
+  for it are not read yet), and the formats of other implementations do not load.
 - **No on-disk output format yet.** Plans come back as arrays in memory; the long-format
   Parquet output and the run manifest are not built.
 - **The difference reports stop at what one plan and the fixed fields can show.** Material
@@ -222,7 +224,11 @@ Honest status, roughly in the order these will be addressed:
   breaking change and will happen before 1.0.
 - **Joint products are in the data model but not yet in every tool.** A producing unit may list
   several outputs; the reference solution, `linearize` and the two technology helpers still
-  refuse such units.
+  refuse such units, and a plan has no valid shape yet for an `extra` or `valuation` key holding
+  one value per output entry.
+- **Your procedure's provenance cannot be declared yet.** The run configuration document records
+  a procedure of yours with `declared_origin` null, because `run_configuration` has no argument
+  through which to say where it comes from.
 - **One published procedure.** Only the procedure of Hahnel (2021) [3] ships as a prefab. Labour-time planning in the tradition of Cockshott and Cottrell [12] and the
   published algorithms of [7, 8, 9] are candidates.
 - **Installation needs a Rust toolchain.** There are no prebuilt wheels on PyPI yet.
@@ -255,6 +261,15 @@ The dep1ex archives are 56 MB each, gzipped:
 ```sh
 curl -sSL -o dep1ex01.clj.gz https://www.szcz.org/depexperiments/dep1ex01.clj.gz
 ```
+
+In Windows PowerShell 5.1, `curl` is an alias for `Invoke-WebRequest` and does not take these
+options; type `curl.exe`:
+
+```powershell
+curl.exe -sSL -o dep1ex01.clj.gz https://www.szcz.org/depexperiments/dep1ex01.clj.gz
+```
+
+The WIOD files are downloaded in a web browser; see [below](#real-input-output-data-wiod).
 
 ## Ten lines
 
@@ -349,6 +364,69 @@ units, with a coverage table listing what the data model cannot test. `check_hom
 a procedure on rescaled inputs and reports how far the plan moved, and `compare_plans` and
 `input_use_on` are the two indicators the library ships. None of these reports carries a
 tolerance or a pass/fail field.
+
+## Real input-output data: WIOD
+
+The World Input-Output Database (WIOD), 2016 release, covers 28 EU countries, 15 other major
+countries and a model of the rest of the world, from 2000 to 2014, with 56 industries in each
+economy. `load_wiod` reads one year of it into an `Economy`, together with the flows the table
+records for that year, laid out as a plan of that economy: the observed plan.
+
+**Getting the files.** Open <https://doi.org/10.34894/PJ2M1C> in a web browser and download
+`WIOTS_in_EXCEL.zip` (919 MB), and for labour `Socio_Economic_Accounts.xlsx` and
+`Exchange_Rates.xlsx`. The site checks that a visitor is a browser before it serves a file, so a
+download started with `curl` receives the check page instead. Leave the zip packed: `load_wiod`
+reads the year you ask for straight out of it. The release is licensed under CC BY 4.0. It asks
+every user to cite Timmer et al. (2015) [15]; cite the data set as well, as doi:10.34894/PJ2M1C.
+
+With the three files in a folder named `wiod`:
+
+```python
+import numpy as np
+from demplan import load_wiod, plan_differences
+
+table = load_wiod("wiod/WIOTS_in_EXCEL.zip", 2014, labor="hours",
+                  sea="wiod/Socio_Economic_Accounts.xlsx")
+economy, observed = table.economy, table.observed
+print(economy.n_commodities, economy.n_units, economy.n_consumers)
+
+balance = plan_differences(economy, observed).material_balance
+largest = int(np.argmax(balance.difference))
+region, industry = economy.commodity_extra["region"], economy.commodity_extra["industry"]
+print(region[largest], industry[largest], round(float(balance.difference[largest]), 1))
+```
+
+```text
+2506 2327 220
+ROW M73 6992.5
+```
+
+The economy has one commodity per product, 44 economies times 56 industries, 2,464 in all, and
+one labour commodity for each of the 42 economies with hours data. Each product with output in
+2014 has one Leontief producing unit, whose input coefficients are the table's purchases divided
+by its gross output: 2,327 units, since 137 products had no output that year. Each final-demand
+column is a consumer unit, five per economy. Every value is millions of US dollars at current
+prices, so one unit of a commodity is a million dollars' worth of it.
+
+The load issues two warnings. `WiodUnproducedInputs` says that 2,298 units use products that no
+unit produces, the rest of the world's `M73` and Malta's `A02`, for 6,992.50 million US$ in all.
+Those uses are not input entries, since a Leontief unit that needed a product nobody makes could
+produce nothing; each unit's total is in `unit_extra["unproduced_input_use"]`. The table balances
+`M73` through negative final demand, and the observed plan keeps final demand as recorded, so on
+the two products supply minus use equals what the units drew from them. Every other commodity of
+the observed plan balances to within 1.8e-14 of its supply. `WiodLaborGap` names the units with no hours figure,
+China's 47 and the rest of the world's 55; they get no labour input.
+
+**Labour is your choice.** The world input-output table has no labour data. With `labor=None`, the
+default, no labour commodity is built and the zip is the only file needed. `labor="hours"` reads
+hours worked by employees from the socio-economic accounts, and `labor="compensation"` reads
+compensation of employees, converted to US dollars with `exchange_rates=`, the path of
+`Exchange_Rates.xlsx`. Neither counts the self-employed, and which one stands for labour input, or
+neither, is a theoretical choice the library does not make for you. A unit without a figure gets
+no labour input, never a zero or an estimate, and `unit_extra["labor_observed"]` marks it. The rest
+of the world has no figure under either measure, and China has no hours. Some units record output
+and no intermediate purchases at all (29 in 2014, mostly industry `T`): without labour they need no
+input, and with it labour is their only one.
 
 ## Write your own coordination method
 
@@ -672,6 +750,10 @@ experiments [2, 3] and the pseudocode paper [4].
 14. Szczepanczyk, M. `pequod-cljs`: a computerized simulation of a participatory economy
     (Clojure and ClojureScript). <https://github.com/msszczep/pequod-cljs>. The runs behind the
     tables of [3] used `src/clj/pequod_cljs/csvgen.clj` at commit `71e44d3` (2020-06-23).
+15. Timmer, M. P., Dietzenbacher, E., Los, B., Stehrer, R., and de Vries, G. J. (2015). An
+    illustrated user guide to the World Input–Output Database: the case of global automotive
+    production. *Review of International Economics* 23, 575–605. The WIOD 2016 release (CC BY
+    4.0) is at <https://doi.org/10.34894/PJ2M1C>.
 
 demplan reads the published papers and data; it contains no code from the implementations
 above. Its reference solution calls the HiGHS solver through SciPy.

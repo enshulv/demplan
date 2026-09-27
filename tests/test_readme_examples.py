@@ -11,18 +11,23 @@ about the block is changed.
 
 The blocks that load ``dep1ex01.clj.gz`` run as written from the data directory, and the numbers
 the README's prose quotes about them are checked against what they compute. Those tests read an
-archive, so they are slow and skip without the data.
+archive, so they are slow and skip without the data. The WIOD block runs the same way from the
+data directory, whose ``wiod`` folder holds the release files.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import pathlib
 import re
+import warnings
 
 import numpy as np
 import pytest
 
 from demplan import technology_margins
+from demplan.io import WiodLaborGap, WiodUnproducedInputs
 from demplan.prefabs import hahnel
 from reference import synthetic
 from reference.paths import DATA_DIR, dep1ex_available
@@ -105,7 +110,13 @@ def test_every_readme_python_block_parses():
 
 
 @pytest.mark.parametrize(
-    "heading", ["## Ten lines", "## `Economy`", "## Write your own coordination method"]
+    "heading",
+    [
+        "## Ten lines",
+        "## `Economy`",
+        "## Write your own coordination method",
+        "## Real input-output data: WIOD",
+    ],
 )
 def test_the_documented_headings_carry_a_python_block(heading):
     assert code_block_under(heading).strip()
@@ -282,3 +293,106 @@ class TestTheDifferenceReportOnDep1ex01:
         assert dict(report.missing) == {hahnel.TECHNOLOGY: 30_000}
         assert economy.n_units == 30_000
         assert "lists all 30,000 units under `missing`" in prose_of(LEAVES_OVER)
+
+
+WIOD = "## Real input-output data: WIOD"
+
+WIOD_FILES = ("WIOTS_in_EXCEL.zip", "Socio_Economic_Accounts.xlsx")
+
+
+@pytest.fixture(scope="module")
+def wiod_namespace():
+    """The block under the WIOD heading, run from the data directory as the reader would run it
+    from the folder holding ``wiod/``, with its printed lines and its warnings recorded."""
+    missing = [name for name in WIOD_FILES if not (DATA_DIR / "wiod" / name).is_file()]
+    if missing:
+        pytest.skip(f"WIOD files {missing} not found in {DATA_DIR / 'wiod'}")
+    namespace: dict = {}
+    printed = io.StringIO()
+    with (
+        pytest.MonkeyPatch.context() as patch,
+        warnings.catch_warnings(record=True) as caught,
+        contextlib.redirect_stdout(printed),
+    ):
+        warnings.simplefilter("always")
+        patch.chdir(DATA_DIR)
+        exec(code_block_under(WIOD), namespace)  # noqa: S102
+    namespace["printed"] = printed.getvalue()
+    namespace["caught"] = list(caught)
+    return namespace
+
+
+@pytest.mark.slow
+class TestTheWiodExampleOn2014:
+    """The block under the WIOD heading prints what the README shows, and the prose quotes it."""
+
+    def test_the_block_prints_the_text_shown_under_it(self, wiod_namespace):
+        shown = TEXT_BLOCK.findall(section_under(README.read_text(encoding="utf-8"), WIOD))
+        assert len(shown) == 1
+        assert wiod_namespace["printed"] == shown[0]
+
+    def test_the_counts_the_prose_quotes(self, wiod_namespace):
+        economy = wiod_namespace["economy"]
+        industry = economy.commodity_extra["industry"]
+        labour = int(np.count_nonzero(industry == "labor"))
+        assert economy.n_commodities - labour == 2464
+        assert labour == 42
+        assert economy.n_units == 2327
+        assert economy.n_commodities - labour - economy.n_units == 137
+        prose = prose_of(WIOD)
+        assert "2,464 in all" in prose
+        assert "each of the 42 economies with hours data" in prose
+        assert "2,327 units, since 137 products had no output that year" in prose
+
+    def test_the_load_warns_about_unproduced_inputs_and_labour_gaps(self, wiod_namespace):
+        categories = [warning.category for warning in wiod_namespace["caught"]]
+        assert sorted(category.__name__ for category in categories) == [
+            WiodLaborGap.__name__,
+            WiodUnproducedInputs.__name__,
+        ]
+
+    def test_the_unproduced_inputs_the_prose_quotes(self, wiod_namespace):
+        economy = wiod_namespace["economy"]
+        used = economy.unit_extra["unproduced_input_use"]
+        assert int(np.count_nonzero(used)) == 2298
+        assert f"{float(used.sum()):,.2f}" == "6,992.50"
+        prose = prose_of(WIOD)
+        assert "2,298 units use products that no unit produces" in prose
+        assert "6,992.50 million US$ in all" in prose
+
+    def test_every_other_commodity_balances_to_the_quoted_bound(self, wiod_namespace):
+        economy = wiod_namespace["economy"]
+        balance = wiod_namespace["balance"]
+        names = np.char.add(
+            np.char.add(economy.commodity_extra["region"], " "), economy.commodity_extra["industry"]
+        )
+        unproduced = np.isin(names, ["ROW M73", "MLT A02"])
+        np.testing.assert_allclose(
+            balance.difference[unproduced].sum(),
+            economy.unit_extra["unproduced_input_use"].sum(),
+            rtol=1e-12,
+        )
+        others = ~unproduced
+        gap = np.abs(balance.difference[others])
+        supply = balance.supply[others]
+        assert np.all(gap[supply <= 0.0] == 0.0)
+        assert float((gap[supply > 0.0] / supply[supply > 0.0]).max()) < 1.8e-14
+        assert "balances to within 1.8e-14 of its supply" in prose_of(WIOD)
+
+    def test_the_labour_gaps_the_prose_quotes(self, wiod_namespace):
+        economy = wiod_namespace["economy"]
+        missing = economy.unit_extra["labor_observed"] == 0.0
+        regions, counts = np.unique(economy.unit_extra["region"][missing], return_counts=True)
+        assert dict(zip(regions.tolist(), counts.tolist())) == {"CHN": 47, "ROW": 55}
+        assert "China's 47 and the rest of the world's 55" in prose_of(WIOD)
+
+    def test_29_units_record_output_and_no_intermediate_purchases(self, wiod_namespace):
+        economy = wiod_namespace["economy"]
+        is_labour = economy.commodity_extra["industry"] == "labor"
+        per_unit = np.diff(economy.input_offsets)
+        owner = np.repeat(np.arange(economy.n_units), per_unit)
+        purchases = np.bincount(
+            owner, weights=~is_labour[economy.input_commodity], minlength=economy.n_units
+        )
+        assert int(np.count_nonzero(purchases == 0)) == 29
+        assert "(29 in 2014, mostly industry `T`)" in prose_of(WIOD)

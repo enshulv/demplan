@@ -2,6 +2,37 @@
 
 ## 2026-09-28
 
+### WIOD: when units use a product that has no producing unit, those uses are not input entries; they are recorded per unit and warned about
+
+**Decision**: As before, the WIOD loader keeps a commodity for every product whose output is not above 0 and creates no producing unit for it. When other units use such a product in their intermediate use, that use is not an input entry of the unit. What each unit uses of such products is recorded in `unit_extra["unproduced_input_use"]` (millions of US dollars; 0 for a unit that uses none; the key is present in every load). The observed plan's `input_use` leaves it out as well, and its `consumption` keeps the table's final demand as recorded, including the negative entries that offset these uses.
+Whenever there is such use, the loader issues one `WiodUnproducedInputs` warning naming the products, the number of units that use them and the total value.
+There is no minimum amount: rounding residue falls under the same rule.
+
+**Why**: Every year of the 2016 release has such use. The rest of the world's product `M73` has zero output in each year from 2000 to 2014, yet about 2,240 units use it every year, for 5,500 to 15,300 million US dollars a year; its row balances through negative final demand of the same size. Malta's `A02` has no output either and is used for less than 1e-5 million US dollars a year.
+Kept as input entries and read as Leontief, those 2,240 or so units would lack an input that nobody produces and nobody holds, so they could produce nothing, and the researcher would get a degenerate world economy. Dropping the uses while recording them per unit and warning leaves nothing changed silently: what was dropped can be read back from the economy.
+Adopted on 2026-09-28 after adversarial review of the loader, pending the maintainer's review; reverting means removing this one step.
+
+**Rejected alternatives**:
+- Keep them as input entries and only warn, leaving it to the researcher — in the economy a default load gives, about 2,240 units can produce nothing
+- Create producing units with no inputs for these products — hands out output for free
+
+**How to apply**: On the observed plan, the material balance of these two products, supply minus use, equals what the units drew from them (6,992.5 million US dollars for the rest of the world's `M73` in 2014). It is not rounding error.
+
+---
+
+### `output_coefficient` must be finite and positive (partially supersedes the coefficient rule implemented with the 2026-09-27 joint-products entry)
+
+**Decision**: Every `output_coefficient` of an `Economy` must be a finite positive number. Validation on both the Rust and the Python side refuses 0, negative and non-finite values, naming the unit and the output entry. Its meaning is still set by the unit's technology.
+
+**Why**: Every reading the library ships treats it as output per unit of activity: `SingleOutput` and `FixedRatios` deliver `activity · output_coefficient`, and the Leontief and Cobb-Douglas helpers divide by it when they work back from output to activity. At 0 the division gives inf or nan, which flows into the result without an error. Under that meaning, neither 0 nor a negative number is an output.
+
+**Rejected alternatives**:
+- Keep requiring only finiteness and let each tool that uses the coefficient refuse bad values — an economy the data model accepts would produce inf or nan inside the library's own tools, and with every tool checking on its own, one missed check fails silently
+
+**Supersedes**: Partially supersedes the coefficient rule implemented with 2026-09-27 "Joint products: the data model records a quantity per output, ...": at that point `output_coefficient`, like `input_coefficient`, only had to be finite. Recording a quantity per output, and recording no proportion between outputs, are unchanged.
+
+---
+
 ### The WIOD loader creates no labour commodity by default (partially supersedes point 2 of the same day's entry)
 
 **Decision**: `load_wiod`'s `labor=` defaults to `None`: with only the WIOT file, no labour commodity is created.
@@ -134,6 +165,8 @@ own standard.
 
 **How to apply**: How the "output relationship" interface fits with and attaches to the technology interface just
 decided (the production function) is taken up in the same round of questions.
+
+**Follow-up**: From 2026-09-28, `output_coefficient` must be finite and positive; see 2026-09-28 "`output_coefficient` must be finite and positive".
 
 ---
 

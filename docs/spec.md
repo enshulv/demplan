@@ -19,7 +19,7 @@ The commodity groupings an objective needs are declared by the caller as argumen
 - `shared` lists the commodities the consumer units use in common; `None` means none. `allocate` puts each commodity in `shared` into `shared_use` at its whole aggregate, and splits every other commodity with a non-zero weight (or floor) evenly across consumer units into `consumption`. The consumption columns are those commodities, in ascending index order.
 - Which commodities carry weight is the researcher's statement; the library does not check it.
 
-The reference solution requires every unit's `technology_kind` to be `LEONTIEF` and every unit to have exactly one output entry, and reads `output_coefficient` as output per unit of activity (1 after linearization and on dep1ex). A unit with joint products is refused.
+The reference solution requires every unit's `technology_kind` to be `LEONTIEF` and every unit to have exactly one output entry, and reads `output_coefficient` as output per unit of activity (1 after linearization and on dep1ex). A unit with joint products is refused. The reference solution hands over the solver's quantities as they are, without clipping, so negative values of the order of 1e-14 can appear within the solver's tolerance. Before feeding them back into a declaration that refuses negative entries, such as the floor of `MinimizeLabor`, the caller clips them at 0.
 
 **The foundation layer is theory-neutral.** Anything that carries an economic-theory assumption — invariants, metrics, behavioral equations — is always an optional tool, never a mandatory prerequisite. Before adding anything to the fixed layer, ask "which school of thought would disagree with this." If you can answer that question, it cannot be fixed.
 
@@ -92,9 +92,9 @@ When a library tool needs to know which commodities are resources, labour, used 
 | `input_coefficient` | f64[n_inputs] | A number per input whose meaning the unit's technology sets: under Leontief the input coefficient, under Cobb-Douglas the exponent |
 | `output_offsets` | int64[n_units + 1] | Unit i's output entries are the flat output arrays' `[output_offsets[i], output_offsets[i+1])` |
 | `output_commodity` | int64[n_outputs] | The commodity of each output entry |
-| `output_coefficient` | f64[n_outputs] | A number per output entry whose meaning the unit's technology sets, as `input_coefficient` is for inputs. The library's own technologies read it as output per unit of activity |
+| `output_coefficient` | f64[n_outputs] | A finite positive number per output entry, whose meaning the unit's technology sets. The library's own technologies read it as output per unit of activity |
 
-Both sets of offsets start at 0, never decrease and end at the entry count; commodity indices are in range; coefficients are finite. `n_inputs` and `n_outputs` are the lengths of the two flat layouts.
+Both sets of offsets start at 0, never decrease and end at the entry count; commodity indices are in range; coefficients are finite; every `output_coefficient` is also above 0, and 0 or a negative value is refused, naming the unit and the output entry. `n_inputs` and `n_outputs` are the lengths of the two flat layouts.
 
 **Consumer units**: `consumer_id` (int64, stable identifier, equal to the row index).
 
@@ -102,7 +102,7 @@ Both sets of offsets start at 0, never decrease and end at the entry count; comm
 
 **`extra` bags**: each array's first dimension equals that table's row count, and it may be numeric or text. The library interprets no key. It checks the shape of the registered **column-map keys** only: such a key has shape `[k]`, where k is the column count of another 2-D `extra` array, and holds commodity indices. The only one registered is `consumer_extra["utility_exponent_commodity"]`, for `utility_exponent`.
 
-The dep1ex loader writes the keys below; their meaning belongs to the loader and to the prefab `hahnel`:
+The dep1ex loader writes the keys below; their meaning belongs to the loader and to the prefab `hahnel` (the keys the WIOD loader writes are under "Loaders"):
 
 | Table | Key | Shape | Meaning |
 |---|---|---|---|
@@ -209,6 +209,58 @@ The prefab `hahnel` provides `hahnel.technology()`, labelled `hahnel.TECHNOLOGY`
 
 Every technology is a theoretical claim about production, so this is a tool, and it is not part of `plan_differences`. `tools.linearize.linearize` and the closed forms in `tools.leontief` and `tools.cobb_douglas` take only economies with one output entry per unit and refuse a unit with joint products; `linearize` writes every unit as `LEONTIEF` with `output_coefficient = 1`.
 
+## Loaders
+
+A loader reads published data into an `Economy`. The files are read in the Rust core, which hands back a mapping of columns; the Python side builds the `Economy` from it and validates it. Labels and behavioral parameters a loader writes go into `extra`, under keys whose names and meanings belong to the loader. A wrong argument, a file that cannot be read, or a file that does not have the expected layout raises `ValueError` or a subclass of it; an economy that breaches the data model raises `SchemaError`.
+
+### `load_dep1ex(path, endowment=1000.0) -> Economy`
+
+Reads one dep1ex archive: the input data of the participatory planning experiments of Hahnel, Szczepanczyk and Weisdorf, a gzipped Clojure data file.
+
+- Commodities come in five contiguous sections, in this order: private consumption goods, public goods, intermediate goods, natural resources, labour. Each commodity's section is written in `commodity_extra["hahnel_kind"]`
+- One producing unit per worker council, labelled `hahnel_cobb_douglas_effort`, with one output entry of `output_coefficient = 1`; `input_coefficient` holds the Cobb-Douglas exponents and `technology_scale` holds `a`
+- One consumer unit per consumer council. Producing units and consumer units keep the order of the archive
+- `endowment` applies to every natural resource and every kind of labour, and the other commodities get 0. The archives do not carry this figure; the default 1000 comes from the papers' text
+- `period` is 0; the `extra` keys it writes are listed under "Data model"
+
+### `load_wiod(path, year, labor=None, sea=None, exchange_rates=None) -> WiodTable`
+
+Reads one year of the World Input-Output Database (WIOD), 2016 release. `path` is the release zip `WIOTS_in_EXCEL.zip` (from which `WIOT{year}_Nov16_ROW.xlsb` is read in memory, without extracting it) or one such `.xlsb` workbook. `year` must be an integer from 2000 to 2014; anything else, such as `2014.0` or `"2014"`, raises `ValueError`. It returns `WiodTable(economy, observed)`: `economy` is the economy the table describes, and `observed` is the year's recorded flows laid out as a plan of that economy. Equality of `WiodTable` is identity, as on `Economy`.
+
+**The economy.** Values are millions of US dollars at current prices.
+
+- One commodity per product: 44 economies (43 countries and the rest of the world, `ROW`) times 56 industries, 2464 commodities, in the table's row order. `commodity_extra["region"]` and `commodity_extra["industry"]` hold the two codes. Products have zero endowment
+- Every product with positive gross output gets one producing unit, labelled `LEONTIEF`, with one output entry; `output_coefficient` and `technology_scale` are 1. Its inputs are the products it uses that have a producing unit, each at intermediate use divided by the unit's gross output. A negative intermediate-use entry raises `ValueError` naming the year, the two products and the value
+- A product whose gross output is not above 0 keeps its commodity and gets no producing unit. Its own intermediate inputs must all be 0; otherwise `ValueError` names the product
+- One consumer unit per final-demand column, five per economy, 220 in all. `consumer_extra["region"]` holds the economy and `consumer_extra["final_demand"]` the category (`CONS_h`, `CONS_np`, `CONS_g`, `GFCF`, `INVEN`)
+- `unit_extra` holds each unit's `region` and `industry`, the rows below the table body (`taxes_less_subsidies`, `cif_fob_adjustment`, `purchases_by_residents_abroad`, `purchases_by_nonresidents`, `value_added`, `international_transport_margins`), and `unproduced_input_use`. The rows below the table body are not commodities and do not enter the material balance
+- `period` is the year
+
+**Products used but not produced.** When units use a product whose gross output is not above 0, that use is not an input entry of the unit: nothing produces the product and nothing holds it, and a Leontief unit that needed it could produce nothing. Each unit's total use of such products is in `unit_extra["unproduced_input_use"]` (0 for a unit that uses none; the key is present in every load). Whenever there is such use, the loader issues one `WiodUnproducedInputs` (a `UserWarning` subclass) naming the products, the number of units that use them and the total value, with no minimum amount. Every year of the 2016 release has such use.
+
+**Units whose only input is labour.** Some units have positive gross output and no intermediate use at all (29 in 2014: industry `T` in 28 economies, and India's `O84`). Under `labor=None` they have no input entry, which a Leontief reading takes as production that needs no input. With a labour measure chosen, those with labour data have labour as their only input, and the rest of the world's has still none. The loader does not warn about them.
+
+**Labour.** The world input-output table (WIOT) has no labour data. `labor=` decides whether labour enters the economy and as what, from the release's socio-economic accounts (SEA; `sea=` is the path of `Socio_Economic_Accounts.xlsx`):
+
+| `labor=` | What it reads | Unit | Files needed |
+|---|---|---|---|
+| `None` (the default) | nothing: no labour commodity | | the WIOT file alone |
+| `"compensation"` | compensation of employees (`COMP`), converted from national currency at the year's rate in `exchange_rates=` (`Exchange_Rates.xlsx`, US dollars per unit of national currency) | millions of US dollars | `sea=` and `exchange_rates=` |
+| `"hours"` | hours worked by employees (`H_EMPE`) | millions of hours | `sea=` |
+
+Neither measure includes the self-employed. Which one stands for labour input, or neither, is a theoretical choice the library does not make. With a measure chosen, each economy with data gets one labour commodity, after the products, with `commodity_extra["region"]` holding the economy and `industry` holding `labor`. Its endowment is the total labour input of the economy's units that year; each unit uses its economy's labour at its labour figure divided by its gross output. A labour figure on a product without a producing unit is no unit's input and is not part of the endowment. A measure whose files are not given raises `ValueError` naming the missing argument; `sea` and `exchange_rates` are read only when the measure needs them. The exchange-rate workbook codes Romania `ROM`, which the loader reads as the table's `ROU`, the one alias it accepts; a workbook that lists one economy twice raises `ValueError`.
+
+**Labour gaps.** The rest of the world has no data under either measure, China has no hours, and a figure that is not a number is missing too. A unit without a figure gets no labour input, no zero and no estimate; `unit_extra["labor_observed"]` is 0 for it (1 for the other units; the key exists only when a measure is chosen), and the loader issues one `WiodLaborGap` (a `UserWarning` subclass) naming each economy affected and how many units it has. A figure of 0 is data, not a gap.
+
+**The observed plan** `observed` is an `AllocatedPlan`, validated against the economy by the loader:
+
+- `output` is gross output; `input_use` is intermediate use per input entry, and with a labour measure the labour entries are the labour figures
+- `consumption` is final demand, one row per consumer unit and one column per product (`consumption_commodity` lists every product and no labour commodity). Negative entries, such as inventory draw-downs, are kept as recorded
+- `shared_use` is 0 everywhere: the WIOT files all final use under some final-demand category
+- No field is absent; `valuation` and `extra` are empty
+
+On the observed plan the material-balance difference is 0 to within rounding, with one exception: on a product used but not produced, supply minus use equals what the units drew from it. Those uses are not input entries, while the negative final demand that offsets them in the table is kept.
+
 ## Multiple periods
 
 The researcher chooses between static and rolling:
@@ -301,14 +353,14 @@ The report, `PlanDifferences(material_balance, budget, non_negativity)`, has thr
 - When something is missing, the reason lists what is missing in a fixed order: no declared price (listing the valuation keys the plan carries), the declared price key not in the plan, no `income`, no `expenditure`
 - `income` and `expenditure` are filled in whenever the plan carries them, even when the difference cannot be formed
 - `priced_consumption` is each consumer unit's row of `consumption` valued at the declared price. It is a reconciliation column: `expenditure − priced_consumption` is what the unit spent outside the consumption block. It is `None` when the plan has no consumption block or no price
-- A `price=` that names an array not holding one entry per commodity raises `ValueError`
+- A `price=` naming a key registered as one entry per consumer unit (`INCOME`, `EXPENDITURE`) raises `ValueError`, even when the economy has as many consumer units as commodities; so does a `price=` naming an array that does not hold one entry per commodity
 
 **Non-negativity**, `NonNegativity`:
 
 - Quantities checked: `output`, `input_use`, `consumption` and `shared_use`, whichever the plan carries
 - Prices checked: every registered per-commodity key the plan carries (`indicative_price`, `labor_value`, `shadow_price`), as entries named `valuation.<key>`, skipping the commodities in `bads`. A bad exempts prices only; a negative quantity on a bad is still counted. `bads=None` means no commodity is a bad
 - Each entry has a `minimum` (NaN ignored; `None` when nothing is left to check) and a `negative_count`
-- `not_checked` lists every entry that was not checked, with the reason: a field the plan declares absent, a valuation key the library has not registered (it does not know what the key holds), or nothing left to check after the exemption
+- `not_checked` lists every entry that was not checked, with the reason: a field the plan declares absent, a valuation key the library has not registered (it does not know what the key holds), nothing left to check after the exemption, or every value left to check being NaN. The last two reasons are stated apart: an entry of NaN alone is not reported as having no entries
 
 ### Cross-period differences
 
@@ -331,7 +383,7 @@ Their character differs from the single-period batch, and the document calls thi
 - **Start-independence**: `rescale` changes only the procedure's starting valuations
 - **Homogeneity of degree zero**: `rescale` scales every nominal quantity the researcher declares
 
-The prefab `hahnel` ships two: `scale_starting_price` (the initial price alone) and `scale_nominal_quantities` (the initial price and every consumer council's `entitlement`), both for `HahnelBook2021` only.
+The prefab `hahnel` ships two: `scale_starting_price` (the initial price alone) and `scale_nominal_quantities` (the initial price, every consumer council's `entitlement` and every worker council's `unit_extra["effort_s"]` together), both for `HahnelBook2021` only.
 
 The report carries `factor`, `rescale` (the function's qualified name), `comparison`, and both runs' round counts and convergence (`None` when the procedure did not use `iterate`). `factor` must be finite, above zero and other than 1, or `ValueError`; a `rescale` that returns anything but a pair raises `TypeError`. It does not judge pass or fail; the researcher sets the tolerance.
 
@@ -356,11 +408,13 @@ A researcher-supplied coordination procedure is arbitrary Python, and the librar
 
 ## Run configuration document
 
-`run_configuration(procedure, economy, seed, loader=None, plan=None)` produces a **loadable** configuration document: it comes out at the end of a run, and feeding it back in gives the same configuration. This is **a separate document** from the run manifest — the configuration document holds configuration, the manifest holds provenance, and the configuration document's hash goes into the manifest. Keeping them separate lets a load tell clearly which half is input; otherwise, feeding it back in would treat the previous run's result as input.
+`run_configuration(procedure, economy, seed, loader=None, plan=None, *, periods=1, advance=None, next_procedure=None)` produces a **loadable** configuration document: it comes out at the end of a run, and feeding it back in gives the same configuration. This is **a separate document** from the run manifest — the configuration document holds configuration, the manifest holds provenance, and the configuration document's hash goes into the manifest. Keeping them separate lets a load tell clearly which half is input; otherwise, feeding it back in would treat the previous run's result as input.
 
 **It is not welded into `run`.** The economy's content hash is not computed inside `run`: computing it costs something (0.064 seconds for dep1ex01's 53 MB), and a parameter sweep of thousands of runs shouldn't pay that cost every time. The researcher calls it explicitly.
 
-The format is JSON (UTF-8, sorted keys, indent 2, `allow_nan=False`). There are eight top-level keys: `configuration_version`, `library_version`, `core_version`, `seed`, `economy`, `procedure`, `loader`, `plan_fields_absent`. A multi-period run (`periods > 1`) writes three more: `periods`, `advance` and `next_procedure`, the last two as origin blocks, `null` when not given. A single-period run writes none of them, so its document has the same bytes as one written by a library without these keys. A single-period configuration that carries an evolution law or a next-procedure slot is refused on writing and on reading. A multi-period document reproduces the whole trajectory (initial economy, seed, evolution law, next-procedure slot, number of periods); later periods' starting points are not in the document and are recomputed by rerunning the trajectory.
+`periods`, `advance` and `next_procedure` are the arguments of the same names given to `run_periods`, and `periods` is refused as `run_periods` refuses it (anything but a Python or numpy integer of at least 1, `bool` included).
+
+The format is JSON (UTF-8, sorted keys, indent 2, `allow_nan=False`). There are eight top-level keys: `configuration_version`, `library_version`, `core_version`, `seed`, `economy`, `procedure`, `loader`, `plan_fields_absent`. A multi-period run (`periods > 1`) writes three more: `periods`, `advance` and `next_procedure`, the last two as origin blocks, `null` when not given. A single-period run writes none of them, so its document has the same bytes as one written by a library without these keys. A single-period configuration that carries an evolution rule or a next-procedure slot is refused on writing and on reading. A multi-period document reproduces the whole trajectory (initial economy, seed, evolution rule, next-procedure slot, number of periods); later periods' starting points are not in the document and are recomputed by rerunning the trajectory.
 
 **The economy is content-hashed** byte-for-byte with no precision loss, under the algorithm identifier `sha256-columns-v3`:
 
@@ -374,7 +428,7 @@ The format is JSON (UTF-8, sorted keys, indent 2, `allow_nan=False`). There are 
 
 **Any change to any step requires bumping the algorithm identifier.** **Per-column digests are stored alongside the overall digest**; `compare_economy_digests` compares two of them and returns an `EconomyDigestReport` naming which columns differ — this is what makes cross-platform floating-point last-bit differences diagnosable. Comparison is refused when the two digests' `algorithm` differ. **The library doesn't verify this automatically**; comparison is a tool the researcher calls explicitly.
 
-**Implementations shipped with the library are content-hashed; the researcher's own are not**: for library-shipped ones, the module's source file gets a sha256; for the researcher's, only their declared provenance is recorded, and it's `null` if none is given. **Both sides record parameters** — a parameter is data, not code, and the library can introspect the researcher's data classes the same way it introspects its own. numpy scalars are recorded by value.
+**Implementations shipped with the library are content-hashed; the researcher's own are not**: for library-shipped ones, the module's source file gets a sha256; for the researcher's, only their declared provenance is recorded, and it's `null` if none is given. **A known gap**: `run_configuration` has no argument yet through which the researcher can declare provenance, so `declared_origin` in the researcher's block is always `null` for now. **Both sides record parameters** — a parameter is data, not code, and the library can introspect the researcher's data classes the same way it introspects its own. numpy scalars are recorded by value.
 
 Versioning rules: a missing key in a document falls back to its default (an old document must still work with a new library); an unknown key is an error that distinguishes its two causes (the library is older than the document, or the key has been retired — the latter is checked against a registry of retired keys); a `configuration_version` newer than the library is an outright error. **A newly added key's default must preserve the old behavior** — if that's not possible, the key can't be added silently.
 

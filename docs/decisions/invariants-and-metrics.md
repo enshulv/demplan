@@ -2,6 +2,22 @@
 
 ## 2026-09-28
 
+### `effort_s` is a nominal quantity of Hahnel's model, and `scale_nominal_quantities` scales it too (partially supersedes 2026-09-27)
+
+**Decision**: The prefab `hahnel`'s `scale_nominal_quantities` scales three things: the initial price, every consumer council's `entitlement`, and every worker council's `unit_extra["effort_s"]`. The economy it returns differs from the original in those two `extra` keys only.
+
+**Why**: `effort_s` is the scale of a worker council's disutility of effort. The council subtracts that disutility from the value of its output, so it is in the unit of account: a nominal quantity.
+Measured on the synthetic test economy (`tests/reference/synthetic.py`, `HahnelBook2021`, initial price 700, seed 0, factors 0.5, 2 and 7): with the three scaled together, every physical field of the rescaled plan lies within 6.1e-15 relative of the original's, and both runs take 20 rounds.
+The 2026-09-27 entry scaled only the starting prices and the entitlements, found a 2.3% difference, and inferred that the cause was the disutility parameter not being scaled (not verified separately). This measurement confirms that inference: with all three nominal quantities scaled, Hahnel's model is homogeneous of degree zero on this economy.
+Adversarial review found by measurement that the docstring of `scale_nominal_quantities` did not match the result, which led to this change.
+
+**Rejected alternatives**:
+- Keep the nominal quantities at the starting prices and entitlements, and have the docstring say Hahnel's model is not homogeneous — that "not homogeneous" comes from a nominal quantity left unscaled, not from the model
+
+**Supersedes**: Partially supersedes the conclusion "Hahnel is not homogeneous on it" in 2026-09-27 "Homogeneity and independence from the starting point are two checks; nominal quantities are declared by the researcher", and turns that entry's unverified inference into a verified one. The two uses, nominal quantities passed in by the caller, and a report that does not judge pass or fail are unchanged.
+
+---
+
 ### The indicator tools are two theory-free functions
 
 **Decision**: Stage 2 ships two indicator functions: "input use on declared commodities" (the caller gives commodity indices; the function returns the plan's total input use on them) and "field-by-field comparison of two plans" (the largest relative difference per physical field, reported in the shape of `check_homogeneity`).
@@ -102,6 +118,8 @@ Replacing only the starting prices tests independence from the starting point: H
 The original design scaled only the starting valuation and knew no other nominal quantities. It would report "Hahnel's equilibrium is anchored by nominal entitlements" as "not homogeneous," and it had no way to express a real homogeneity test.
 
 **Supersedes**: Partially supersedes two sentences in 2026-09-05, "Price homogeneity of degree zero is a property test, not a residual": "scale the coordination procedure's initial valuation quantities proportionally, rerun" and "it only works on coordination procedures that expose an 'initial valuation quantity' parameter." "It is a property test, not a residual" is unchanged.
+
+**Follow-up**: On 2026-09-28 a measurement confirmed the inference above that the disutility parameter was not scaled, and `effort_s` joined the nominal quantities; see 2026-09-28 "`effort_s` is a nominal quantity of Hahnel's model, ...".
 
 ---
 

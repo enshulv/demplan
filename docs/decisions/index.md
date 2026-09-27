@@ -166,3 +166,7 @@
 | 2026-09-28 | Publication | Go public after opening the kinds, Stage 2 and the WIOD loader (narrows 2026-09-26 "publish early") | [publication.md](publication.md) |
 | 2026-09-28 | Publication | The wiki follows documentation-site conventions, with a from-zero tutorial and a full configuration reference | [publication.md](publication.md) |
 | 2026-09-28 | Data model | The WIOD loader creates no labour commodity by default; labour data comes from the SEA (partially supersedes point 2 of the same day's WIOD entry) | [data-model.md](data-model.md) |
+| 2026-09-28 | Data model | `output_coefficient` must be finite and positive (partially supersedes the coefficient rule implemented with the 2026-09-27 joint-products entry) | [data-model.md](data-model.md) |
+| 2026-09-28 | Data model | WIOD: uses of a product with no producing unit are not input entries; they are recorded per unit in `unit_extra` and warned about | [data-model.md](data-model.md) |
+| 2026-09-28 | Invariants and metrics | `effort_s` is a nominal quantity of Hahnel's model and `scale_nominal_quantities` scales it; a measurement confirms the 2026-09-27 inference (partially supersedes) | [invariants-and-metrics.md](invariants-and-metrics.md) |
+| 2026-09-28 | Reference solution | The reference solution does not clip solver noise; a caller feeding its quantities into a declaration that refuses negatives clips them at 0 | [reference-solution.md](reference-solution.md) |

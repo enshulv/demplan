@@ -159,3 +159,9 @@
 | 2026-09-27 | Data model | Joint products: record a quantity per output; output proportions come from a pluggable implementation; the library provides fixed proportions but does not attach them by default | [data-model.md](data-model.md) |
 | 2026-09-27 | Data model | The core technology interface is "can these inputs produce this set of outputs," plus an assembly helper (partially supersedes the same day's production-function entry) | [data-model.md](data-model.md) |
 | 2026-09-27 | Data model | "How much endowment is used" depends on the caller declaring which commodities count as resources; without a declaration the cross-period resource residual is N/A | [data-model.md](data-model.md) |
+| 2026-09-28 | Invariants and metrics | The indicator tools are "input use on declared commodities" and "field-by-field comparison of two plans" | [invariants-and-metrics.md](invariants-and-metrics.md) |
+| 2026-09-28 | Invariants and metrics | "Property-based test coverage" means property tests of the library's own residual tools; no random-economy generator for researchers | [invariants-and-metrics.md](invariants-and-metrics.md) |
+| 2026-09-28 | Invariants and metrics | The non-negativity residual takes bads from the caller as `bads=`; prices of bads are not checked for sign | [invariants-and-metrics.md](invariants-and-metrics.md) |
+| 2026-09-28 | Data model | WIOD loader: one economy per year, the unit of labour chosen by the caller, each of five final-demand categories a consumer unit, plus an observed plan | [data-model.md](data-model.md) |
+| 2026-09-28 | Publication | Go public after opening the kinds, Stage 2 and the WIOD loader (narrows 2026-09-26 "publish early") | [publication.md](publication.md) |
+| 2026-09-28 | Publication | The wiki follows documentation-site conventions, with a from-zero tutorial and a full configuration reference | [publication.md](publication.md) |

@@ -1,5 +1,46 @@
 # Invariants and metrics
 
+## 2026-09-28
+
+### The indicator tools are two theory-free functions
+
+**Decision**: Stage 2 ships two indicator functions: "input use on declared commodities" (the caller gives commodity indices; the function returns the plan's total input use on them) and "field-by-field comparison of two plans" (the largest relative difference per physical field, reported in the shape of `check_homogeneity`).
+Other indicators (welfare, GDP, speed of convergence and the like) go into the usage guide as examples, not into the library.
+
+**Why**: The maintainer accepted the recommendation on 2026-09-28. The 2026-08-28 decision already rules out a fixed set of core indicators; these two functions carry no theory and only compute what the researcher declares.
+The labour total in the reference-solution comparison is the first function applied to labour; today every researcher writes it again.
+
+**Rejected alternatives**:
+- Ship nothing, only examples — everyone rewrites the two most common quantities, and if the versions differ the comparisons are not comparable
+- Ship a set of common indicators (welfare, GDP, Gini) — each one carries a theoretical commitment
+
+---
+
+### "Property-based test coverage" means property tests of the library's own residual tools
+
+**Decision**: The Stage 2 item "property-based test coverage" means the library's own tests: hypothesis generates random economies and plans and checks properties of the residual tools (a plan feasible by construction has a non-negative material-balance residual; reordering commodities reorders the residuals; the residuals reconcile with the plan's fields entry by entry).
+The library does not give researchers a random-economy generator.
+
+**Why**: The maintainer accepted the recommendation on 2026-09-28. A random-economy generator must first choose a technology form and parameter distributions, which is itself a theoretical assumption; it can be revisited when a researcher asks for it.
+
+**Rejected alternatives**:
+- Also give researchers a random-economy generator — its distributions are a theoretical choice, and putting it in the library would make them the library's default
+
+---
+
+### The non-negativity residual takes the bads from the caller
+
+**Decision**: The non-negativity residual accepts `bads=` (an array of commodity indices, written like the reference solution's `shared=`); by default there are no bads.
+Quantities are always checked for negative values; prices of commodities declared as bads are not checked for sign (a negative price on a bad is standard in environmental economics, not a defect).
+
+**Why**: The maintainer accepted the recommendation on 2026-09-28. With commodity kinds opened up, the library does not know which commodities are bads; only the caller can say.
+
+**Rejected alternatives**:
+- Check only quantities, not prices — loses the most common signal of a mechanism defect, a negative price
+- Choose the sign convention by commodity kind (the idea in the WIOD field mapping at the time) — kinds are open now, so the library has no kind to read
+
+---
+
 ## 2026-09-27
 
 ### The budget residual is computed only when prices, income, and all spending are supplied by the mechanism

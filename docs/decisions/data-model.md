@@ -1,5 +1,30 @@
 # Data model
 
+## 2026-09-28
+
+### WIOD loader: one economy per year, with an observed plan
+
+**Decision** (five recommendations the maintainer accepted on 2026-09-28):
+
+1. **Which tables**: the world input-output tables (WIOT, 2000–2014) of the WIOD 2016 release are required; each year loads into one `Economy` with `period` set to the year. The socio-economic accounts (SEA) are optional and used only when the caller passes the file.
+2. **The unit of labour is the caller's choice**: the loader has a `labor=` argument (compensation in money, or hours worked from the SEA). Both are data; choosing one is a theoretical choice, so the library does not make it for the researcher.
+3. **Final demand**: each of the five final-demand categories of each economy (households, non-profit institutions, government, gross fixed capital formation, changes in inventories) is one consumer unit, 44 × 5 in all, with the economy and the category recorded in `consumer_extra`. The loader also returns an **observed plan**: the year's recorded intermediate use and final demand, so researchers can compare a mechanism's plan with what happened.
+4. **Rows that are not commodities** (taxes less subsidies, value added and the other rows below the intermediate block) are not commodities; they are kept as they are in `unit_extra`. Changes in inventories are a consumer unit under point 3 and may be negative.
+5. **No emissions for now**: the JRC environmental accounts are added as an optional extension once their source has been checked.
+
+The file format and whether the code sits on the Rust or the Python side are decided after inspecting the real files, under the existing principles (performance architecture: loaders live in the Rust core).
+The rows marked ⚠ in the field mapping ([research/wiod-field-mapping.md](../research/wiod-field-mapping.md)) are checked against the real files before implementation.
+
+**Why**: The maintainer decided the WIOD loader is done before publication, so researchers who want real input-output tables can start work.
+After the kinds were opened, two of the four gaps in the field mapping are no longer gaps: two-level grouping (the economy goes into `extra`) and "one commodity is both a private and a public good" (the consumption side is split into `consumption` and `shared_use`). The remaining negative entries are handled by the signed definition of the residuals, and valuation in money is explained in the documentation.
+
+**Rejected alternatives**:
+- Fix labour to compensation, or to hours — makes a theoretical choice for the researcher
+- Put government consumption into `shared_use` — in the observed data government consumption is use recorded by industry; whether it is non-rival is an interpretation, not data
+- Make the value-added rows commodities — they are not produced or used, and putting them into the material balance would create a false balance
+
+---
+
 ## 2026-09-27
 
 ### "How much endowment is used" depends on the caller declaring which commodities count as resources

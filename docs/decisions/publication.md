@@ -1,5 +1,31 @@
 # Publication
 
+## 2026-09-28
+
+### Go public after opening the kinds, Stage 2 and the WIOD loader
+
+**Decision**: The repository becomes public once three pieces of work are merged and the full test suite and CI pass: opening up the commodity and technology kinds, Stage 2 (residual and indicator tools), and the WIOD loader.
+
+**Why**: Decided by the maintainer: the published library should do more than reproduce Hahnel; it should load real input-output tables and show residuals.
+This narrows the 2026-09-26 "publish early" decision: the reason (a public repository establishes the date) still holds; only the moment of publication moves to after these three pieces.
+
+**Rejected alternatives**:
+- Publish as soon as the reviewed Hahnel reproduction is complete and release later work as versions — not chosen by the maintainer
+
+---
+
+### The wiki follows documentation-site conventions, with a from-zero tutorial and a full configuration reference
+
+**Decision**: The wiki is organised like a documentation site, one Markdown file per page, so it can later move into a documentation website unchanged.
+It gains two parts: a tutorial for social scientists that assumes the reader has never used the library and goes step by step from installation to using the shipped models and then to building their own economy; and a complete configuration reference listing every parameter of every public function and class, with its type, default and errors.
+
+**Why**: Decided by the maintainer. Researchers are the first users, and the existing researcher guide covers everything on one page, which is too fast for someone starting from zero.
+
+**How to apply**: Every code snippet in the tutorial is run and its output pasted from the run; the configuration reference is checked item by item against the code, never written from memory.
+The three audiences of 2026-09-26 "The wiki has researcher, contributor and quality-assurance pages" stay; the researcher part expands into several pages.
+
+---
+
 ## 2026-09-26
 
 ### Publish early; the public repository and a DOI establish the date

@@ -26,6 +26,16 @@ Assurance" page:
   dep1ex01 through 05, which are this library's reproduction results, while the only published
   figures are means over 40 experiments; see page 7 of the 2020 slides and
   [research/reproduction.md](../research/reproduction.md).)
+  (Corrected 2026-09-27: two points of the correction above no longer hold. First, "the only
+  published figures are means over 40 experiments" is wrong: chapter 9 of Hahnel (2021) lists all
+  40 experiments individually in Tables 9.1, 9.2, 9.4, 9.5 and 9.6, pages 178–185. Second, the
+  regression targets have changed: the current prefab, `HahnelBook2021`, uses the one-round-lag rule
+  of the original program that produced the book's tables, and gives 12, 12, 12, 12 and 12 rounds
+  at the 5% threshold on dep1ex01 through 05, the same as Table 9.1 and the original's output
+  experiment by experiment, and 19, 20, 19, 19 and 19 at 3%, the original's output. The 14, 13, 13,
+  14 and 13 came from the earlier prefab, which capped v in both places. Sources: Table 9.1 on page
+  178 of the book; `ROUNDS_AT_5_PERCENT` and `ROUNDS_AT_3_PERCENT` in
+  `tests/test_hahnel_book_2021.py`.)
 - On the design side: theory-neutrality reviews, limitations stated prominently, periodic reviews
   (not yet run for the first time)
 - Much of the implementation and review work is done with AI under the maintainer's direction:

@@ -24,7 +24,7 @@ You need Python 3.10 or newer and a Rust toolchain (<https://rustup.rs>).
 ```sh
 python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install maturin pytest hypothesis numpy scipy pyarrow psutil
+pip install maturin pytest pytest-xdist hypothesis numpy scipy pyarrow psutil
 maturin develop                      # debug build, for the edit-test loop
 maturin develop --release            # release build, for anything you time
 ```
@@ -126,9 +126,11 @@ an agent up for this repository; agents should start from [AGENTS.md](AGENTS.md)
 
 The reason is specific to this field. A wrong coordination procedure does not crash. It produces
 a plan that looks reasonable, passes every structural check, and ends up in a paper. The
-reproduction work behind this library found how easily such a difference slips through: a
-published pseudocode, presented as an adaptation of a price-update rule that works, does not
-converge, and the two differ by a single factor in one formula. AI tools make plausible code cheap to produce; they do not make it cheap to review. The
+reproduction work behind this library found how easily such a difference slips through: the
+published round counts come from a price-update rule that differs from the rule printed in the
+book in two details (which round's imbalance multiplies the step, and a floor of 0.001 on the
+step), and this library itself at first misread the paper's pseudocode as a rule that does not
+converge. AI tools make plausible code cheap to produce; they do not make it cheap to review. The
 decision record moves the reasoning into the open, so a reviewer checks it instead of
 reconstructing it.
 

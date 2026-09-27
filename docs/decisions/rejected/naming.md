@@ -35,6 +35,7 @@ Snowflake, and there is no evidence linking the GitHub organization `cybersyn-da
 **Proposal**: take CHECO (CHilean ECOnomic simulator), Cybersyn's economic-simulation component. Both crates.io and PyPI are free.
 (Corrected 2026-09-26 after a citation check: this said "CHilean ECOnomy"; the source says "CHilean ECOnomic simulator," see
 Medina (2011), *Cybernetic Revolutionaries*, MIT Press.)
+(Checked against Medina (2011) on 2026-09-27: chapter 3, "Designing a Network", says "the economic simulator, which was now known as CHECO (CHilean ECOnomic simulator)"; the correction above holds.)
 
 **Why it was considered**: the closest functional analogy of any candidate. CHECO was itself an economic simulator — given an
 economy and a policy, it produced a trajectory — which maps one-to-one onto what this library does. Five letters, easy to type and

@@ -15,6 +15,18 @@ is still evolving, and line numbers will go stale.
 
 ### The published pseudocode does not reproduce the published results
 
+> **Correction (2026-09-27)**: the conclusion of this section comes from a misreading; the
+> original text is kept below as history. The pseudocode on page 10 of the paper says to multiply
+> by "the corresponding price adjustment of the previous round", and this library read that as
+> the previous round's step, which is where "does not converge" came from. The original program
+> that produced the published results (`csvgen.clj` of `pequod-cljs` at `71e44d3`) multiplies by
+> the previous round's imbalance capped at 0.25. The pseudocode has no 0.25 cap and does not say
+> what the previous-round quantity is; read as the previous round's capped imbalance, it agrees
+> with the program. Run on dep1ex01 to 05, the program's rule gives 12, 12, 12, 12, 12 at the 5%
+> threshold, the same as Table 9.1 of the book. `pequod-plus` multiplies by an imbalance aggregated per category, which differs from
+> the original program's rule. See [reproduction.md](reproduction.md), second addendum of
+> 2026-09-26.
+
 **This is the highest-impact finding of this review.**
 
 Page 7 of the 2023 paper gives the price-update formula used in the experiments,
@@ -100,6 +112,15 @@ round is:
 The total is about 75–190 seconds, consistent with "about two minutes". The code is
 single-threaded; `user` is 1.4–2.2 times `real`, and the extra is presumably GC and JIT threads.
 
+(Correction, 2026-09-27, two points. First, "Lines 70 and 86 also credit 'a newer and faster
+computer'": those words are on line 70 only ("admittedly with a newer and faster computer"); line
+86 says "the faster computer I'm using". Second, "the code is single-threaded" holds only for the
+program's own code: `util.cljc` and `csvgen.clj` at `10da5d2` contain no `pmap`, `future` or other
+call that starts a thread, while on line 86 the author writes that the machine "at one point was
+using three cores to finish the job". Which JVM threads account for the extra CPU time was not
+measured; "GC and JIT" is a guess. Source: upstream `docs/notes.txt` at `44a6d08`, lines 70 and
+86.)
+
 The author's "optimization" commits from January to March 2026 changed only the closed-form
 solutions `solution-3` to `solution-8` (for example, `solution-8` went from 370 calls to
 `Math/log` to 21). That part takes well under one second per round (estimate), so it does not
@@ -163,6 +184,10 @@ SQLite commit triggers an fsync; the measured cost is about a thousandfold, see
 
 The same function inserts the strings from `split()` directly, so the `quantity` column is
 TEXT, and `sum(quantity)` has to coerce each row from string to number.
+
+(Correction, 2026-09-27: the table is created as `CREATE TABLE … (council_id, product_id,
+quantity)` with no declared column types, so "the column is TEXT" is imprecise; the inserted values
+are strings and are stored as TEXT. Source: `src/core.py`, lines 41 and 47–48, at `d9a5947`.)
 
 ## Engineering state
 

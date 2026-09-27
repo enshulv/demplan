@@ -1,5 +1,69 @@
 # Invariants and metrics
 
+## 2026-09-27
+
+### The budget residual is computed only when prices, income, and all spending are supplied by the mechanism
+
+**Decision**: The budget residual needs three things: prices, each consumer unit's income, and **all** of each consumer unit's spending. It is computed only when the coordination procedure supplies all three in the plan itself. If any one is missing, the result is N/A and states which one is missing. The library does not piece the inputs together, fall back, or borrow quantities from elsewhere. To support this, `Plan`'s extension layer gains an optional "spending per consumer unit" slot, a registered optional key like `income`. A mechanism that wants a budget residual fills it in; one that doesn't gets N/A.
+
+**Why**: Decided by the maintainer: when this number appears, it must be logically complete; the library must not report a false value. A survey before Stage 2 found two false values:
+
+- The Hahnel prefab's plan records only each council's private goods; public-goods spending is not recorded per council. Computed directly, every council in dep1ex01 appears to leave 47.3% to 52.9% of its entitlement unspent, exactly the public-goods share in the utility index (difference 6.7e-16). This is a recording gap, not an economic phenomenon
+- The 2026-09-05 fallback rule (take the consumer unit's `extra["entitlement"]` when `income` is absent) subtracts dep1ex's entitlements from the reference solution's dual prices. The two have different units. The subtraction still produces a number, but the number has no meaning
+
+Requiring every mechanism to record spending amounts to requiring it to have money, prices, and income, which is a theoretical presupposition. So the slot is optional, and a missing slot gives N/A.
+
+**Alternatives rejected**:
+
+- Keep the fallback rule and only document the two traps — users still get a number with mixed units that looks neutral
+- Let the mechanism declare which valuation key is the price — this fixes only the price side; the income and spending gaps remain
+- Require plans to carry spending per consumer unit — this welds "has money and prices" into `Plan`
+
+**Supersedes**: Partially supersedes the sentence "when `income` is absent, it falls back to `entitlement`" in [data-model.md](data-model.md) 2026-09-05, "`Plan`'s extension layer predefines an `income` slot." The `income` slot itself is unchanged.
+
+---
+
+### Residuals are a separate function, and `run` calls it by default
+
+**Decision**: The residual computation is a separate function that takes an economy and a plan and returns a report, shaped like `check_determinism`. It works on any plan: one produced by `run`, a reference solution, one read back from a file, or one produced by someone else's code. `run` and `run_periods` call it by default and attach the report to the result.
+
+**Why**: Decided by the maintainer: the convenience this library offers is showing researchers where gaps exist and making visible what was hidden before. Researchers not knowing they should look is exactly why the gaps stayed hidden, so the computation runs by default. A separate function ensures that plans that never went through `run` can be checked too.
+
+Measured cost: on dep1ex01 the three residuals together take 0.03 to 0.05 seconds, about 1% to 2% of one run. The line in the spec that "`run`'s signature and `RunResult` are unchanged" comes from the run configuration document decision. It says that the economy hash does not go into `run`; it is not a general rule.
+
+**Alternatives rejected**:
+
+- Provide only the separate function, not called by default — researchers would have to know it exists and think to call it, so the gaps stay hidden
+- Put it in `Plan` — `Plan.extra` does not accept non-finite values, so it cannot store N/A; residuals are derived quantities, and [data-model.md](data-model.md) already rejected storing derived quantities twice
+
+---
+
+### Homogeneity and independence from the starting point are two checks; nominal quantities are declared by the researcher
+
+**Decision**: `check_homogeneity` does not decide by itself which quantities are nominal. The caller passes in a function that says how to scale them, and a prefab ships its own version. The tool has two uses:
+
+- **Independence from the starting point**: replace only the coordination procedure's starting valuation, and check whether the end point returns to the same physical plan
+- **Homogeneity of degree zero**: scale all the nominal quantities the researcher declared, and check whether the physical plan stays the same
+
+The report gives the maximum relative difference for each physical field and the round counts on both sides. It does not judge pass or fail; the researcher sets the tolerance, and the library sets no default.
+
+**Why**: Decided by the maintainer: theoretical presuppositions go to the researcher wherever possible, and the library shows the researcher the gaps. Which quantities are nominal is a theoretical judgment.
+
+Measured on the synthetic test economy (`tests/reference/synthetic.py`, `HahnelBook2021`, with the threshold tightened step by step to separate stopping error from real differences):
+
+| Method | Maximum relative difference in the physical plan (threshold 5% / 1% / 0.01%) | End-point price multiple |
+|---|---|---|
+| Starting prices ×2 only | 12.9% / 1.8% / 0.6%, shrinking with the threshold | about 1.01 |
+| Starting prices and entitlements both ×2 | 2.4% / 2.3% / 2.3%, not shrinking with the threshold | products about 1.96, resources and labor about 2.00 |
+
+Replacing only the starting prices tests independence from the starting point: Hahnel starts from 1400 and walks back to the same equilibrium. Scaling prices and income together is the homogeneity test, and Hahnel is not homogeneous on it. The inferred cause is that worker councils measure the disutility of labor in money, and the disutility parameters were not scaled along with the rest (not verified separately). Also, below a threshold of 0.1% the run does not converge within 5000 rounds; the inferred cause is the original rule's minimum step size of 0.001 (not verified).
+
+The original design scaled only the starting valuation and knew no other nominal quantities. It would report "Hahnel's equilibrium is anchored by nominal entitlements" as "not homogeneous," and it had no way to express a real homogeneity test.
+
+**Supersedes**: Partially supersedes two sentences in 2026-09-05, "Price homogeneity of degree zero is a property test, not a residual": "scale the coordination procedure's initial valuation quantities proportionally, rerun" and "it only works on coordination procedures that expose an 'initial valuation quantity' parameter." "It is a property test, not a residual" is unchanged.
+
+---
+
 ## 2026-08-28
 
 ### Theory-neutrality is a hard constraint on the base layer
@@ -118,6 +182,8 @@ This entry needs the data model to support a monetary-stock field, deferred past
 ### Price homogeneity of degree zero is a property test, not a residual
 
 **Decision**: "Residuals are always computed" only covers material balance, budget identity, and non-negativity — all three can be computed from a single run's output. Price homogeneity of degree zero becomes a property-test tool, `check_homogeneity`, shaped the same way as `check_determinism`: scale the coordination procedure's initial valuation quantities proportionally, rerun, and compare the physical layer between the two runs. It only works on coordination procedures that expose an "initial valuation quantity" parameter. Implementation is deferred to Stage 2.
+
+(The two sentences on what gets scaled and where the tool applies are partially superseded: nominal quantities are declared by the researcher, and a separate check for independence from the starting point is split off. See 2026-09-27, "Homogeneity and independence from the starting point are two checks; nominal quantities are declared by the researcher.")
 
 **Why**: Homogeneity is a property of the coordination procedure, not a property of a single plan's bookkeeping. A single plan's output has no quantity called a "homogeneity residual"; putting it in the same rule as the other three would get implementation stuck.
 

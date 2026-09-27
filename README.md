@@ -21,10 +21,12 @@ each with its own data model:
   group's economy runs in another group's solver.
 - **Published results are hard to reproduce.** Re-running the published participatory planning
   experiments (see [below](#reproducing-the-published-experiments)) showed that the published
-  round counts come back only with the price-update formula the 2023 paper states on its page 7.
-  The pseudocode the same paper gives on page 10, described there as an adaptation of that
-  formula, does not converge, and it is the version the current upstream code implements. The
-  author's own run log for the upstream code records 160 to 253 minutes per full experiment.
+  round counts come back only with the price-update rule of the program that produced them. No
+  published text states that rule in full: the book's description [3, p. 181] omits that the
+  multiplier is the previous round's imbalance and that the step has a floor, and with the rule
+  as printed each of the first five experiments reaches the 5% threshold one or two rounds
+  early. The author's own run log for the upstream code records 160 to 253 minutes for each of
+  eleven complete runs.
 
 None of this is a failing of the researchers involved. It is what happens when economists also
 have to be software engineers. Research and infrastructure are different kinds of work, and
@@ -63,70 +65,102 @@ the wiki. Issues and comments are welcome.
 ## Reproducing the published experiments
 
 The reference point is the participatory annual planning experiments of Hahnel, Szczepanczyk
-and Weisdorf [2], with the model described in [1, 3] and the pseudocode in [4]. Their input
-data, the `dep1ex01` to `dep1ex40` archives, is public [5]; the round counts are not in the
-archives and can only be obtained by running them again.
+and Weisdorf [2, 3], with the model described in [1, 3] and the pseudocode in [4]. Chapter 9 of
+Hahnel (2021) [3] lists the result of each of the 40 experiments in Tables 9.1, 9.2 and 9.4 to
+9.6 (pp. 178–185). Their input data, the `dep1ex01` to `dep1ex40` archives, is public [5]; the
+round counts are not in the archives and can only be obtained by running them again. The program
+that produced the book's tables is `pequod-cljs` [14], named in the book's note 7 to chapter 9.
 
-**Round counts to convergence, as reported and as re-run.** A cold start begins from a uniform
-price vector; a warm start begins from the previous period's converged prices.
+**All 40 experiments, against the book's tables.** Prefab `demplan.prefabs.hahnel`
+(`HahnelBook2021`), endowment 1000, initial price 700. Year one runs to the 3% threshold; year
+two starts from year one's last prices and price-rule state, after the book's random change to
+the exponents. The book's random draws cannot be recovered, so the two-year rows are over 10
+seeds per experiment and are compared as distributions.
 
-| Source | Cold start, 5% threshold | Warm start, 5% threshold |
+| Table in [3] | Book: mean [min, max] | demplan: mean [min, max] | Runs |
+|---|---|---|---|
+| 9.1 cold start, first round with every imbalance below 5% | 11.850 [11, 13] | 11.850 [11, 13] | 40 |
+| 9.2 cold start, first round with every imbalance below 3% | 19.225 [18, 22] (text: 19.2) | 19.200 [18, 22] | 40 |
+| 9.5 rounds from every imbalance below 10% to below 5% | 3.775 [3, 5] | 3.775 [3, 5] | 40 |
+| 9.4 year two, first round below 5% | 6.525 [5, 8] (text: 6.575) | 6.287 [5, 8] | 400 |
+| 9.4 real GDP growth, % | 2.446 [2.178, 2.659] | 2.477 [2.143, 2.720] | 400 |
+| 9.6 year two with increasing returns, first round below 5% | 6.275 [5, 8] | 6.197 [5, 7] | 400 |
+| 9.6 real GDP growth, % | 1.860 [1.659, 2.101] | 1.852 [1.577, 2.116] | 400 |
+
+The book's means are computed from the 40 printed entries of each table. Every run converged.
+
+Experiment n of the book is `dep1ex{n}` on the public site and `dep1ex{60+n}` in the program's
+repository. For experiments 1 to 18 the input files are identical apart from the namespace on
+the first line; for all 40, the program's output files `dep1ex61.csv` to `dep1ex100.csv` [14,
+commit `df6dc57`] match demplan's runs round by round, and the rows of the book's tables apart
+from the four cells below.
+
+demplan and the program's output agree on every experiment in Tables 9.1, 9.2 and 9.5. The
+printed tables differ from that output in four cells. In Table 9.2, experiments 2 and 3 are
+transposed (printed 19 and 20, output 20 and 19), and experiment 38 is printed as 19 (output 18,
+with a worst imbalance of 2.9992% in round 18). In Table 9.4, experiment 16 is printed as 5
+(output 7). The book's text follows the output: its 3% mean of 19.2 (p. 179) is the output's
+768/40, and its warm-start mean of 6.575 (p. 183) is the output's 263/40, not the printed
+table's 6.525. The GDP values of Table 9.4 are the output's,
+truncated to three decimals, in all 40 experiments.
+
+As in the book, a warm start roughly halves the round count (11.85 to 6.29 here, 11.85 to 6.575
+in the book); tightening the threshold from 5% to 3% costs 7.35 more rounds (the book: "7.35
+more iterations", p. 179); and with a fifth of the worker councils under increasing returns
+every run converges (the book: "The procedure converged in all 40 experiments", p. 185).
+
+**The price-update rule.** The published round counts come from the rule the program runs, in
+`csvgen.clj` at commit `71e44d3`. For each commodity in round k, with v the relative imbalance:
+
+`w_k = max(0.001, min(v_{k−1}, 0.25) · (1.05 − 0.5^{v_k}))`, with `v_{−1} = 0.25`.
+
+The multiplier is the previous round's imbalance, capped at 0.25; the exponent is this round's,
+uncapped. The published texts state this rule only in part:
+
+| Source | What it says | dep1ex01–05, cold start, 5% |
 |---|---|---|
-| 2020 seminar slides [2], 40 experiments | **11.85** (19.2 at 3%) | **6.5** |
-| 2023 journal paper [4] | not reported | 6.5 |
-| Upstream code [6], the author's run log (300 to 3000 councils, not the dep1ex data) | 41 to 96 | 1 to 14 across the logged runs |
-| This project's re-implementation of the page-10 pseudocode, dep1ex01 | 54 to 155 | 7, 8 |
-| **demplan, prefab `hahnel_2020_slides`, dep1ex01 to 05** | **13.40** (22.80 at 3%) | 4.00 |
+| Book [3, p. 181] | `w = v(1.05 − 0.5^v)`, with 0.25 substituted "for v where it first appears in the price adjustment formula, but not where it appears as an exponent"; no lag, no floor | 11, 11, 10, 11, 11 |
+| 2020 slides [2, p. 5] and 2023 paper [4, p. 7] | the same formula, "except when v > 0.25"; the slides do not say what happens then, and the paper's "then v = 0.25", read literally, caps both occurrences of v. Capping both: | 14, 13, 13, 14, 13 |
+| 2023 paper [4, p. 10], pseudocode | multiply the adjustment by "the corresponding price adjustment of the previous round", take the smaller, floor at 0.001. The program shows that the previous-round quantity is the capped imbalance | — |
+| The program [14] | the rule above | **12, 12, 12, 12, 12** (Table 9.1: 12, 12, 12, 12, 12) |
 
-The warm-start figures are of the same order across sources. The cold-start figures are not,
-and the difference traces to the price-update rule:
+With the program's rule, demplan's worst imbalance in every round of all 40 experiments matches
+the program's output files to within 1.9e-12 percentage points.
 
-| Price-update rule, dep1ex01, endowment 1000 | Cold start, 5% |
-|---|---|
-| 2023 paper, page 10: the adapted pseudocode (the adjustment multiplied by the previous round's) | does not converge; worst imbalance 30.2% after 250 rounds |
-| 2023 paper, page 7: `w = v(1.05 − 0.5^v)`, with `v = 0.25` when `v > 0.25` (the 2020 slides give the same formula without saying how `v > 0.25` is handled) | **14 rounds** |
-
-With the page-7 formula, demplan's prefab takes 14, 13, 13, 14 and 13 rounds on dep1ex01 to
-05. Those are within 13% (5% threshold) and 19% (3% threshold) of the reported 40-experiment
-means, and the ratio between the two thresholds matches (1.70 here, 1.62 reported). The
-endowment of 1000, the value the paper gives "in one instantiation", is confirmed: a sweep puts the minimum round count
-between 700 and 1000.
-
-Two further findings, stated as properties of the published model rather than of any
-implementation:
+Two findings about the published model itself:
 
 - The public-good pricing rule has no effect on any number in the plan. Under Cobb-Douglas
   utility with councils spending their whole entitlement, dividing the price by the number of
   councils multiplies the stated quantity by the same number, and aggregation divides it back.
-  Removing the rule leaves the round count and every plan array unchanged (largest relative
-  difference 2.3e-14). The round counts above therefore do not test that rule.
-- None of the runs in the upstream author's log uses the published `dep1ex` data: the round
-  counts come from `ppex` experiments with 300 to 3000 councils, and the timed runs are
-  full-size `ppex` experiments.
+  Removing the rule leaves the round count unchanged, and every quantity and price in the plan
+  stays within 6e-14 relative of the run that applies it. The round counts above therefore do
+  not test that rule.
+- None of the runs in the run log of the upstream `pequod-plus` [6] uses the published `dep1ex`
+  data: the round counts come from `ppex` experiments with 300 to 3000 councils, and the timed
+  runs are `ppex` experiments.
 
-What is not reproduced yet: only 5 of the 40 experiments were run; the warm-start perturbation
-is not calibrated (three seeds give identical results, which suggests it is smaller than
-upstream's); and the reported 2.446% GDP increase under warm start has not been checked.
-Details, scripts and every intermediate number are in
+What is not reproduced: the book's year-two round counts experiment by experiment, because its
+random draws are not recoverable, and Table 9.6 experiment by experiment, because its output
+files are not in the program's repository. Details, scripts and every intermediate number are in
 [docs/research/reproduction.md](docs/research/reproduction.md) and
-[docs/research/upstream-code-issues.md](docs/research/upstream-code-issues.md).
+[docs/research/upstream-code-issues.md](docs/research/upstream-code-issues.md). Where the
+published texts, tables and implementations disagree is listed with sources on the wiki page
+[Limitations of Existing Implementations](https://github.com/enshulv/demplan/wiki/Limitations-of-Existing-Implementations).
 
-**Speed at the same scale** (30,000 worker councils and 30,000 consumer councils):
-
-| | Per round | One experiment |
-|---|---|---|
-| Upstream `pequod-plus` (Clojure), the author's run log, January to March 2026 | about two minutes | 160 to 253 min |
-| demplan, prefab `hahnel_2020_slides`, dep1ex01, one machine | about 0.08 s (14 rounds in 1.18 s) | about 2 s, including 0.78 s to load the archive |
-
-The upstream figures are the author's own measurements on the code as it was before its current
-SQLite-based version, which has no published timings. They were taken on a different machine,
-so the comparison shows an order of magnitude, not a precise ratio.
+**Speed.** The upstream author's log for `pequod-plus` [6], on the code before its SQLite-based
+version, reads: "An iteration with 60,000 councils now takes about two minutes, which would mean
+a completion time from start to finish of around two hours, as opposed to something like 12
+hours" (`docs/notes.txt`, line 74, 2026-01-21). demplan's `HahnelBook2021` on dep1ex01 (30,000
+worker councils, 30,000 consumer councils, 500 commodities) takes about 0.06 s per round: 12
+rounds to the 5% threshold in 0.76 s, the median of three runs on one machine that was running
+other work at the time. The data and the machines differ, so the comparison shows an order of
+magnitude, not a ratio.
 
 ## A first comparison between two mechanisms, and why it is not citable yet
 
-On dep1ex01, the iterative procedure converges in 14 rounds and uses 96,415.5 units of labour.
+On dep1ex01, the iterative procedure converges in 12 rounds and uses 96,539.3 units of labour.
 The linear-programming reference solution, asked to deliver the same final consumption at
-minimum labour, needs 53,347.6. The ratio is 1.81.
+minimum labour, needs 53,493.7. The ratio is 1.80.
 
 That number is an upper bound on the gap, not an estimate of it. The reference solution needs
 Leontief technology, dep1ex is entirely Cobb-Douglas, and `linearize` turns decreasing returns
@@ -153,14 +187,7 @@ Honest status, roughly in the order these will be addressed:
   unit has exactly one output (no joint products, so emissions do not fit), and identifiers are
   equal to row numbers, so removing a row renumbers the rest. These are breaking changes and
   will happen before 1.0.
-- **The prefab reads the price-update cap differently from the book.** Hahnel [3, p. 181]
-  caps v only where it first appears in the formula; the prefab caps it in both places, which is
-  where the extra one to four rounds above come from. With the book's reading the 3% counts on
-  dep1ex01 to 05 match the book's per-experiment table almost exactly. Correcting this, and
-  reproducing the book's warm start, is the next piece of work; details are in
-  [docs/research/reproduction.md](docs/research/reproduction.md).
-- **One published procedure.** Only the Hahnel-Szczepanczyk-Weisdorf 2020 procedure ships as a
-  prefab. Labour-time planning in the tradition of Cockshott and Cottrell [12] and the
+- **One published procedure.** Only the procedure of Hahnel (2021) [3] ships as a prefab. Labour-time planning in the tradition of Cockshott and Cottrell [12] and the
   published algorithms of [7, 8, 9] are candidates.
 - **Installation needs a Rust toolchain.** There are no prebuilt wheels on PyPI yet.
 - **The design documents are translated.** The records under `docs/` were first written in
@@ -195,10 +222,10 @@ curl -sSL -o dep1ex01.clj.gz https://www.szcz.org/depexperiments/dep1ex01.clj.gz
 
 ## Ten lines
 
-`HahnelSlides2020` is the iterative price procedure of the 2020 Hahnel-Szczepanczyk-Weisdorf
-simulation experiments, implemented as published; its round counts on dep1ex01 to 05 are
-compared with the published averages above. The dep1ex archives
-it reads are at <https://www.szcz.org/depexperiments/>.
+`HahnelBook2021` is the iterative price procedure of Hahnel (2021) [3, ch. 9], with the
+price-update rule of the program that produced the book's tables; its round counts on all 40
+dep1ex archives are compared with the book's tables above. The dep1ex archives it reads are at
+<https://www.szcz.org/depexperiments/>.
 
 ```python
 import numpy as np
@@ -243,10 +270,13 @@ That is the whole interface. Implementing it is enough to get the data model, th
 the timing and round accounting and the determinism self-test; your code does not have to be
 merged into this library to get any of it.
 
-If the change you want is to the price rule alone, `HahnelSlides2020` takes one. A price rule
-is a function of the price the proposals were made at, the surplus at that price and the
-relative imbalance, returning the next price. Everything else, the councils and the
-aggregation, stays as the 2020 slides describe it:
+If the change you want is to the price rule alone, `HahnelBook2021` takes one. A price rule is
+called once a round with four arrays, one entry per commodity: the price the proposals were made
+at, the surplus at that price, the relative imbalance, and the state the previous round
+returned. It returns `(next_price, next_state)`, and `initial_state(n_commodities)` gives the
+state for round one. The board carries the state from round to round, so one rule object can
+serve many runs. `stateless` turns a function of the first three arrays into a rule.
+Everything else, the councils and the aggregation, stays as the book describes it:
 
 ```python
 import numpy as np
@@ -264,20 +294,18 @@ result = run(HahnelBook2021(price_rule=stateless(proportional_rule)), economy, s
 print(result.summary.rounds, result.summary.converged)
 ```
 
-Return a new array each round. The three arguments arrive as read-only views, which stops a
-direct write; writing through `arg.base`, or returning a buffer you keep and write again next
-round, still reaches the price the plan records and the imbalance the loop tests convergence
-on, and neither raises. Closing that needs the board to own those arrays, which it does not
-yet.
+The four arguments are read-only copies the board owns: writing to one raises, and nothing the
+rule does to them reaches the plan. The board also copies both return values, so a rule may
+keep one output buffer and rewrite it every round.
 
-`demplan.prefabs.hahnel_2020_slides.slides_2020_rule` is the published rule in the same
-shape, so you can compare against it or wrap it.
+`demplan.prefabs.hahnel.book_2021_rule` is the program's rule in the same shape, so you can
+compare against it or wrap it.
 
-To change more than the rule, write `solve` yourself. `CouncilModel` in that same module is
-the councils' side of the slides procedure on its own, with `initial_state`, `step`,
-`converged` and `plan_of` in exactly the shape `iterate` takes, so a procedure that wants a
-different loop can drive it directly; using it commits you to the theory its docstring
-states. `demplan.tools` holds the closed forms of the two technologies the data model
+To change more than the rule, write `solve` yourself. `CouncilModel` in
+`demplan.prefabs.hahnel` is the councils' side of the procedure on its own. It takes the price
+rule as an argument and has `initial_state`, `step`, `converged` and `plan_of` in exactly the
+shape `iterate` takes, so a procedure that wants a different loop can drive it directly; using
+it commits you to the theory its docstring states. `demplan.tools` holds the closed forms of the two technologies the data model
 knows about.
 
 If your method drives a fixed point, running the loop through `iterate` lets the library count
@@ -508,7 +536,7 @@ in [CITATION.cff](CITATION.cff); GitHub shows a "Cite this repository" button fo
 Citations and mentions help other researchers in the field find the library.
 
 If your work depends on the reproduction results above, please also cite the original
-experiments [2] and the pseudocode paper [4].
+experiments [2, 3] and the pseudocode paper [4].
 
 ## References
 
@@ -542,9 +570,12 @@ experiments [2] and the pseudocode paper [4].
 13. Kazil, J., Masad, D., and Crooks, A. (2020). Utilizing Python for agent-based modeling: the
     Mesa framework. In *Social, Cultural, and Behavioral Modeling (SBP-BRiMS 2020)*, Lecture
     Notes in Computer Science 12268, Springer.
+14. Szczepanczyk, M. `pequod-cljs`: a computerized simulation of a participatory economy
+    (Clojure and ClojureScript). <https://github.com/msszczep/pequod-cljs>. The runs behind the
+    tables of [3] used `src/clj/pequod_cljs/csvgen.clj` at commit `71e44d3` (2020-06-23).
 
-demplan reads the published papers and data; it contains no code from the GPL-licensed
-implementations above. Its reference solution calls the HiGHS solver through SciPy.
+demplan reads the published papers and data; it contains no code from the implementations
+above. Its reference solution calls the HiGHS solver through SciPy.
 
 ## License
 

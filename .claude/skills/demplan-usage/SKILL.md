@@ -53,19 +53,27 @@ result = run(HahnelBook2021(), economy, seed=0)
 print(result.summary.rounds, result.summary.converged, result.summary.diverged)
 ```
 
-- `HahnelSlides2020(threshold_pct=3.0)` runs at the 3% threshold.
+- `HahnelBook2021(threshold_pct=3.0)` runs at the 3% threshold.
+- The prefab's price rule, `book_2021_rule`, is the rule of the program that produced the tables
+  of Hahnel (2021), ch. 9, not the rule as printed on p. 181 of the book: its step multiplier is
+  the previous round's imbalance capped at 0.25, and the step has a floor of 0.001. Tell the
+  researcher this when they cite a reproduction number. The comparison with the book's tables
+  is in the README and in `docs/research/reproduction.md`.
+- The book's two-year experiments (warm start, Tables 9.4 and 9.6) run through
+  `demplan.run_periods` with `perturb_exponents` as the change between years and `WarmStart` as
+  the next procedure. `increasing_returns` builds the economy of Table 9.6, and
+  `real_gdp_growth` computes the growth figure both tables report.
+  `research/bench/hahnel_book.py` runs all five tables.
 - The endowment of natural resources and labour is a parameter of `load_dep1ex` because it
   matters: the round count changes with it.
-- ⚠ **Known issue.** The prefab caps the price-update rule's `v` in both places it appears;
-  Hahnel (2021, p. 181) caps it only where it first appears. Until this is corrected, the prefab's
-  round counts are one to four rounds higher than the book's per-experiment tables. Tell the
-  researcher this before they cite a reproduction number. Details:
-  `docs/research/reproduction.md`, addendum of 2026-09-26.
 
 ## Change one part of a published procedure
 
-`HahnelSlides2020(price_rule=f)` swaps the price-update rule and keeps the rest. `f` receives the
-price, the surplus and the relative imbalance, as read-only arrays, and returns a new price array:
+`HahnelBook2021(price_rule=rule)` swaps the price-update rule and keeps the rest. A rule is called
+once a round with the price, the surplus, the relative imbalance and the state the previous round
+returned, all read-only copies, and returns `(next_price, next_state)`; `initial_state(n)` gives
+round one's state, and the board carries the state between rounds. `stateless(f)` turns a function
+of the first three arrays into a rule:
 
 ```python
 import numpy as np
@@ -76,11 +84,10 @@ def proportional(price, surplus, imbalance):
 result = run(HahnelBook2021(price_rule=stateless(proportional)), economy, seed=0)
 ```
 
-Return a new array each round; do not write into the arguments.
-`demplan.prefabs.hahnel_2020_slides.slides_2020_rule` is the prefab's own rule in the same shape.
-`CouncilModel` in the same module is the councils' side of the procedure, with `initial_state`,
-`step`, `converged` and `plan_of`, for a researcher who wants a different loop around the same
-councils.
+`demplan.prefabs.hahnel.book_2021_rule` is the prefab's own rule in the same shape.
+`CouncilModel(economy, threshold_pct, price_rule)` in the same package is the councils' side of the
+procedure, with `initial_state`, `step`, `converged` and `plan_of`, for a researcher who wants a
+different loop around the same councils.
 
 ## Write a new coordination procedure
 

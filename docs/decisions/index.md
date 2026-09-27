@@ -146,3 +146,16 @@
 | 2026-09-26 | Rejected | Build in the book's literal rule and the `pequod-plus` rule as comparable variants | [rejected/coordination-procedures.md](rejected/coordination-procedures.md) |
 | 2026-09-26 | Research scope | Full reproduction against Hahnel (2021), chapter 9; the criterion is trends and mechanism insights | [research-scope.md](research-scope.md) |
 | 2026-09-26 | Reproducibility | The multi-period run configuration document extends the single-period one; without multi-period parameters it is byte-for-byte the same as now | [reproducibility.md](reproducibility.md) |
+| 2026-09-27 | Invariants and metrics | The budget residual is computed only when prices, income, and all spending are supplied by the mechanism (partially supersedes the `income` fallback) | [invariants-and-metrics.md](invariants-and-metrics.md) |
+| 2026-09-27 | Invariants and metrics | Residuals are a separate function, and `run` calls it by default | [invariants-and-metrics.md](invariants-and-metrics.md) |
+| 2026-09-27 | Invariants and metrics | Homogeneity and independence from the starting point are two checks; nominal quantities are declared by the researcher (partially supersedes 2026-09-05) | [invariants-and-metrics.md](invariants-and-metrics.md) |
+| 2026-09-27 | Data model | Commodity kinds, technology kinds, and joint products are opened up together; the five kind tags move into the Hahnel package; this comes before Stage 2 | [data-model.md](data-model.md) |
+| 2026-09-27 | Data model | The library defines no commodity-attribute vocabulary; declarations a tool needs are passed by the caller at call time | [data-model.md](data-model.md) |
+| 2026-09-27 | Data model | Built-in models provide only small, descriptively named translation functions, with no bundling and no one-call comparison | [data-model.md](data-model.md) |
+| 2026-09-27 | Data model | Remove the fixed columns `commodity_kind`, `unit_group`, and `consumer_group`; labels move to the `extra` bags (partially supersedes 2026-09-05) | [data-model.md](data-model.md) |
+| 2026-09-27 | Data model | `provision` becomes "the quantity in shared, non-rival use" and records how much is used | [data-model.md](data-model.md) |
+| 2026-09-27 | Data model | `technology_kind` becomes a text label, and researchers can add technology forms | [data-model.md](data-model.md) |
+| 2026-09-27 | Data model | The technology-form interface asks one question: the production function | [data-model.md](data-model.md) |
+| 2026-09-27 | Data model | Joint products: record a quantity per output; output proportions come from a pluggable implementation; the library provides fixed proportions but does not attach them by default | [data-model.md](data-model.md) |
+| 2026-09-27 | Data model | The core technology interface is "can these inputs produce this set of outputs," plus an assembly helper (partially supersedes the same day's production-function entry) | [data-model.md](data-model.md) |
+| 2026-09-27 | Data model | "How much endowment is used" depends on the caller declaring which commodities count as resources; without a declaration the cross-period resource residual is N/A | [data-model.md](data-model.md) |

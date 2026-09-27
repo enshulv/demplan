@@ -33,7 +33,7 @@ If a change seems to need one of these to bend, stop and ask the maintainer. Do 
 
 ```sh
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install maturin pytest hypothesis numpy scipy pyarrow psutil
+pip install maturin pytest pytest-xdist hypothesis numpy scipy pyarrow psutil
 maturin develop                                         # debug build
 maturin develop --release                               # for anything you time
 export DEMPLAN_DATA_DIR=/path/to/dep1ex/archives        # enables the data-dependent tests
@@ -176,6 +176,9 @@ the field.
 
 **Procedure.**
 
+0. **Check the evidence ledger first**, if the project keeps one. A claim whose meaning and source match a
+   ledger entry reuses that entry's evidence; only new claims and claims whose meaning changed are
+   checked against the original. Record every newly verified claim in the ledger.
 1. **Ask the user for the source.** For each claim, the original document must be available: a
    paper, a book chapter, a dataset page, a repository at a stated commit. If the user has not
    provided it and you cannot open it yourself, ask the user to provide it. Do not reconstruct what

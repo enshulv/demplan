@@ -1,9 +1,10 @@
 # WIOD field mapping: what's missing from `Economy`
 
-⚠ This document was written from memory of the WIOD 2016 release's public documentation,
-**without checking the original files**. The industry count, the SEA fields, and the source of
-the CO₂ emissions data are to be checked by the WIOD loader work package. Before starting
-Stage 3, download a copy and check against it — rows marked ⚠ especially need checking.
+⚠ Most of this document was written from memory of the WIOD 2016 release's public
+documentation, **without checking the original files**. Only three points have been checked
+against the originals: the industry count, the contents of the SEA, and the source of the
+environmental accounts; the sources are given below the table. Before starting Stage 3, download a
+copy and check against it — rows marked ⚠ especially need checking.
 
 Per the requirement in [decisions/phasing-and-granularity.md](../decisions/phasing-and-granularity.md),
 2026-09-05, before Stage 2 locks down the residual definition, this document lists what is
@@ -14,15 +15,21 @@ writes no code and settles on no approach.**
 
 | Table | Contents | Dimensions |
 |---|---|---|
-| WIOT | World input-output table, industry × industry, year by year from 2000 to 2014 | 43 economies plus "rest of world," 56 ISIC Rev.4 industries each, intermediate-use matrix 2464×2464 |
+| WIOT | World input-output table, industry × industry, year by year from 2000 to 2014 | 43 economies plus "rest of world," 56 industries each (mainly ISIC Rev.4 two-digit divisions or groups of them), intermediate-use matrix 2464×2464 |
 | WIOT final demand | Five categories: household consumption, non-profit institution consumption, government consumption, fixed capital formation, inventory change | 5 categories × 44 economies |
 | WIOT value-added rows | Taxes less subsidies, compensation of employees, other net taxes, consumption of fixed capital, operating surplus, etc. (⚠ exact row names need checking) | By industry |
 | WIOT international transport margins row | ⚠ | By industry |
-| SEA | Socio-economic accounts: employment, hours worked, compensation of employees, capital stock, hours worked by skill level (⚠ whether the 2016 release still splits into three skill tiers needs checking) | Economy × industry × year |
-| Environmental accounts | Not included in the 2016 release itself. CO₂ emissions have a separate supplementary dataset released in 2019 (⚠ source needs checking) | Economy × industry × year |
+| SEA | Socio-economic accounts: industry-level employment, capital stocks, gross output and value added, at current and constant prices (⚠ whether hours worked and compensation of employees are included, and whether anything is split by skill, is not stated on the release page; check the SEA 2016 methods document) | Economy × industry × year |
+| Environmental accounts | Not included in the 2016 release itself. The European Commission's Joint Research Centre (JRC) publishes environmental accounts consistent with the 2016 release: energy use and CO₂ emissions, 2000 to 2016, by 64 sectors and households; the reference is Corsatea et al. (2019) | Economy × sector × year |
 
 WIOT values are denominated in **millions of current-price US dollars**; SEA's monetary
 values are in millions of local currency. This determines most of the gaps below.
+
+Sources: the 56 industries, Timmer, Los, Stehrer and de Vries (2016), GGDC Research Memorandum
+162, page 17 ("The new release includes data on 56 sectors and products mainly at the 2-digit ISIC
+revision 4 level (or groups thereof)"); the contents and currency of the SEA and the currency of the
+WIOT, the GGDC's WIOD 2016 release page; the environmental accounts, the same release page and an
+archived copy of the JRC page (snapshot of 2025-04-28).
 
 ## Item-by-item mapping
 
@@ -34,7 +41,7 @@ values are in millions of local currency. This determines most of the gaps below
 | Government consumption, non-profit consumption | Public goods' `provision` | WIOD's government consumption is counted by industry, not by "public good" as a kind. The same industry's output goes into both household and government consumption, so **one commodity is simultaneously a private good and a public good**; a single-valued `commodity_kind` cannot hold this |
 | Fixed capital formation | No place for it | Capital stock has been deferred past v1. Stage 3 can only treat this as one category of final consumption |
 | Inventory change | No place for it | Can be negative. Under a within-period closed definition, the material-balance residual would absorb this into the residual — that is a property of the data, not a defect of the mechanism. A possible landing spot is a negative value in the `endowment` column, but `endowment` is defined as "the quantity available in this period without production," and a negative value needs a separate interpretation |
-| Compensation of employees | Input use of the labor commodity | The unit is currency, not hours. SEA has hours worked, but WIOT's labor input is compensation; the ratio between the two is a wage rate, which is data, not theory. Need to decide whether the labor commodity is denominated in currency or in hours |
+| Compensation of employees | Input use of the labor commodity | The unit is currency, not hours. SEA has hours worked (⚠ to be checked), but WIOT's labor input is compensation; the ratio between the two is a wage rate, which is data, not theory. Need to decide whether the labor commodity is denominated in currency or in hours |
 | Consumption of fixed capital, operating surplus | No place for it | Not a commodity. v1 can ignore it, but this is where the material-balance residual "inputs don't sum to output" comes from; the residual's definition needs to account for this part |
 | Taxes less subsidies | No place for it | Can be negative. Same as above |
 | Imports and exports | Intermediate use and final demand between economies, already in `Z` and final demand | No gap. WIOT is a closed world table |

@@ -82,6 +82,15 @@ iterations". Readers are left with
 **The warm-start column agrees across all four sources**: 6.5, 6.0 (the mean of one six-run table in the log), 7, 8. This can be
 considered reproduced.
 
+(Correction, 2026-09-27: "agrees across all four sources" does not hold. The log has twelve year-two
+counts: 1, 12, 11, 1, 5, 6 (lines 9–14), 11, 6 (lines 35–36), 14 (line 52, 12,000 councils) and
+13, 13, 13 (line 161). Their mean is about 8.8, or about 8.4 without the 12,000-council run; 6.0 is
+the mean of one table only. Those runs used `ppex` data with 300 to 3000 councils, not dep1ex, and
+the 7 and 8 of this reimplementation did not use the price-update rule that produced the published
+results. The four rows differ in data and rule, so they cannot corroborate each other. The warm
+start was later rerun on all 40 experiments the way the book describes it; see the third addendum
+of 2026-09-26. Source: upstream `docs/notes.txt` at `44a6d08`.)
+
 **The cold-start column does not agree**: the authors reported 11.85 in 2020, while the
 authors' own new code reports 41 to 96, and this reimplementation reports 54 to 155. Both
 later implementations run an order of magnitude higher than the original report, and are
@@ -194,6 +203,14 @@ rows):
   councils; the timed runs are full-size ppex experiments. The log has no run on dep1ex data.
   Strictly speaking, upstream's new code has never been run against the published data
 
+  (Correction, 2026-09-27: "the timed runs are full-size ppex experiments" has no source. The timed
+  commands are all `lein run -m pequod-plus.csvgen ppex00N`, but the `csvgen.clj` of the time
+  (`10da5d2`, unchanged since `04b6caf`) requires only `pequod-plus.ppex004` on line 2, and `setup`
+  ignores the experiment argument and always loads `ppex004`. That Clojure namespace is in no
+  revision of the repository. The author calls ppex004 "6000 councils" on line 31 of the log and
+  writes "An iteration with 60,000 councils" on line 74. Which economy each timed run used cannot
+  be determined from the repository.)
+
 ## This line of work ends here
 
 The conclusions are sufficient to support this library's design decisions; this research
@@ -249,6 +266,9 @@ Hahnel (2021), *Democratic Economic Planning*, chapter 9 (book pages 178–184),
 neither the slides nor the paper give. The maintainer holds a private copy; it is not distributed
 with the repository.
 
+(Correction, 2026-09-27: chapter 9 is book pages 173–194, notes included; the tables and passages
+this addendum uses are on pages 178–185, with Table 9.6 on page 185.)
+
 **Per-experiment round counts.** Tables 9.1 and 9.2 list the round count of each of the 40
 experiments at the 5% and 3% thresholds (the averages 11.85 and 19.2 come from them). For
 experiments 1 to 5: 12, 12, 12, 12, 12 at 5%; 19, 19, 20, 19, 19 at 3%. The book does not say
@@ -259,6 +279,11 @@ that dep1ex01 to 05 are experiments 1 to 5; they are matched here by number.
 exponent". That is, `w = min(v, 0.25) · (1.05 − 0.5^v)`. The slides say only "except when
 v > 0.25" and page 7 of the paper says "then v = 0.25"; neither says where the cap applies.
 **The prefab's `slides_2020_rule` caps v in both places**, which is not what the book specifies.
+
+(Correction, 2026-09-27: "neither says where the cap applies" overstates it for the paper. The
+slides, page 5, do say only "except when v > 0.25". Page 7 of the paper says "except when v > 0.25
+then v = 0.25", which read literally sets every v in the formula to 0.25, that is, caps both
+occurrences: the prefab's reading above. Source: Szczepanczyk (2023), author's version, page 7.)
 
 Measured on dep1ex01 to 05, seed 0:
 
@@ -281,6 +306,11 @@ of the slides and the paper is this figure rounded), GDP growth from 2.178% to 2
 average. The warm-start perturbation used here before was chosen by this project, which is why it
 gave 4.00 rounds.
 
+(Correction, 2026-09-27: "the 6.5 of the slides and the paper is this figure rounded" does not hold.
+6.575 rounded to one decimal is 6.6. The slides (page 7) and the paper (page 12) give 6.5 without
+saying how it was obtained. The mean of the 40 values printed in Table 9.4 is 6.525, which rounds to
+6.5, but no source says that 6.5 comes from that table.)
+
 **Consequence**: the 13.40 and 22.80 rounds reported earlier in this document and in the README
 come from the prefab's reading of the cap and are not a faithful reproduction of the published
 procedure. Correcting the prefab's cap and implementing the book's warm start is the next work
@@ -297,6 +327,14 @@ repository's own `dep1ex01`–`50` (`0d24482`, 2020-05-14) are a different, smal
 commodities per category, 3000 consumer councils), not the experiments in the book. That the
 book's 40 experiments correspond to 61–100 in the repository is an inference
 (`bin/dep_data_process.py:136,141` loops over `range(61, 101)`); only 01–05 were checked.
+
+(Correction, 2026-09-27: lines 136 and 141 do loop over `range(61, 101)`, but they belong to the
+"table 6" section and read `dep2ex` files. The sections for tables 1, 2, 4 and 5 (lines 98, 103,
+108 and 129, all commented out) loop over `range(51, 101)`. The two lines show only that Table 9.6
+uses 61 to 100; they do not establish that the book's 40 experiments are 61 to 100. The addendum of
+2026-09-27 establishes it: 1 to 18 by byte comparison, 19 to 40 by an inference from the per-round
+trajectories. "Only 01–05 were checked" is out of date as a result. Source:
+`bin/dep_data_process.py` at `pequod-cljs` HEAD, `8bd46b5`.)
 
 **The price-update rule that produced the book's results has a one-round lag** (`csvgen.clj`
 @`71e44d3`, 2020-06-23, the version that produced the runs in the book):
@@ -315,6 +353,9 @@ book's 40 experiments correspond to 61–100 in the repository is an inference
   `w_{k−1}`, and `pequod-plus` implements it the same way; the original multiplies by the
   previous round's capped imbalance `min(v_{k−1}, 0.25)`. The earlier conclusion that "the
   page-10 pseudocode does not converge" came from this misreading
+  (Correction, 2026-09-27: "states exactly this rule" overstates it. The pseudocode says to multiply by the
+  corresponding quantity from the previous round; it has no 0.25 cap and does not say what that quantity is.
+  Read as the previous round's capped imbalance, it matches the program. Found by a citation check.)
 - The lagged rule has been there since the first continuous rule (`4751280`, 2020-04-27); the
   base 0.5 and the cap 0.25 have not changed since `fbc4766` (2020-05-12)
 
@@ -384,3 +425,66 @@ per-experiment random draws cannot be recovered, so only distributions are compa
 (roughly half); tightening the threshold from 5 % to 3 % costs about 7.35 more rounds; real GDP growth under a warm
 start is around 2.4 %; with 20 % of worker councils under increasing returns all 400 runs converge, with round counts
 and GDP growth of the same order as the book's.
+
+
+## Addendum, 2026-09-27: experiment numbering, experiment 38 and Table 9.4
+
+Source: the output files `src/clj/pequod_cljs/dep1ex51.csv` to `dep1ex100.csv` in the original
+program's repository, `msszczep/pequod-cljs`, commit `df6dc57` (2020-06-23). Each file was read and
+summarized into its per-round worst imbalance and colour column; the files themselves are not
+committed.
+
+**Experiment numbering holds for all 40**: experiment N of the book ↔ `dep1exNN` on szcz.org ↔
+`dep1ex(60+N)` in the original repository.
+- 1 to 18: with the namespace on the first line changed, the sha256 of each szcz input file equals
+  the LFS pointer of `dep1ex(60+N).clj` in the repository. Each was compared against all 20
+  pointers in the repository and matched only 60+N
+- 19 to 40: the repository has no pointers for these inputs, so no byte comparison is possible.
+  demplan's per-round worst imbalance has the same number of rounds as the original's
+  `dep1ex(60+N).csv`, with a largest difference of 1.9e-12 percentage points over every round of
+  the 40 experiments (the original prints full double precision), and the columns computed from the original's output agree with row N of the
+  book's tables (below). Two randomly generated data sets giving the same trajectory to twelve
+  significant digits are taken to be the same data (an inference)
+- The book uses only 61 to 100: `dep1ex51.csv` to `dep1ex60.csv` do not line up with any row of
+  the book's tables
+
+This answers the open point in the third addendum, whether experiment 38 is `dep1ex38`: it is.
+
+**Experiment 38: Table 9.2 is misprinted.** In the original's `dep1ex98.csv`, round 18 of year one
+has a worst imbalance of 2.9991574176% and colour `:blue`, and year one ends on the next line.
+demplan also stops at round 18, at 2.9991574175816607%. The book's text on p. 179: "On average,
+it took 19.2 iterations … which is 7.35 more iterations than the 11.85". In the original's output
+the 40 first rounds with every imbalance below 3% sum to 768, a mean of 19.2, and 19.2 − 11.85 =
+7.35, which matches the text. The 40 values printed in Table 9.2 sum to 769, a mean of 19.225 and a
+difference of 7.375, which does not. The original's output and Table 9.2 differ in three places:
+experiment 2 (original 20, book 19), experiment 3 (original 19, book 20) and experiment 38
+(original 18, book 19). Swapping 2 and 3 leaves the sum unchanged, so the extra round is all in
+experiment 38.
+
+**Why the mean of Table 9.4 disagrees with the text: experiment 16 is misprinted.** Table 9.4
+prints 5 rounds for experiment 16; in the original's `dep1ex76.csv`, the first round of year two
+with every imbalance below 5% (the first `:green`) is round 7. With the original's values the 40
+round counts of Table 9.4 sum to 263, a mean of 6.575, which is the text on p. 183, "on average
+it took only 6.575 iterations"; with the printed values they sum to 261, a mean of 6.525. This
+explains the disagreement noted in the second addendum: the text is right and one cell of the
+table is misprinted.
+
+**The GDP values of Table 9.4 are truncated to three decimals.** Real GDP growth computed from the
+original's output as the book's note 15 describes (p. 193, "What we report are the averages of the
+two percentage increases in real GDP using each year as a base year") and as the original's
+`bin/dep_data_process.py` reads it, truncated to three decimals, equals the book's value in all
+40 experiments; rounded, it equals it in only 25 (for example experiment 2: original 2.549571,
+book 2.549). The year-two round counts agree in 39, and the one that does not is experiment 16.
+The book's tables were therefore read from this output; the four cells where they differ from it
+were introduced in transcription, at a step the repository does not show.
+
+**Agreement with the original's output, experiment by experiment**: Table 9.1 40/40, Table 9.5
+40/40, Table 9.4 GDP 40/40 (truncated to three decimals), Table 9.4 round counts 39/40, Table 9.2
+37/40. Table 9.6 was not checked: it comes from `dep2ex61` to `dep2ex100.csv`, which are not in
+the repository.
+
+**Consequence for the third addendum**: demplan's 40 cold starts are identical to the original's
+output experiment by experiment, with no difference in the first rounds below 10%, 5% and 3%.
+demplan's 3% mean of 19.200 in the third addendum is the book's text's 19.2; the book's 19.225 and
+6.525 are means of the misprinted tables, and its text's 19.2 and 6.575 agree with the original's
+output.

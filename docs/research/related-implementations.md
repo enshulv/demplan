@@ -54,7 +54,8 @@ The only dataset in the repository is `gaussian`, i.e., randomly generated vecto
 carries no economic data of any kind**. Nardelli et al. (2025) propose a variation
 of I-EPOS as the technical basis of decentralized planning for communizing, and describe their
 approach as closer to Ostrom's commons than to central planning such as Cockshott and Cottrell
-(1993); the paper does not mention parecon. For this library it is one more mechanism alongside
+(1993) (p. 128), although they do not follow Ostrom in taking the commons as a third way (p. 122);
+the paper does not mention parecon. For this library it is one more mechanism alongside
 parecon and labour-time planning; that grouping is this library's, not the paper's.
 
 ### Economic-Planning: constrained linear programming
@@ -135,6 +136,12 @@ Leontief.
 | B: reference solution (`minimize_labor`, with the lower bound set to the consumption basket delivered by A) | 4.02 s | Optimal labor 53,347.6 |
 
 **A / B = 1.81.**
+
+**Note, 2026-09-27**: after the prefab was replaced by `demplan.prefabs.hahnel` (the original
+program's one-round-lag rule), the same script, ported to the new prefab, gives: A converges in
+12 rounds and spends 96,539.3 labor; B's optimal labor is 53,493.7; **A / B = 1.80**. The table
+above holds the numbers of the old prefab `hahnel_2020_slides` (cap in both places) and is kept
+as history. The three reasons below are unchanged.
 
 ### Why this number cannot be cited as-is
 

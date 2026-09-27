@@ -1,5 +1,324 @@
 # Data model
 
+## 2026-09-27
+
+### "How much endowment is used" depends on the caller declaring which commodities count as resources
+
+**Decision**: `Plan.endowment_use` no longer decides by commodity kind. Instead, the caller states which commodities
+count as resources, for example `endowment_use(economy, resources=...)`; the Hahnel module provides translation
+functions such as `hahnel.natural_resources` and `hahnel.labor`. The cross-period residual "cumulative resource use
+against the initial endowment" is built on it. Without a declaration, the result is N/A and states which declaration
+is missing.
+
+**Why**: Decided by the maintainer. Once commodity kinds are removed, the library cannot tell which commodities are
+resources. Deciding by "endowment greater than 0" gives unchanged results on dep1ex, but it overcounts a commodity
+that has an opening stock and is also produced in the same period. Suppose 200 tons of grain are left from last year
+(endowment 200), 800 tons are produced this year, and 900 tons are used. Counting everything with endowment greater
+than 0 gives 900, more than the stock. How much of the 900 tons comes from the stock is itself an accounting
+convention (use old stock first, or new output first). Multi-period runs that roll leftover output into the next
+period's endowment, and WIOD's changes in inventories, both produce such commodities. A declaration makes no
+accounting assumption on the researcher's behalf. A default of N/A is in tension with "residuals are computed by
+default so researchers see the gaps," but the N/A states which declaration is missing, so the gap stays visible.
+
+**Alternatives rejected**:
+
+- Count every commodity with endowment greater than 0 — overcounts commodities that have a stock and are also
+  produced, with no error
+- Take the smaller of use and endowment — chooses the "use stock first" accounting convention for the researcher
+- Drop "endowment used" and compare cumulative use with cumulative endowment per commodity — for commodities that are
+  being produced, this comparison has no meaning
+
+**Supersedes**: Partially supersedes the algorithm in 2026-09-05, "Single-output units; endowment use is a derived
+quantity," that aggregates endowment use by kind. "Endowment use is not stored in `Plan` and is derived from input
+use" is unchanged.
+
+---
+
+### The core technology interface is "can these inputs produce this set of outputs," plus an assembly helper
+
+**Decision**: The core technology interface asks only one question: can this producing unit's set of inputs produce
+this set of outputs (the answer says how far off it is). It does not assume that inputs and the output mix can be
+treated separately. The library also provides an assembly helper that combines two simple pieces into a complete
+implementation: an input-side production function (given the inputs, what activity level they support; one formula)
+and an output-side rule (given this activity level, how much of each output comes out; for example, the fixed
+proportions the library provides). Simple cases use the assembly helper and write only one formula. Researchers
+studying complex joint production implement the core interface directly.
+
+**Why**: Decided by the maintainer: the solution must be theory-neutral, but it must not raise the bar for the typical
+researcher. "First the inputs determine an activity level, then the activity level determines the output mix" is a
+theoretical assumption (separability). It holds for an oil refinery. It does not hold for sheep farming, where the
+feed itself affects the ratio of wool to mutton. The core interface does not make this assumption. A researcher
+working on a complex problem would have to build the model themselves without this library too, so leaving the core
+interface for them to write is not a problem. A typical researcher uses the assembly helper, and writes the same code
+as with a production function alone.
+
+**Alternatives rejected**: Chain the two interfaces as the only way to connect them — easy to write, but it welds the
+separability assumption into the interface.
+
+**Supersedes**: Partially supersedes the same day's "The technology-form interface asks one question: the production
+function": the production function moves from being the core interface to being the input-side piece of the assembly
+helper. "The bar for researchers implementing a new form must be low" and "use it to check whether a plan is
+technically feasible" are unchanged.
+
+---
+
+### Joint products: the data model records a quantity per output, output proportions come from a pluggable implementation, and the library provides fixed proportions but does not attach them by default
+
+**Decision**: A producing unit's outputs become a flat array plus offsets, the same as its inputs: each unit lists its
+output commodities, and the plan's `output` records one quantity for each (unit, output) pair. The data model neither
+records nor assumes proportions between outputs. The relationship between outputs comes from a pluggable
+implementation, which researchers can write themselves. The library provides one implementation, "fixed proportions"
+(each unit of activity yields each output in its declared proportion), but **does not attach it by default**; whoever
+wants it attaches it. Each dep1ex unit has only one output, so results are the same as now.
+
+**Why**: Decided by the maintainer: the output proportions of joint production must not be fixed to one theory, and
+the library must still connect to WIOD quickly. "Fixed output proportions" is an assumption within joint-production
+theory (input-output analysis, Sraffa, and von Neumann use it; whether the product mix can be adjusted is itself
+disputed). A data shape that records a quantity per output can hold fixed proportions; the reverse is not true. The
+fixed-proportions implementation lets WIOD and environmental-account data of the "emission factor" type (each sector's
+emissions proportional to its output) plug in directly, so researchers don't each write their own version with their
+own standard.
+
+**Alternatives rejected**:
+
+- The data model records "activity level + fixed proportions" — easiest to implement, but writes fixed proportions
+  into the fixed layer
+- Record a quantity per output but provide no implementation — everyone writes their own for WIOD, with no common
+  standard
+- Attach fixed proportions by default — this makes it the library's default theory
+
+**How to apply**: How the "output relationship" interface fits with and attaches to the technology interface just
+decided (the production function) is taken up in the same round of questions.
+
+---
+
+### The technology-form interface asks one question: the production function
+
+(The core interface's role is partially superseded by the same day's "The core technology interface is 'can these
+inputs produce this set of outputs,' plus an assembly helper.")
+
+**Decision**: The technology-form interface requires an answer to only one question: given a producing unit's inputs,
+how much can it produce (the production function). A researcher implements a new technology form by writing a class
+with a label and this one method; the form's own parameters go in `unit_extra`. With this, the library can check
+whether a plan is technically feasible: for each unit, whether its planned inputs can produce its planned output.
+
+**Why**: Decided by the maintainer. Every technology form can answer with a production function; it just means writing
+out the formula, so the bar for researchers implementing a new form is as low as it gets. Checked one by one, nothing
+in the library currently asks this question of an arbitrary technology: the reference solution reads Leontief
+coefficients directly, the linearization tool only divides a plan's input use by its output without looking at the
+technology form, and Hahnel uses its own hard-coded Cobb-Douglas with an effort factor. "Is this technically feasible"
+is a check the library cannot do now, and it matters in practice: of the 30000 units in a Hahnel plan, only 34 satisfy
+the Cobb-Douglas relation without the effort factor. With the effort factor they all match, and only Hahnel's
+implementation knows the effort factor.
+
+**Alternatives rejected**:
+
+- Add "the least-cost input mix" — lets price-coordination mechanisms be written independent of technology, but many
+  forms have no closed-form solution, so researchers would have to write numerical optimization; a high bar, and slow
+  to compute
+- Add "a linear approximation" — the linearization tool can already read fixed proportions from a plan without looking
+  at the technology form, so most of the functionality overlaps
+
+---
+
+### `technology_kind` becomes a text label, and researchers can add technology forms
+
+**Decision**: `technology_kind` stays a fixed column of the producing-unit table, but changes from a closed integer
+enum to a text label, such as `"leontief"` or `"cobb_douglas"`; researchers can use names of their own. Validation no
+longer rejects labels the library does not know. The library's tools handle only the forms they know, and raise an
+error with the reason when they meet an unknown one. The library provides a technology-form interface; a researcher
+who implements it can use their own technology form instead of the two the library presets. The content of the
+interface is decided separately.
+
+**Why**: Decided by the maintainer: technology functions matter a great deal in economic research and are themselves
+much disputed, so presetting only two is clearly not enough. A text label carries its own meaning and costs
+researchers little to use.
+
+Unlike `commodity_kind`, this column cannot be removed: what the numbers in `input_coefficient` mean depends on it.
+The same set of numbers is a fixed proportion when read as Leontief and an exponent when read as Cobb-Douglas. The
+column currently accepts only two values (`economy.py:44-48`; validation at `economy.py:263` and on the Rust side), so
+OLIN-EP's nonlinear input-output model in the spec's use-case table does not fit, and neither does CES.
+
+**Alternatives rejected**:
+
+- Keep integer codes and open up the values — when two researchers each use the same code for different forms, the
+  exported data does not show it
+- Remove the column, and move the technology form into `unit_extra` together with `input_coefficient` and
+  `technology_scale` — the fixed layer keeps only the input structure, and someone who receives an economy cannot tell
+  what the technology is without reading the bag; the largest change
+
+**How to apply**: The Rust side and the numpy side change from an int8 column to a string column, and the
+canonicalization for the economy digest changes accordingly.
+
+Guarding against typos: the library exports constants for the forms it knows (such as `LEONTIEF = "leontief"`). Code
+uses the constant, so a typo makes Python report on the spot that the name does not exist; the data still stores text.
+A researcher's own form carries its label in its interface implementation, so it does not need to be typed again
+elsewhere. For text typed by hand with a typo, a tool that meets an unknown label raises an error that lists the known
+labels and names the closest one.
+
+---
+
+### `provision` becomes "the quantity in shared, non-rival use" and records how much is used
+
+**Decision**: `Plan.provision` stays an optional fixed field, with a new definition: the quantity, per commodity, that
+belongs to no single consumer unit and is used in common (non-rival use: one party's use does not reduce what is
+available to another). It holds the **quantity used**, not the quantity produced. Total use on the consumption side =
+the sum of the rows of `consumption` + `provision`, and the material-balance residual is computed from this without
+reading any kind or attribute. The Hahnel prefab now fills in the stated level of the shared commodities (the sum of
+the councils' stated quantities divided by the number of councils, the same as the original program's `csvgen.clj`
+lines 699-703, which is the segment it currently writes into `extra["consumer_demand"]`) instead of the supply. The
+reference solution already fills in use, and is unchanged.
+
+**Why**: Decided by the maintainer: use a theory-neutral concept. Don't call it a "public good"; only say that it is
+in shared, non-rival use. Rivalry is a physical property: when one party eats a loaf of bread the other has one fewer,
+while one party's use of a park does not prevent another's. Shared use cannot be recorded in the per-consumer-unit
+table and then summed; otherwise 100 councils that each want a 50-mu park would be counted as 5000 mu.
+
+After commodity kinds are removed, the spec's original definition ("how much of a public good is produced in total,
+shared") no longer refers to anything. Meanwhile Hahnel filled in output and the reference solution filled in use: the
+same name with different meanings, and with Hahnel's version the material balance on these commodities is structurally
+always 0. With both unified as quantity used, one formula holds for both, and the library does not need to read any
+mechanism's private keys.
+
+**Alternatives rejected**:
+
+- Remove `provision` and add a neutral "consumption-side total" fixed field — the total and the per-consumer-unit
+  table are two copies of the data; the library does not know which commodities are shared, so it cannot check that
+  they agree
+- Remove `provision` and record shared use in the per-consumer-unit table too, with the caller declaring which
+  commodities are shared — when `run` calls the residual function by default it has no declaration, so the material
+  balance for plans with shared commodities could only be N/A by default
+- Keep "how much was produced" — same name as the reference solution's field with a different meaning, and the
+  material balance would have to read Hahnel's private keys
+
+**Known limitation**: A commodity has only one shared quantity, meaning everyone shares the same amount. Regional
+sharing (each country has its own government services) and tiered sharing still cannot be expressed. This is a gap
+found by the 2026-09-05 design review, and this entry does not solve it.
+
+**Supersedes**: Partially supersedes the 2026-08-30 and 2026-09-05 definitions of `provision` ("how much of a public
+good is produced in total, shared"). The parts saying it can be absent and is recorded separately from `consumption`
+are unchanged.
+
+---
+
+### Remove the fixed columns `commodity_kind`, `unit_group`, and `consumer_group`
+
+**Decision**: `Economy` drops three fixed columns: the commodity table's `commodity_kind`, the producing-unit table's
+`unit_group`, and the consumer-unit table's `consumer_group`. Loaders and prefabs that need such labels put them in
+the corresponding `extra` bag, under key names of their choosing. For example, the dep1ex loader writes
+`commodity_extra["hahnel_kind"]`, and a WIOD loader can write `unit_extra["industry"]` and `unit_extra["region"]`. The
+Rust side's `Economy`, validation, the dep1ex loader, the PyO3 bindings, and the economy digest change accordingly.
+
+**Why**: Decided by the maintainer: a fixed column the library never reads is dead code and only adds redundancy. Once
+the library defines no attribute vocabulary, `commodity_kind` has no reader in the library; only the Hahnel module
+reads it. `unit_group` and `consumer_group` never had readers (in `python/` and `crates/` they are referenced only by
+their definitions, validation, loader writes, and binding exports). A fixed column must be filled for every economy,
+so a researcher who needs no classification has to fill in a meaningless value, and the words "kind" and "group" in
+the names make readers think the library has a classification scheme. With the columns removed, the two levels of
+grouping WIOD needs (industry × economy) can be expressed with two `extra` keys, no longer limited to one level.
+`consumer_group` is in the same situation as `unit_group` and is removed for the same reason.
+
+**Alternatives rejected**: Keep them as free-form labels (as 2026-09-05 did for `unit_group`: the library neither
+validates nor interprets them) — still required, still implies a classification, and still has no reader.
+
+**Supersedes**: Partially supersedes 2026-09-05, "`unit_group` is an arbitrary grouping label; the library does not
+validate its range": the part of that entry that keeps `unit_group` as a fixed column is replaced by this one. Its
+reasons for refusing to pin `unit_group` to a dense index and for not deciding ahead of time for Stage 3 carry over
+into this entry.
+
+---
+
+### Built-in models provide only small, descriptively named translation functions, with no bundling and no one-call comparison
+
+**Decision**: Each built-in model's package (such as `demplan.prefabs.hahnel`) provides small functions that translate
+its own labels into sets of commodities, with names that state their meaning, for example `hahnel.labor(economy)` and
+`hahnel.public(economy)`. Researchers use them to pass arguments to the general tools. Which reference solution to
+compare against is still written out by the researcher. The library provides no way to bundle declarations and expand
+them with `**`, and no one-call comparison function.
+
+**Why**: Decided by the maintainer: the literal name is the meaning, and it reads clearly. The deeper things are
+wrapped, the more Python technique a call requires, and the library cannot assume much Python skill from social
+scientists. A one-call comparison would also have to choose the objective for the researcher, which conflicts with
+"the comparison benchmark is declared by the researcher."
+
+**Alternatives rejected**:
+
+- Bundled declarations (`reference_solution(economy, MinimizeLabor(targets), **hahnel.declarations(economy))`) — the
+  call site doesn't show what is passed, and `**` expansion is an obstacle for readers not fluent in Python
+- One-call comparison (`hahnel.compare_with_reference(economy, result)`) — chooses the objective for the researcher;
+  once the objective is made a required argument, it reduces to bundling plus one call
+
+**How to apply**: Researcher-facing interfaces should read like a sentence: parameter and function names state their
+meaning, and callers are not required to know techniques such as `**`, decorators, or protocol classes. Every new
+built-in model provides translation functions in the same way.
+
+---
+
+### The library defines no commodity-attribute vocabulary; declarations a tool needs are passed by the caller at call time
+
+**Decision**: `Economy` carries no commodity attributes named by the library, and the library registers no
+conventional attribute keys. When a library tool needs to know a split such as "which commodities count as labor" or
+"which are shared," the caller passes it as an argument at call time. Each loader's and prefab's own labels go in
+`commodity_extra`; the key names and meanings belong to them, and the library does not read them.
+
+**Why**: Decided by the maintainer. From the researcher's point of view, the two approaches, "the library registers
+conventional keys and tools read them automatically" and "define nothing," were compared step by step:
+
+- Checked one by one: once nothing is defined, the only declarations the caller must supply are two or three
+  parameters of the reference solution (the split between private allocation and shared use, which commodities the
+  labor-minimizing objective sums, and which commodities may carry consumption weights). The Hahnel prefab reads its
+  own labels. Stage 2's three residuals need no attributes, and `endowment_use` can decide from the fixed column
+  `endowment` instead (an inference, to be checked before implementation)
+- Comparability relies on the run configuration document recording the coordination procedure's parameters; a
+  reproducer's importer reads them as is. It does not rely on the economy carrying its own declarations
+- The risks of conventional keys: when the key name is right but the meaning differs (for example, a loader records
+  "labor" as wage amounts), tools use it anyway with no warning; reading the code does not show which declarations a
+  tool used; and the registered key names are themselves a small vocabulary
+
+**Alternatives rejected**:
+
+- Fixed attribute columns (the library defines a few columns that every economy must fill) — welds a classification
+  into the fixed layer, which is exactly what this work is removing
+- Conventional keys (the library registers key names, and tools read them automatically when present) — see the three
+  risks above; it would also be the first time library-level code reads a key from `Economy`'s `extra`
+
+**How to apply**: The run configuration document must be able to record these parameters in full (whether array-valued
+parameters are written out in full is to be checked during implementation). For the built-in models, see the entry
+"Built-in models provide only small, descriptively named translation functions."
+
+---
+
+### Commodity kinds, technology kinds, and joint products are opened up together; the five kind tags move into the Hahnel package
+
+**Decision**: Three theory-laden restrictions in the fixed layer are lifted in the same work package: the closed enum
+of commodity kinds, the closed enum of technology kinds, and "a producing unit has only one output." dep1ex's five
+commodity kind tags (private consumption goods, public goods, intermediate goods, natural resources, labor) are no
+longer public constants of the library; they move into the dep1ex loader and `demplan.prefabs.hahnel`. Order: this
+work package comes first, and Stage 2's residual tools come after it.
+
+**Why**: Decided by the maintainer: infrastructure must not presuppose a theory, and not every researcher accepts
+Hahnel's model. The five-kind enum comes from Hahnel's model and dep1ex's data shape; keeping it at the library's top
+level implies that the world consists of these five kinds. The three restrictions are the same kind of problem, so
+they are handled together, and the WIOD loader and Stage 2 face the final shape without being changed twice. Stage 2
+comes after because the non-negativity residual needs to know which commodities are bads and the cross-period
+residuals need to know which count as endowment; with kinds opened up first, Stage 2's tools read the declared content
+from the start.
+
+**Alternatives rejected**:
+
+- Open up only commodity kinds, and leave technology kinds and joint products as they are — Stage 2 and WIOD would
+  first be written for "one output per unit," then changed again when joint products arrive
+- Keep `CommodityKind` in the library's public interface as "the dep1ex convention" — the library's top level would
+  keep implying one worldview
+- Do Stage 2 first — the residuals would first be written for the five kinds, then reworked when kinds are opened up
+
+**How to apply**: Where attributes attach, whether the library defines an attribute vocabulary, and what `provision`
+means are taken up in the same design round; once decided, they are recorded further in this file. This entry
+schedules the 2026-09-05 entries "Commodity kinds open up, but only together with declarable kind properties" and
+"Joint products move up in delivery order"; it does not change their content.
+
+---
+
 > "Coordination procedure" corresponds to the code identifier `Procedure`; "evolution rule" corresponds to `advance`. Code is always in English.
 
 ## 2026-08-30
@@ -168,6 +487,10 @@ documented there, with its source and meaning.
 **Decision**: `Plan.valuation`'s predefined keys gain `income` (per consumer unit). The budget residual can be
 computed whenever `valuation` has both a price key and `income`; when `income` is absent, it falls back to
 `Economy` consumer-unit `extra`'s `entitlement`; if neither is present, the residual is N/A.
+
+(The fallback sentence is partially superseded: the budget residual now needs prices, income, and all spending
+supplied by the mechanism, and no longer falls back to `entitlement`. See
+[invariants-and-metrics.md](invariants-and-metrics.md) 2026-09-27.)
 
 **Why**: The budget residual needs each participant's income. The physical layer doesn't have it, and none of the
 three previously predefined extension-layer valuation kinds have it either. Without adding this slot, the budget
@@ -347,6 +670,9 @@ still read the plan?** If not, export a constant for it.
 ---
 
 ### `unit_group` is an arbitrary grouping label; the library does not validate its range
+
+(The fixed column itself is partially superseded: on 2026-09-27 `unit_group` was removed, and grouping moved to
+`unit_extra`.)
 
 **Decision**: `unit_group`'s value is defined as an arbitrary grouping label; it is not required to fall within
 `[0, n_groups)`, and `validate` does not check it. The spec's field table states this.

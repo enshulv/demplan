@@ -36,6 +36,24 @@ counts can only be reproduced with the former; current upstream code implements 
 (Corrected 2026-09-26 after a citation check: this said "two careful prose descriptions could not
 distinguish [it] from the one that does"; the source says the 2023 paper writes out both versions
 and marks the page-10 one as an adaptation, see Szczepanczyk (2023), pages 7 and 10.)
+(Corrected 2026-09-27: "a published price-update rule that does not converge" and "the published
+round counts can only be reproduced with the former; current upstream code implements the latter"
+have both been overturned. The page-10 pseudocode says to multiply by the corresponding quantity of
+the previous round without saying what that quantity is; this library read it as the previous
+round's step, and "does not converge" came from that misreading. The original program that produced
+the published results (`csvgen.clj` of `pequod-cljs` at `71e44d3`) multiplies by the previous
+round's imbalance capped at 0.25; read that way, the pseudocode agrees with the program, and with
+that rule dep1ex01 through 05 give 12, 12, 12, 12 and 12 rounds at the 5% threshold from a cold
+start, the same as Table 9.1 of the book experiment by experiment. Neither reading of the cap in the
+page-7 formula reproduces them (14, 13, 13, 14, 13 and 11, 11, 10, 11, 11). Current upstream
+`pequod-plus` multiplies by an imbalance aggregated per category, which differs from the original
+program as well. The failure mode this paragraph describes still holds; a more accurate example is
+that the rule behind the published results differs from the rule printed on page 181 of the book in
+two details (the multiplier is the previous round's imbalance, and the step has a floor of 0.001),
+and that this library itself once misread the pseudocode as a rule that does not converge. See
+[research/reproduction.md](../research/reproduction.md), second addendum of 2026-09-26, and the
+correction box at the top of
+[research/upstream-code-issues.md](../research/upstream-code-issues.md).)
 
 AI makes plausible code cheap to write; it does not make review cheap. A decision record puts the
 reasoning in the open, so a reviewer checks it instead of reconstructing it. This format was

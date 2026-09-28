@@ -85,7 +85,7 @@ checksum = "7eed2c4702fa172d1ce21078faa7c5203e69f5394d48cc436d25928394a867a2"
 
 [[package]]
 name = "demplan-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "calamine",
  "flate2",
@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "demplan-py"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "demplan-core",
  "numpy",

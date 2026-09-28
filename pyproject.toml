@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "demplan"
-version = "0.1.0"
+version = "0.1.1"
 description = "Shared research infrastructure for democratic economic planning"
 readme = "README.md"
 license = "MIT"

@@ -9,7 +9,8 @@ authors:
     orcid: "https://orcid.org/0009-0004-2013-3270"
 repository-code: "https://github.com/enshulv/demplan"
 license: MIT
-version: 0.1.0
+version: 0.1.1
+date-released: 2026-09-28
 keywords:
   - democratic economic planning
   - participatory planning

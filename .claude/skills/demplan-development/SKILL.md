@@ -1,6 +1,6 @@
 ---
 name: demplan-development
-description: How to change the demplan library itself. Use when implementing a feature, fixing a bug, refactoring, adding a loader, prefab or tool, changing tests, CI or documentation in this repository; before committing or opening a pull request; and whenever a document or message states something about published work, data or another implementation.
+description: How to change the demplan library itself. Use when implementing a feature, fixing a bug, refactoring, adding a loader, prefab or tool, changing tests, CI or documentation in this repository; writing or editing a wiki page; preparing a release; before committing or opening a pull request; and whenever a document or message states something about published work, data or another implementation.
 ---
 
 # Developing demplan
@@ -202,6 +202,62 @@ the field.
 Before a release, the whole public documentation gets this check from a reviewer who did not write
 it, with the same verdicts. This project's own documents have been through it; the corrections are
 visible as correction notes in `docs/decisions/`.
+
+## Wiki pages
+
+- **Every command output on a page comes from a run**, pasted verbatim, with the command or script
+  that produced it. Version numbers in outputs change with each release; rerun them rather than
+  editing the numbers by hand.
+- **Mechanism pages** (the Mechanisms section) state one mechanism that ships with the library:
+  participants, the model each solves, the solution and its derivation, the rules between rounds,
+  the stopping rule, a table from symbols to `Economy` and `Plan` fields, the parameters of a
+  published data set with the script that measures them, the properties that follow from the
+  functional forms, and the sources. They state; they do not argue. A sentence that rebuts a view
+  ("X is not really a kind of Y") or answers a question the reader never asked assumes a
+  discussion the reader has not seen: state the property directly instead. Real-world
+  counterexamples and inferences the sources do not make belong elsewhere.
+- **Formulas.** GitHub renders LaTeX, but Markdown processes the text first and silently changes it:
+  - Display formulas go in a fenced block that starts with ```` ```math ````, not between `$$`.
+    Markdown strips the backslash from `\,` `\;` `\!` `\%` between `$$`, and a bare `%` then turns
+    the rest of the formula into a TeX comment.
+  - Inline formulas use `` $`...`$ ``, which Markdown leaves alone. Plain `$...$` loses the same
+    escapes, and a `<` inside it is escaped twice and shows as the text `&lt;`.
+  - Write comparisons as `\lt` and `\gt`.
+  - In a multi-line block, put the row break `\\` at the start of the next row, not at the end of
+    a line: a backslash at the end of a line is read as a Markdown hard line break.
+  - After publishing, compare the page's `math-renderer` elements with the source, formula by
+    formula; the rendered page looks plausible even when a formula has lost a character.
+
+## Releasing
+
+For the maintainer. Version numbers on PyPI can never be reused, even after deletion, so every
+step before the upload is there to catch a problem while it is still free to fix.
+
+1. **Update the README before tagging.** The description on the PyPI page is the README packed into
+   that release and cannot be changed afterwards.
+2. **Bump the version** in `pyproject.toml`, `Cargo.toml` (then `cargo metadata` to update
+   `Cargo.lock`) and `CITATION.cff` (`version`, `date-released`).
+3. **Dry run.** Run `release.yml` by hand on the branch (`gh workflow run release.yml --ref v1`). It
+   builds the five wheels and the sdist, checks that the sdist contains every licence file it
+   declares (`tools/check_sdist.py`) and builds and imports the library from the sdist, without
+   uploading. All jobs must pass.
+4. **Publish a GitHub release** on `master` with tag `vX.Y.Z`. The release event runs `release.yml`,
+   which uploads to PyPI through trusted publishing, and notifies Zenodo. If no run for the
+   `release` event appears under Actions within a minute, run `release.yml` by hand on the tag with
+   `publish` ticked; a manual run uploads only on a `v*` tag.
+5. **Check PyPI**: five wheels and one sdist listed in the simple index, and `pip install demplan`
+   in a fresh virtual environment imports and reports the new version. `gh run watch` can return
+   before a run ends; confirm with `gh run view --json status`.
+6. **DOI.** Zenodo archives the release and mints a version DOI; the concept DOI in the README and
+   `CITATION.cff` resolves to the latest version by itself. Before writing a DOI anywhere, read the
+   record through `https://zenodo.org/api/records/<id>` and check title, version and linked tag.
+   A new DOI can take hours to resolve at doi.org after the record appears. A release stuck in
+   "Received" on Zenodo's GitHub page is on Zenodo's side; its support can rerun it.
+
+If pushes or releases stop starting workflow runs although the workflows are active, turn the
+repository's Actions off and on again (`gh api -X PUT repos/enshulv/demplan/actions/permissions -F
+enabled=false`, then `-F enabled=true -f allowed_actions=all`) and disable and re-enable the
+workflow.
 
 ## Finishing checklist
 

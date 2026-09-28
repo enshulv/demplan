@@ -5,6 +5,58 @@
 
 Shared research infrastructure for democratic economic planning.
 
+## Where to start
+
+The [wiki](https://github.com/enshulv/demplan/wiki) holds the guides: a tutorial that starts from
+an empty computer, one page per planning mechanism, and a reference for every public name. This
+README explains why the library exists and what reproducing the published experiments found.
+
+| You are | Start with |
+|---|---|
+| A researcher who has never used Python and wants to run or compare planning mechanisms | [Tutorial: Before you start](https://github.com/enshulv/demplan/wiki/Tutorial-Before-You-Start), then the tutorial pages in order |
+| A researcher who wants a one-page overview | [For Researchers](https://github.com/enshulv/demplan/wiki/For-Researchers) |
+| Looking for the exact model and formulas of a planning mechanism | [Mechanisms](https://github.com/enshulv/demplan/wiki/Mechanisms) |
+| Comparing with the published experiments or their implementations | [Limitations of Existing Implementations](https://github.com/enshulv/demplan/wiki/Limitations-of-Existing-Implementations) |
+| Looking up a function, parameter or error message | [Reference index](https://github.com/enshulv/demplan/wiki/Reference-Index) |
+| Asking how far to trust the results | [Quality Assurance](https://github.com/enshulv/demplan/wiki/Quality-Assurance) |
+| A developer who wants to contribute code, data loaders or documentation | [For Contributors](https://github.com/enshulv/demplan/wiki/For-Contributors) and [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+**Wiki contents**
+
+- **Tutorial:**
+  1 [Before you start](https://github.com/enshulv/demplan/wiki/Tutorial-Before-You-Start) ·
+  2 [Installing](https://github.com/enshulv/demplan/wiki/Tutorial-Installing) ·
+  3 [First run](https://github.com/enshulv/demplan/wiki/Tutorial-First-Run) ·
+  4 [Reading a plan](https://github.com/enshulv/demplan/wiki/Tutorial-Reading-A-Plan) ·
+  5 [Comparing with the reference solution](https://github.com/enshulv/demplan/wiki/Tutorial-Comparing-With-The-Reference-Solution) ·
+  6 [Several periods](https://github.com/enshulv/demplan/wiki/Tutorial-Several-Periods) ·
+  7 [Real input-output data](https://github.com/enshulv/demplan/wiki/Tutorial-Real-Input-Output-Data) ·
+  8 [Building your own economy](https://github.com/enshulv/demplan/wiki/Tutorial-Building-Your-Own-Economy) ·
+  9 [Writing your own procedure](https://github.com/enshulv/demplan/wiki/Tutorial-Writing-Your-Own-Procedure) ·
+  10 [Checking your mechanism](https://github.com/enshulv/demplan/wiki/Tutorial-Checking-Your-Mechanism) ·
+  11 [Reproducible results](https://github.com/enshulv/demplan/wiki/Tutorial-Reproducible-Results)
+- **Mechanisms:**
+  [Overview](https://github.com/enshulv/demplan/wiki/Mechanisms) ·
+  [Hahnel (2021)](https://github.com/enshulv/demplan/wiki/Mechanism-Hahnel-2021)
+- **Reference:**
+  [Index](https://github.com/enshulv/demplan/wiki/Reference-Index) ·
+  [Economy](https://github.com/enshulv/demplan/wiki/Reference-Economy) ·
+  [Plan](https://github.com/enshulv/demplan/wiki/Reference-Plan) ·
+  [Running a procedure](https://github.com/enshulv/demplan/wiki/Reference-Running) ·
+  [Reference solution](https://github.com/enshulv/demplan/wiki/Reference-Reference-Solution) ·
+  [Checks and residuals](https://github.com/enshulv/demplan/wiki/Reference-Checks-And-Residuals) ·
+  [Loaders](https://github.com/enshulv/demplan/wiki/Reference-Loaders) ·
+  [Hahnel prefab](https://github.com/enshulv/demplan/wiki/Reference-Hahnel) ·
+  [Run configuration](https://github.com/enshulv/demplan/wiki/Reference-Run-Configuration) ·
+  [Errors](https://github.com/enshulv/demplan/wiki/Reference-Errors)
+- **Guides:**
+  [For Researchers](https://github.com/enshulv/demplan/wiki/For-Researchers) ·
+  [For Contributors](https://github.com/enshulv/demplan/wiki/For-Contributors) ·
+  [Quality Assurance](https://github.com/enshulv/demplan/wiki/Quality-Assurance) ·
+  [Limitations of Existing Implementations](https://github.com/enshulv/demplan/wiki/Limitations-of-Existing-Implementations) ·
+  [AI Development Guide](https://github.com/enshulv/demplan/wiki/AI-Development-Guide) ·
+  [Glossary](https://github.com/enshulv/demplan/wiki/Glossary)
+
 ## Purpose
 
 Democratic economic planning has no shared research infrastructure, and it needs one.

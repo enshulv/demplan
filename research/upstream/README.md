@@ -20,6 +20,11 @@ statement is about demplan, such as "demplan's trajectory matches the program's 
   `_source_edits.py` checks every line hash before it changes anything, and each run prints the
   resulting diff against the commit.
 
+Step-by-step guides for running each script and reading its output, written for readers who
+have not used the command line much, are on the wiki: start at
+[Reproducing the limitations: setup](https://github.com/enshulv/demplan/wiki/Reproducing-Limitations-Setup).
+This file is the reference.
+
 ## Requirements
 
 Python 3.11 or later with numpy. `check_rules.py` also needs demplan; `check_effort.py` and

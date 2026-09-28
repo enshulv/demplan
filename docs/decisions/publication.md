@@ -2,6 +2,36 @@
 
 ## 2026-09-28
 
+### The wiki gains a Mechanisms section: one rigorous statement per mechanism that ships with the library
+
+**Decision**: The wiki gains a Mechanisms section, an index page and one page per mechanism that
+ships with the library, starting with Hahnel (2021). Each page gives the participants, the model
+each solves, the closed-form solutions and their derivation, the price-adjustment and stopping
+rules, a table from symbols to `Economy` and `Plan` fields, the parameters of a published data set
+(with a script to rerun and its output), the properties that follow mathematically from the
+functional forms, and the sources. It states the mechanism and nothing else: it does not answer
+particular questions, list real-world counterexamples or draw inferences the literature does not.
+
+**Why**: The maintainer's requirement (2026-09-28). The reference pages say how to call the code;
+nothing gave a reader without context a statement of the mechanism precise enough to reimplement
+and to check formula by formula. The formulas were spread over the paper, the book and the code,
+and the price rule printed in the book differs from the program that produced its tables. A
+statement written in the terms of an earlier discussion (for example, arguing that effort is not
+a split of labour) reads to a reader without that discussion as an answer to a question nobody
+asked.
+
+**Alternatives rejected**:
+- Put the formulas into the reference pages — the reference is organised by API and the statement
+  by model; mixing them makes both harder to find
+- Include the discussion material as well (a comparison with effective labour, a table of
+  real-world counterexamples, an inference about how hard convergence would be) — that is
+  discussion, not the mechanism, and it presets the reader's questions
+
+**How to apply**: When a mechanism is added to the library, add a page in the same structure and
+list it on the index page and in the sidebar. Every claim attributed to a source on the page is
+checked against the original under the citation rule; the numbers in the parameter table come with
+the script and its output.
+
 ### `release.yml` can also publish when run by hand, only on a `v*` tag and only when ticked
 
 **Decision**: The `workflow_dispatch` trigger of `release.yml` gains a boolean input `publish`

@@ -172,3 +172,4 @@
 | 2026-09-28 | Reference solution | The reference solution does not clip solver noise; a caller feeding its quantities into a declaration that refuses negatives clips them at 0 | [reference-solution.md](reference-solution.md) |
 | 2026-09-28 | Contributing and AI | Contributors answer for quality and prove it with tests and a quality process, not by understanding every line (partially supersedes one 2026-09-26 item) | [contributing-and-ai.md](contributing-and-ai.md) |
 | 2026-09-28 | Publication | `release.yml` can also publish when run by hand, only on a `v*` tag and only when ticked (partially supersedes the 2026-09-26 publishing entry) | [publication.md](publication.md) |
+| 2026-09-28 | Publication | The wiki gains a Mechanisms section: one rigorous statement per mechanism, stating and not discussing | [publication.md](publication.md) |

@@ -2,6 +2,39 @@
 
 ## 2026-09-28
 
+### The README opens with entry points: a table by kind of reader and the wiki's contents
+
+**Decision**: The README gains a "Where to start" section after the subtitle and before the
+purpose. It has three parts: two sentences on what the wiki and the README each cover; a table
+that points each kind of reader to a page; and the contents of the wiki, in four groups
+(tutorial, mechanisms, reference, guides), shown in full. The kinds of reader are: a researcher
+who has never used Python, a researcher who wants a one-page overview, someone looking for the
+model and formulas of a mechanism, a researcher with a mechanism of their own, someone comparing
+with the published experiments, someone looking up a function or an error, someone asking how
+far to trust the results, and a contributor. A researcher with a mechanism of their own is asked
+to open an issue with the paper, pseudocode or code that states it, and the maintainer adds it to
+the library; one who wants to write it themselves is pointed to tutorial page 9.
+
+**Why**: On 2026-09-28 the README and the wiki were each read from the point of view of a
+researcher with no prior context. The wiki's tutorial starts from zero and is enough for a
+researcher who does not program. The README, however, reaches the lag and the floor of the
+price-update rule in the second point of its purpose, then Rust, maturin and the field tables,
+and its links to the wiki sit in the middle; the readers the tutorial is written for left before
+they reached a link. With the entry points at the top, every kind of reader sees on the first
+screen where to go. A researcher with a mechanism of their own is the most typical "next person
+in the field" of the first principle, and the table had no row for them.
+
+**Alternatives rejected**:
+- One or two sentences above the table stating the reproduction result — the maintainer declined:
+  a reader who scrolls down reaches the reproduction section
+- Folding the wiki contents into a `<details>` block — done and then reverted (`1726d92`,
+  `d1d1004`); the maintainer chose to show them in full
+
+**How to apply**: When a wiki page is added or removed, update the README's contents list and
+table with it. This entry partially supersedes the order in 2026-09-26 "The README opens with the
+purpose": an entry-point section now comes before the purpose, and the rest of the order is
+unchanged.
+
 ### The wiki gains a Mechanisms section: one rigorous statement per mechanism that ships with the library
 
 **Decision**: The wiki gains a Mechanisms section, an index page and one page per mechanism that
@@ -108,6 +141,9 @@ so breaking changes during 0.x are announced in advance.
 ---
 
 ### The README opens with the purpose, and shows the reproduction comparison and the limitations
+
+(⚠ Partially superseded: since 2026-09-28 a "Where to start" section comes before the purpose; see
+2026-09-28 "The README opens with entry points". The rest of the order is unchanged.)
 
 **Decision**: The README runs in this order: purpose → what it does → results of reproducing the
 published experiments → the first comparison between two mechanisms and why it cannot be quoted

@@ -33,6 +33,7 @@
 | Contacting the upstream authors | ❌ | See [decisions/research-scope.md](decisions/research-scope.md) |
 | Cross-validating against pequod-cljs | ✅ | 2026-09-29, `csvgen.clj@71e44d3` run unchanged in Docker: the first 12 rounds are byte for byte the `dep1ex61.csv` the author committed; with only the price rule replaced, they differ from round 1. Run as an order-of-magnitude probe, not to convergence. See [research/reproduction.md](research/reproduction.md), addendum 2026-09-29, and [decisions/quality-assurance.md](decisions/quality-assurance.md) 2026-09-29 |
 | Checks of upstream issues that run | ✅ | 2026-09-29, `research/upstream/`: every entry of the wiki page on upstream issues can be rerun with a script, with the evidence taken from upstream's own outputs, program and functions. The runs showed one sentence about the effect in entry 5 to be wrong (corrected), and found a sign error in the effort of `solution-8`/`solution-10`. See [research/upstream-code-issues.md](research/upstream-code-issues.md), "Checks that run" |
+| Guides for reproducing the upstream checks | ✅ | 2026-09-29, the wiki's limitations page opens with an index to a Setup page and six guides, one per check script (`Reproducing-Limitations-*`); every output on them comes from a run and was checked line by line. See [decisions/quality-assurance.md](decisions/quality-assurance.md), the second entry of 2026-09-29 |
 
 **This line closed on 2026-08-28.** The scripts and data under `research/` are kept as a ready-made regression target for v1.
 

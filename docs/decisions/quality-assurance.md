@@ -40,6 +40,52 @@ entry, pasting its numbers from the script's output. When upstream gains new com
 - Verified by me: not checked item by item (the maintainer was away; an independent review without context attacked it instead, see the progress record)
 - Not verified: the per-round time of `pequod-plus` on full-size data; year two of `pequod-cljs`
 
+### Every upstream check has a step-by-step wiki guide, indexed at the top of the limitations page
+
+**Decision**: The wiki page "Limitations of Existing Implementations" opens with an index table
+(guide, entries covered, what it needs, how long it runs), and has seven child pages
+`Reproducing-Limitations-*`: one Setup page (installing git, cloning, a virtual environment,
+`pip install demplan`, downloading the data, installing Docker), then one page per check
+script. Every page has the same structure:
+
+- what the script does and which upstream artefact it uses
+- the command to type, how long it takes, and what it downloads the first time
+- how to read the output part by part, pointing out which lines are the control that should agree and which the control that should not
+- "what would show the entry wrong", asking the reader to open an issue with the output
+- common errors and what to do about them
+
+Every output on these pages comes from a run, pasted verbatim and compared line by line with the
+actual output. No upstream code is shown: the source lines, line listings and edit diffs the
+scripts print are referred to by line number, with a link to GitHub.
+`research/upstream/README.md` stays the quick reference for options and run times, and points
+to the guides.
+
+**Why**: The maintainer's words: without guides, a pile of Python scripts is something nobody
+will use. The previous decision made every claim rerunnable, but there were only the scripts
+and a reference README, which assume a reader who uses the command line and can read several
+hundred lines of output. This library's readers are social scientists; a check has to be run by
+someone before "the authors themselves would agree" can mean anything. Running the scripts to
+write the guides also turned up a problem a reader can hit: with Windows line endings in the
+working tree, the pequod-cljs container fails after 13 seconds (`set: pipefail: invalid option
+name`). It is covered in the troubleshooting section.
+
+**Alternatives rejected**:
+- Expand `research/upstream/README.md` instead — it is a quick reference for those who already know how; a part-by-part walkthrough would bury the table of options, and readers arrive from the wiki's limitations page, not from the repository's directory tree
+- One page per entry — nine entries share six scripts (`check_outputs.py` covers entries 1 and 2, `run_all.py` covers 4 to 7), so pages per entry would repeat the same setup and run instructions several times; the pages are per script, and the index table looks them up by entry
+- Put the guides in the public repository's `docs/` — readers read the limitations page on the wiki, and the guides belong next to it; `docs/` holds design documents
+
+**How to apply**: When a check script's output format changes, rerun the corresponding guide
+and replace the pasted output verbatim; extracting every `text` block of the page and looking
+for each line in the new output finds what has to change. When an entry is added to the
+limitations page, add a section to the corresponding guide, or a new page with a row in the
+index table and the sidebar.
+
+**Human in the loop**:
+- Decided by: enshulv (that there be guides, as child pages of the limitations page, with an index at its top)
+- AI assistance: Claude Code wrote the guides, ran the seven scripts and checked the pasted outputs
+- Verified by me: not checked page by page
+- Not verified: the Setup page followed from scratch on macOS and Linux; the time to build the Docker images from scratch (10 to 15 minutes is estimated from the log of an earlier build)
+
 ## 2026-09-26
 
 ### Publish the quality assurance practices, and commit to formal proof where it is needed

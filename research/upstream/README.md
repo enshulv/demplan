@@ -35,18 +35,19 @@ default `$DEMPLAN_DATA_DIR` or `research/data/`), and `--help` lists the rest.
 
 ## Scripts
 
-Times were taken on a Windows laptop with 12 threads, after the downloads.
+Times were taken on a Windows laptop with 12 threads, after the downloads, in two sets of runs; the
+upper ends are from the set where other checks ran at the same time.
 
 | Script | Wiki entries | Command | Time | Downloads |
 |---|---|---|---|---|
 | `fetch.py` | all | `python research/upstream/fetch.py` | 4 s when present | 4.0 GB: 40 archives, 50 output CSVs, 20 LFS pointers, `csvgen.clj`, `bin/dep_data_process.py` |
-| `check_outputs.py` | 1, 2 | `python research/upstream/check_outputs.py` | 9 s | 1.8 GB of output CSVs |
+| `check_outputs.py` | 1, 2 | `python research/upstream/check_outputs.py` | 9–11 s | 1.8 GB of output CSVs |
 | `check_inputs.py` | 3 | `python research/upstream/check_inputs.py` | 2 min | 2.2 GB of archives |
-| `check_rules.py` | 1, 3 | `python research/upstream/check_rules.py [--experiments 1-40]` | 55 s for 1–5, 6.6 min for 1–40 | one 36 MB output CSV per experiment |
-| `check_effort.py` | 7 | `python research/upstream/check_effort.py [--experiments 1] [--round last]` | 70 s per experiment | as `check_rules.py` |
-| `check_history.py` | 8, 9 | `python research/upstream/check_history.py [--no-fetch]` | 7 min after cloning | clones of both repositories, about 1 GB |
-| `docker/pequod-plus/run_all.py` | 4, 5, 6, 7 | `python research/upstream/docker/pequod-plus/run_all.py` | 3.7 min with the images built | four images, 928 MB |
-| `docker/pequod-cljs/run.py` | 1, 9 | `python research/upstream/docker/pequod-cljs/run.py` | 18–19 min | image of 2.4 GB; peak container memory up to 4.5 GiB |
+| `check_rules.py` | 1, 3 | `python research/upstream/check_rules.py [--experiments 1-40]` | 55 s for 1–5, 6.6–11 min for 1–40 | one 36 MB output CSV per experiment |
+| `check_effort.py` | 7 | `python research/upstream/check_effort.py [--experiments 1] [--round last]` | 70–110 s per experiment | as `check_rules.py` |
+| `check_history.py` | 8, 9 | `python research/upstream/check_history.py [--no-fetch]` | 7–8.5 min after cloning | clones of both repositories, about 1 GB |
+| `docker/pequod-plus/run_all.py` | 4, 5, 6, 7 | `python research/upstream/docker/pequod-plus/run_all.py` | 3.7–6.5 min with the images built; 10 to 15 min more to build them the first time | four images, 928 MB |
+| `docker/pequod-cljs/run.py` | 1, 9 | `python research/upstream/docker/pequod-cljs/run.py` | 18–22 min | image of 2.4 GB; peak container memory up to 4.5 GiB |
 
 ## What each script does
 

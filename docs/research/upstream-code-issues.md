@@ -23,6 +23,9 @@ repository (a changed rule or term is an edit stated as line number, sha256 of t
 the edit, and replacement, applied at run time). The upstream programs are built and run in
 Docker with their own `project.clj`.
 
+Step-by-step guides to installing, running and reading each script are on the wiki, starting
+from the index at the top of the limitations page.
+
 | Issue | Evidence | Result |
 |---|---|---|
 | Price-update rule | the step recomputed from the supply and demand recorded in each row of the 40 output CSVs `pequod-cljs` committed (`df6dc57`) | the lagged rule: largest relative error 2.2e-15 over 575,500 cells; the book's p. 181 as printed: 77; the paper's p. 7 as printed: 51 |

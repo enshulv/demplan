@@ -12,7 +12,7 @@ run with `publish` ticked on a branch, builds without uploading.
 **Why**: Since September 2026, pushes to this repository have not started CI runs (GitHub receives
 the event and the workflow is active, but no run is created; the cause is not known), and the two
 pushes after the repository became public on 2026-09-28 behaved the same. If a published release
-also failed to start the workflow, the release would be up and PyPI would stay empty. The trusted
+also failed to start the workflow, the release would be up and PyPI would stay empty. (That day the v0.1.0 release event did not start the workflow; after the repository's Actions were turned off and on again, pushes started runs again.) The trusted
 publisher is bound to the workflow file and the environment, not to the event, so a manual run can
 upload as well. Limiting it to tags means every uploaded package corresponds to a fixed, versioned
 commit.

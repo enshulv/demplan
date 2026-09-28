@@ -28,15 +28,17 @@ This skill is for helping a researcher use the library. For changing the library
 
 ## Install
 
-Until a release is on PyPI, install from source. This needs Python 3.10 or newer and a Rust
-toolchain (<https://rustup.rs>):
+Python 3.10 or newer. Prebuilt wheels on PyPI cover Windows x64, macOS and Linux (x86-64 and
+ARM64), so no Rust toolchain is needed there:
 
 ```sh
-git clone https://github.com/enshulv/demplan && cd demplan
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install maturin numpy scipy
-maturin develop --release
+pip install demplan
 ```
+
+On other platforms pip builds from the source distribution; maturin downloads a temporary Rust
+toolchain if none is installed, and the build needs a C linker. To change the library itself, build from a clone with
+`pip install maturin numpy scipy` and `maturin develop --release`.
 
 Published economies are downloaded separately, for example
 `curl -sSL -o dep1ex01.clj.gz https://www.szcz.org/depexperiments/dep1ex01.clj.gz` (56 MB); in

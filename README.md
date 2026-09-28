@@ -231,7 +231,10 @@ Honest status, roughly in the order these will be addressed:
   through which to say where it comes from.
 - **One published procedure.** Only the procedure of Hahnel (2021) [3] ships as a prefab. Labour-time planning in the tradition of Cockshott and Cottrell [12] and the
   published algorithms of [7, 8, 9] are candidates.
-- **Installation needs a Rust toolchain.** There are no prebuilt wheels on PyPI yet.
+- **Prebuilt packages cover five platforms.** PyPI has wheels for Windows x64, macOS (Apple
+  silicon and Intel) and Linux (x86-64 and ARM64, glibc). Elsewhere, such as Windows on ARM or
+  Alpine, pip builds from the sdist: maturin fetches a temporary Rust toolchain if none is
+  installed, but the build takes minutes and needs a C linker.
 - **The design documents are translated.** The records under `docs/` were first written in
   Chinese and translated; wording errors are likely, and reports of them are welcome.
 
@@ -240,9 +243,22 @@ people with a concrete research question move things up the list.
 
 ## Install
 
-There is no release on PyPI yet. Building from source needs a Rust toolchain
-(<https://rustup.rs>), because the data model and the loaders are Rust behind a Python
-extension module. Python 3.10 or newer; the runtime dependencies are numpy and scipy.
+Python 3.10 or newer. The runtime dependencies, numpy and scipy, are installed with it.
+
+```sh
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install demplan
+```
+
+PyPI has prebuilt wheels for Windows x64, macOS (Apple silicon and Intel) and Linux (x86-64 and
+ARM64), so no compiler is needed on these systems. The wiki's
+[Installing](https://github.com/enshulv/demplan/wiki/Tutorial-Installing) page walks through each
+system step by step.
+
+On other platforms `pip install demplan` builds from the sdist. To change the library itself,
+build from a clone; this needs a Rust toolchain (<https://rustup.rs>), because the data model and
+the loaders are Rust behind a Python extension module:
 
 ```sh
 git clone https://github.com/enshulv/demplan

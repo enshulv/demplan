@@ -1,5 +1,41 @@
 # Contributing and AI
 
+## 2026-09-28
+
+### Contributors answer for quality and prove it with tests and a quality process, not by understanding every line
+
+**Decision**: In the 2026-09-26 entry "AI assistance is accepted", the item "Contributors must
+understand every line they submit. 'The model wrote it' is not an answer to a review question" is
+replaced: contributors are accountable for the quality of the changes they submit. They are not
+required to have read and understood every AI-generated line; they are required to establish
+quality through thorough tests and a quality process: tests that can fail (shown by mutation
+testing), numbers that come from runs, and an adversarial review before merging. A review question
+is answered with evidence (which test protects this behaviour, which command was run, what it
+returned), not with who wrote the code. The other items of that entry stand.
+
+**Why**: The maintainer's requirement (2026-09-28). When code is written with AI help,
+understanding every line is close to impossible, for the maintainer as much as for anyone. A rule
+nobody can meet gets agreed to on paper and cannot be checked by a reviewer. What can be checked is
+whether quality has been shown: whether the tests turn red when the behaviour breaks, whether the
+numbers come from runs, whether someone who did not write the code, or an agent without its
+context, reviewed it. Accountability rests on answering for quality with evidence, not on how much
+was understood.
+
+**Alternatives rejected**:
+- Keep "understand every line" — it cannot be met and cannot be verified: a reviewer has no way to
+  tell whether a contributor really understood
+- Drop the item without a replacement — "a person is accountable" would shrink to filling in a
+  form, losing the half that says how quality is shown
+
+**Partially supersedes**: one item of 2026-09-26 "AI assistance is accepted, but a person is
+accountable for every change and shows the decision process"; the rest still holds.
+
+**How to apply**: When reviewing a pull request, ask "which test protects this behaviour, and does
+it go red when the behaviour breaks", not "do you understand this code". Contributor guides, the
+pull request template and the wiki do not ask for line-by-line understanding.
+
+---
+
 ## 2026-09-26
 
 ### AI assistance is accepted, but a person is accountable for every change and shows the decision process
@@ -16,7 +52,8 @@ they exercised that responsibility.
 - A small change that needs no decision record fills in the same "Human in the loop" section in
   the pull request description
 - Contributors must understand every line they submit. "The model wrote it" is not an answer to a
-  review question
+  review question (replaced 2026-09-28 by "answer for quality and prove it with tests and a quality
+  process", see 2026-09-28)
 - Tests must be able to fail: each key assertion is shown to turn red when the behaviour it
   protects is broken, with mutation testing as the expected method
 - Numbers must be run, with the command

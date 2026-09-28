@@ -139,8 +139,11 @@ So, for AI-assisted contributions:
 1. **Fill in "Human in the loop" honestly**, in the decision record or, for changes that need
    no record, in the pull request description. "AI assistance: none" when there was some is the
    one thing that will get a contribution rejected outright.
-2. **You must understand every line you submit.** "The model wrote it" is not an answer to a
-   review question.
+2. **You answer for the quality of what you submit.** Nobody expects you to have read and
+   understood every generated line. You are expected to establish that the change is correct
+   with thorough tests and a quality process (the points below, and an adversarial review before
+   merging), and to answer review questions with that evidence: which test protects the
+   behaviour, which command you ran, what it returned.
 3. **Tests must be able to fail.** A generated test that passes whether or not the code is
    correct is worse than no test. Show that each key assertion fails when the behaviour it
    protects is broken; changing the implementation by hand and watching the test go red

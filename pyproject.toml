@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Shared research infrastructure for democratic economic planning"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26", "scipy>=1.11"]
 

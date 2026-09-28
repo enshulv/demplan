@@ -44,8 +44,7 @@ someone forks it and does better, that also counts as success.
 It is developed by an independent developer, with no funding from any organisation and no
 commercial purpose, out of a long-standing interest in the field, and it will be maintained for
 the long term. If you have the skills and the interest, contributions are very welcome; see
-[Contributing](#contributing). A DOI will be registered with the first release; citing and
-sharing the project helps more people find it.
+[Contributing](#contributing). Citing and sharing the project helps more people find it.
 
 ## What it does
 
@@ -724,8 +723,9 @@ setup.
 
 ## How to cite
 
-A DOI will be registered with the first release. Until then, cite the repository. Metadata is
-in [CITATION.cff](CITATION.cff); GitHub shows a "Cite this repository" button for it.
+Releases are being archived on Zenodo, which will give the project a DOI; until one is listed
+here, cite the repository with the version you used. Metadata is in [CITATION.cff](CITATION.cff);
+GitHub shows a "Cite this repository" button for it.
 Citations and mentions help other researchers in the field find the library.
 
 If your work depends on the reproduction results above, please also cite the original

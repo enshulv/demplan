@@ -16,12 +16,14 @@ README explains why the library exists and what reproducing the published experi
 | A researcher who has never used Python and wants to run or compare planning mechanisms | [Tutorial: Before you start](https://github.com/enshulv/demplan/wiki/Tutorial-Before-You-Start), then the tutorial pages in order |
 | A researcher who wants a one-page overview | [For Researchers](https://github.com/enshulv/demplan/wiki/For-Researchers) |
 | Looking for the exact model and formulas of a planning mechanism | [Mechanisms](https://github.com/enshulv/demplan/wiki/Mechanisms) |
+| A researcher with a planning mechanism of your own you want to run on this data | An [issue](https://github.com/enshulv/demplan/issues) with the paper, pseudocode or code that states it; the maintainer adds it to the library. To write it yourself, [Writing your own procedure](https://github.com/enshulv/demplan/wiki/Tutorial-Writing-Your-Own-Procedure) |
 | Comparing with the published experiments or their implementations | [Limitations of Existing Implementations](https://github.com/enshulv/demplan/wiki/Limitations-of-Existing-Implementations) |
 | Looking up a function, parameter or error message | [Reference index](https://github.com/enshulv/demplan/wiki/Reference-Index) |
 | Asking how far to trust the results | [Quality Assurance](https://github.com/enshulv/demplan/wiki/Quality-Assurance) |
 | A developer who wants to contribute code, data loaders or documentation | [For Contributors](https://github.com/enshulv/demplan/wiki/For-Contributors) and [CONTRIBUTING.md](CONTRIBUTING.md) |
 
-**Wiki contents**
+<details>
+<summary><b>Wiki contents</b></summary>
 
 - **Tutorial:**
   1 [Before you start](https://github.com/enshulv/demplan/wiki/Tutorial-Before-You-Start) ·
@@ -56,6 +58,8 @@ README explains why the library exists and what reproducing the published experi
   [Limitations of Existing Implementations](https://github.com/enshulv/demplan/wiki/Limitations-of-Existing-Implementations) ·
   [AI Development Guide](https://github.com/enshulv/demplan/wiki/AI-Development-Guide) ·
   [Glossary](https://github.com/enshulv/demplan/wiki/Glossary)
+
+</details>
 
 ## Purpose
 

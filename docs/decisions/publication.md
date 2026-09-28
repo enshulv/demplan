@@ -1,8 +1,43 @@
 # Publication
 
+## 2026-09-29
+
+### The README keeps what the library is, its findings and the entry points; details move to the wiki, and wiki pages put conclusions before evidence
+
+**Decision**:
+
+- The README runs in this order: a one-sentence description → Why → what reproducing the published experiments found → install → one example → a documentation table by kind of reader → status → contributing → how to cite → references → licence
+- The reproduction section states four findings: the round counts come back; they come back only with the program's price rule; four printed cells differ from the program's output; the order of magnitude of a round's time. Each links to its wiki entry. The full 40-experiment table and the timing setup sit in `<details>` sections
+- Moved out of the README: the `Economy` and `Plan` field tables, the difference reports, WIOD, writing your own coordination method, the run configuration document, the first comparison of two mechanisms (the 1.80 ratio), what the library is answerable for, the wiki's full contents and the list of limitations. Each is on its wiki page; the full list of limitations is the Status section of the wiki's home page. The references sit in a `<details>` section
+- Wiki pages: a long page opens with an index table; each section starts with one sentence of conclusion, then why it matters, keeping only the number the conclusion rests on; quotations, line numbers, commits, full script output and derivations go into `<details>` sections, followed by one line linking to the check or the next step. The steps a tutorial reader must run and their expected output, the signatures and parameter tables of a reference page, and the qualifications a conclusion depends on are not collapsed
+- Mathematics is rendered with LaTeX, never pasted in code format
+- A rewrite moves content between layers and removes no fact: the numbers, commit hashes, quotations, code blocks, headings and links of the old and new versions are compared by script and must be the same sets
+- Sentences that answer a view nobody raised, and run-ups with no content, are removed, such as the "Why these gaps exist" paragraph of the limitations page
+
+**Why**: The maintainer found the README and the wiki piled up and hard to read. The README had 848 lines and was a tutorial, an API reference, a research report and a roadmap at once, all of which the wiki already covers. Wiki entries laid conclusion, evidence and qualifications side by side in one paragraph, with exact figures and code line numbers inside the main sentence. Most readers want the conclusion; the evidence is for those who check it. Layered by need, neither kind of reader carries what the other needs.
+
+**Alternatives rejected**:
+- Keeping the field tables and the feature examples in the README — two copies to maintain with the wiki, and they drift apart without an error
+- Moving the evidence to separate subpages — a reader clicks once more, and one entry's conclusion and evidence end up on two pages; the maintainer chose collapsed sections
+- Cutting the evidence — the checks depend on those numbers and line numbers, so they move and stay
+- Keeping the wiki's full contents in the README — the wiki's sidebar provides them; the README keeps the table by kind of reader
+
+**How to apply**: Write or rewrite README and wiki pages to this structure. The README's code blocks are still run by `tests/test_readme_examples.py`, which now covers the "Example" section only; look at that test when changing the section's heading or code. When wiki pages are added or removed, update the README's documentation table and the wiki's sidebar.
+This entry supersedes 2026-09-26 "The README opens with the purpose, and shows the reproduction comparison and the limitations", and partly supersedes 2026-09-28 "The README opens with entry points" (the table by kind of reader stays, the wiki's contents go, and the entry points move after the example).
+
+**Human in the loop**:
+- Decided by: enshulv (the README keeps the key points and what makes the library worth using, evidence goes into collapsed sections, formulas use LaTeX)
+- AI assistance: Claude Code rewrote the README and the limitations page; subagents rewrote the other wiki pages to the same specification
+- Verified by me: the maintainer looked at the rendered README and limitations page in a browser
+- Not verified: the other wiki pages are spot-checked by the maintainer, not reviewed page by page
+
 ## 2026-09-28
 
 ### The README opens with entry points: a table by kind of reader and the wiki's contents
+
+(⚠ Partially superseded: since 2026-09-29 the README no longer lists the wiki's contents, and the
+table by kind of reader comes after the example; see 2026-09-29 "The README keeps what the library
+is, its findings and the entry points".)
 
 **Decision**: The README gains a "Where to start" section after the subtitle and before the
 purpose. It has three parts: two sentences on what the wiki and the README each cover; a table
@@ -142,8 +177,8 @@ so breaking changes during 0.x are announced in advance.
 
 ### The README opens with the purpose, and shows the reproduction comparison and the limitations
 
-(⚠ Partially superseded: since 2026-09-28 a "Where to start" section comes before the purpose; see
-2026-09-28 "The README opens with entry points". The rest of the order is unchanged.)
+(⚠ Superseded, see 2026-09-29 "The README keeps what the library is, its findings and the entry
+points". Before that, from 2026-09-28, a "Where to start" section came before the purpose.)
 
 **Decision**: The README runs in this order: purpose → what it does → results of reproducing the
 published experiments → the first comparison between two mechanisms and why it cannot be quoted

@@ -176,3 +176,4 @@
 | 2026-09-28 | Publication | The README opens with entry points: a table by kind of reader and the wiki's contents (partially supersedes 2026-09-26 "The README opens with the purpose") | [publication.md](publication.md) |
 | 2026-09-29 | Quality assurance | A claim about a problem in an existing implementation comes with a check that runs, with the evidence taken first from that implementation's own artefacts | [quality-assurance.md](quality-assurance.md) |
 | 2026-09-29 | Quality assurance | Every upstream check has a step-by-step wiki guide, indexed at the top of the limitations page | [quality-assurance.md](quality-assurance.md) |
+| 2026-09-29 | Publication | The README keeps what the library is, its findings and the entry points; details move to the wiki, and wiki pages put conclusions before evidence (supersedes 2026-09-26 "The README opens with the purpose") | [publication.md](publication.md) |

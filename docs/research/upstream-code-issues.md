@@ -11,6 +11,46 @@ The review is pinned to `44a6d08`. Upstream's `db` branch has since moved to `44
 References are primarily by function name; line numbers are only locating hints — upstream
 is still evolving, and line numbers will go stale.
 
+## Checks that run (2026-09-29)
+
+Most of the sections below were first reached by reading the code. Since 2026-09-29 every entry
+of the wiki page "Limitations of Existing Implementations" has a check that can be run again, in
+[`research/upstream/`](../../research/upstream/README.md). The rules: whatever can be shown from
+upstream's own artefacts (the output files they committed, their program, their functions) is
+not shown with demplan; every check runs one control that should agree and one that should not;
+upstream files are pinned by commit and checked by sha256; no upstream code enters this
+repository (a changed rule or term is an edit stated as line number, sha256 of the line before
+the edit, and replacement, applied at run time). The upstream programs are built and run in
+Docker with their own `project.clj`.
+
+| Issue | Evidence | Result |
+|---|---|---|
+| Price-update rule | the step recomputed from the supply and demand recorded in each row of the 40 output CSVs `pequod-cljs` committed (`df6dc57`) | the lagged rule: largest relative error 2.2e-15 over 575,500 cells; the book's p. 181 as printed: 77; the paper's p. 7 as printed: 51 |
+| Price-update rule | `csvgen.clj@71e44d3` (the same blob as at `df6dc57`) run unchanged in Docker on dep1ex61 | the first 12 rounds are byte for byte the committed `dep1ex61.csv`; with only lines 718–719 replaced by the book's or the paper's rule the steps differ from round 1, and the worst imbalance in round 2 is 48.515010% (program), 48.058812% (book), 75.419980% (paper) |
+| Four cells of the book's tables | the output CSVs against the tables | only Table 9.2 experiments 2, 3 and 38 and Table 9.4 experiment 16 differ; Table 9.2 sums to 768 (printed 769), Table 9.4 to 263 (printed 261); GDP truncated to three decimals equal in 40 of 40 |
+| Experiment numbering | 40 × 20 matrix of the renamed inputs' sha256 against the LFS pointers; demplan's per-round trajectories | 1–18 hit exactly 60+N; 19–40 trajectories within 1.9e-12 |
+| Demand not separated by commodity | their per-round entry points called in Docker | on the in-memory and the SQLite path, 100 of 100 private and public goods get the category-wide sum; supply and input demand 100 of 100 per commodity. The same at `44a6d08` and `44d8c15`; at `10da5d2`, where `csvgen` does not load, the in-memory path only |
+| Category multiplier | as above | at ±20% the category multiplier is 0.0 and the step 0.001 (0.0359 from the commodity's own imbalance); both per-round paths use the category value |
+| `solution-5` | 31,409 worker councils of dep1ex01 through their `process-wc`; the optimum solved independently with scipy, and first-order-condition residuals | 3, 4, 6, 7 and 9 inputs agree to 1e-13; all 7,492 five-input councils disagree, x1 off by −33.9% to +39.7%; with only that term changed to `log-p3` all 7,492 agree |
+
+Correction (2026-09-29): entry 5 of the wiki page said that "the step of every commodity in the
+category shrinks". The runs show otherwise: a commodity whose own imbalance is below the
+category value gets a larger step than its own imbalance would give (with +20% and −5% in one
+category, the −5% commodity gets 0.0063 against 0.0042). Source: the category-multiplier section
+of `docker/pequod-plus/run_all.py`.
+
+New finding (2026-09-29): the effort of `solution-8` and `solution-10` is wrong. In
+`pequod-plus@44a6d08`, `csvgen.clj` lines 436 and 592, the terms `b_i·log k` and `b_i·log s` of
+the effort expression have the opposite sign to those of `solution-4` and `solution-6` (lines 179
+and 294). Called in Docker, the effort of councils with 8 inputs is −62% to −98.7% off the
+optimum, with 10 inputs −66.5% to −89.8%; the deviation equals the ratio the sign flip predicts to
+within 6.7e-16; output and inputs are correct. `pequod-cljs@71e44d3` line 622 (`solution-8`) has
+the same expression: in the committed `dep1ex61.csv`, the recorded effort of the 1,857 councils
+with 8 inputs is 92.3% to 98.7% below the optimum, while the controls with 3 to 7 inputs agree to
+1e-13. Effort comes after output and inputs in the `let` of `solution-8`, and supply, input demand
+and GDP do not read it, so the book's tables are not affected; only the `wc_<id>_effort` columns
+of the CSV are. The closed forms of `pequod-cljs` go up to 8 inputs.
+
 ## Correctness
 
 ### The published pseudocode does not reproduce the published results

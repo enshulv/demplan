@@ -21,7 +21,7 @@
 | Item | Status | Notes |
 |---|---|---|
 | Upstream code review | ✅ | See [research/upstream-code-issues.md](research/upstream-code-issues.md) |
-| Measured performance comparison | ✅ | `HahnelBook2021` takes about 0.06 s per round on dep1ex01 (re-measured 2026-09-27); the upstream author's log reads "An iteration with 60,000 councils now takes about two minutes" (`docs/notes.txt`, line 74), and that complete two-year run took 240 min 35 s |
+| Measured performance comparison | ✅ | `HahnelBook2021` takes about 0.06 s per round on dep1ex01 (re-measured 2026-09-27); on the same data `pequod-cljs@71e44d3` in Docker takes 54–97 s per round (2026-09-29); the upstream author's log reads "An iteration with 60,000 councils now takes about two minutes" (`docs/notes.txt`, line 74), and that complete two-year run took 240 min 35 s |
 | Literature archive | ✅ | The 2023 JIE paper and the 2020 conference slides. The repository records only provenance and download URLs; the source texts are not distributed with the repository, see [research/literature/README.md](research/literature/README.md) |
 | Obtaining published data | ✅ | All 40 groups downloaded to `research/data/` (not committed) |
 | Reverse-engineering the endowment parameter | ✅ | It's exactly the 1000 the paper states in its text, and the original program uses 1000 too (`pequod-cljs` `csvgen.clj` at `71e44d3`, lines 212–213). Under the old rule the sensitivity curve bottoms out between 700 and 1000 |
@@ -31,7 +31,8 @@
 | Running the remaining 35 groups | ✅ | On 2026-09-26 the maintainer decided to run all 40 (see the maintainer's rulings of 2026-09-26 below); done |
 | Reconciling the GDP growth figure | ✅ | demplan's mean real GDP growth is 2.477%, against 2.446% in the book's Table 9.4 (whose values are truncated to three decimals) |
 | Contacting the upstream authors | ❌ | See [decisions/research-scope.md](decisions/research-scope.md) |
-| Cross-validating against pequod-cljs | ❌ | Poor cost-to-benefit ratio, see [decisions/rejected/research-methods.md](decisions/rejected/research-methods.md) |
+| Cross-validating against pequod-cljs | ✅ | 2026-09-29, `csvgen.clj@71e44d3` run unchanged in Docker: the first 12 rounds are byte for byte the `dep1ex61.csv` the author committed; with only the price rule replaced, they differ from round 1. Run as an order-of-magnitude probe, not to convergence. See [research/reproduction.md](research/reproduction.md), addendum 2026-09-29, and [decisions/quality-assurance.md](decisions/quality-assurance.md) 2026-09-29 |
+| Checks of upstream issues that run | ✅ | 2026-09-29, `research/upstream/`: every entry of the wiki page on upstream issues can be rerun with a script, with the evidence taken from upstream's own outputs, program and functions. The runs showed one sentence about the effect in entry 5 to be wrong (corrected), and found a sign error in the effort of `solution-8`/`solution-10`. See [research/upstream-code-issues.md](research/upstream-code-issues.md), "Checks that run" |
 
 **This line closed on 2026-08-28.** The scripts and data under `research/` are kept as a ready-made regression target for v1.
 

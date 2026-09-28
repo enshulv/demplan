@@ -1,0 +1,16 @@
+{
+  "description": "Control case for the closed-form check of solution-5. On line 228, the x1 expression of solution-5, the third-input price term (* b3 k log-p2) becomes (* b3 k log-p3), the price of input 3, which the x1 expressions of solution-4 and solution-6 to solution-10 use in this position (as b3-k-log-p3). Nothing else changes.",
+  "repository": "msszczep/pequod-plus",
+  "commit": "44a6d08be631b57e1638d39555d1f6089f0ca68b",
+  "file": "src/clj/pequod_plus/csvgen.clj",
+  "edits": [
+    {
+      "line": 228,
+      "line_sha256": "08f5ead6cdcec7b1a1cc6ab268f218a55c57b49550ef14b2d563d1146af27d03",
+      "replace_once": {
+        "old": "(* b3 k log-p2)",
+        "new": "(* b3 k log-p3)"
+      }
+    }
+  ]
+}

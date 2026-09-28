@@ -1,0 +1,33 @@
+{
+  "description": "Lines of pequod-plus at 10da5d2, the code of the author's timed runs, that run_all.py prints before its probes: the definitions and call sites the probes exercise, and, as column ranges, the third-input term of the x1 expressions and the b1*log(k) term of the effort expressions.",
+  "repository": "msszczep/pequod-plus",
+  "commit": "10da5d2587d515be1f6a547cd83cb6b6a49502b5",
+  "files": {
+    "src/cljc/pequod_plus/util.cljc": [
+      {"line": 101, "line_sha256": "0cc6dc4602f1be44c707e5bf9923ac4f1611630588ebc819e609e70c40e27367"},
+      {"line": 134, "line_sha256": "d003e4f2f028681f70d86fb293473f91b41aad8da942d7cf72c827f0c852779f"},
+      {"line": 163, "line_sha256": "82d6e14a0d3d3100dbea4f610e623ebef465a6594180944bacfe784405ab64f1", "columns": [254, 285]},
+      {"line": 167, "line_sha256": "8d2aeb455ef43e0e43bb917564c0391c04ad666a07d88c04d2cf2f65c60b21df", "columns": [188, 213]},
+      {"line": 182, "line_sha256": "6fa5debd55aacef53953bfc9d2f8d621465e1c79726bd5cc323558a2db7b5dfa"},
+      {"line": 215, "line_sha256": "1e5146a1b805d10dbd11cf7d087b0f58e1ea6ed179e5cbd67dd90035f5755cd3", "columns": [302, 337]},
+      {"line": 235, "line_sha256": "e490dc058e842a31835bf73d3ab72ac33aff40b0fbdb8089ab3b8fb5429535d4"},
+      {"line": 274, "line_sha256": "bf4bef248634f8340817bbf2a46968e941c4d9a72f0900aae01c328e0e515f54", "columns": [350, 381]},
+      {"line": 280, "line_sha256": "71767453a72bf158fb1064834a7f5cd68b75b6b7f3f18998c84a0b9f9c9c9a85", "columns": [249, 274]},
+      {"line": 295, "line_sha256": "fd45c1d5f8b8264c4b2c1a221783d99967d28a68c78d6aa2e56052c4533847bf"},
+      {"line": 338, "line_sha256": "7fbc4319934fdc3d58c114e84fafd4bc09fc4a03536548dc4a39082f0213b805", "columns": [398, 429]},
+      {"line": 360, "line_sha256": "1f9180c90260423d83c94c4b05cdaddd55d3a67a8612c2b77896368299113fa7"},
+      {"line": 407, "line_sha256": "185cff619015cd7b8d0ba2331565a3ba3d680990b187734e89cef4cad9b6221d", "columns": [446, 477]},
+      {"line": 415, "line_sha256": "50e83e38bcee3da85d534a9cd32ea1e9069639c5adfc41377576b23a3cd5973d", "columns": [315, 336]},
+      {"line": 430, "line_sha256": "094905e8b8327809c589558d87a43dfbde509b842c13278821aa17b00b1e301b"},
+      {"line": 435, "line_sha256": "709b57ad9153ca8e286ac359b11eeb0a391b87829ac2cbaba33787f6d8fa5e30"},
+      {"line": 453, "line_sha256": "c4d24556bfaeaeea2ef237f9fd37cbcced38d69d719831d33816ddfe2120d2ff"},
+      {"line": 480, "line_sha256": "538fe519e867d5d38a07c5baaf516b4cdf61b65dc1e4dc3ebd04772b0f2b2f74"},
+      {"line": 503, "line_sha256": "10522793caf84453b55c1b7390a04585ac8d457e6f9f23b2fa1eff70ba57bd9a"},
+      {"line": 516, "line_sha256": "29980b8f3671908d07d90bfbc40fbc94e960fbd25bc9f045e022c99beaa9c191"},
+      {"line": 555, "line_sha256": "19cf53d71bc8afc1ef270eb50fa61e490e70f5f46e93a57ee4d785ed47df426a"},
+      {"line": 691, "line_sha256": "7767cca541fd22f4b1585956a5a376dd1b0ecea26bcf340c37329e3b746d600e"},
+      {"line": 694, "line_sha256": "e46dac9e319bf63621402b84a842b83668f99f533b026419d084be0b4fdb6afc"},
+      {"line": 700, "line_sha256": "fba721a932800a541d2c34e23205b9ba9232ca83ee47011d57e6caca5661743d"}
+    ]
+  }
+}

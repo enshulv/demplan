@@ -6,6 +6,7 @@ Reproduction and review of existing implementations. These results inform this l
 |---|---|
 | [reproduction.md](reproduction.md) | Rerunning upstream's published experiments: cold-start and warm-start iteration counts, performance measurements |
 | [upstream-code-issues.md](upstream-code-issues.md) | Correctness, performance, and engineering-state issues in `pequod-plus` and `pe_ifb_compute` |
+| [`research/upstream/`](../../research/upstream/README.md) | Checks that rerun every entry of the wiki page on upstream issues, on upstream's committed outputs, programs and functions; their programs run in Docker |
 | [literature/](literature/README.md) | Sources and download locations for upstream's original research materials |
 | [wiod-field-mapping.md](wiod-field-mapping.md) | What's missing to load WIOD into `Economy`; input for defining residuals in Stage 2 |
 | [related-implementations.md](related-implementations.md) | Three public economic-planning implementations: formalization, data model, license boundaries, and the first cross-mechanism comparison on dep1ex |

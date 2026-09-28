@@ -1,0 +1,2 @@
+# The Dockerfiles and the probes are read inside a Linux container.
+* text eol=lf

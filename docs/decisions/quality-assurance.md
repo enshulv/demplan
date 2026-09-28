@@ -1,5 +1,45 @@
 # Quality assurance
 
+## 2026-09-29
+
+### A claim about a problem in an existing implementation comes with a check that runs, with the evidence taken first from that implementation's own artefacts
+
+**Decision**: Every entry of the wiki page "Limitations of Existing Implementations" has a check
+script in `research/upstream/`, and the page states for each entry how to rerun it and what it
+prints. The rules:
+
+- Whatever can be shown from upstream's own artefacts (the output files they committed, their program, their functions) is not shown with demplan; demplan appears only in conclusions that are about demplan, such as "demplan agrees with their output"
+- Every check runs one control that should agree and one that should not, and prints the numbers of both sides with their sources, not only a verdict
+- Upstream files are pinned by commit and checked by sha256 after download; Docker base images are pinned by digest; upstream programs are built with their own `project.clj`
+- No upstream code enters this repository: a changed rule or term is an edit stated as line number, sha256 of the line before the edit, and replacement, checked and applied at run time, with the actual diff printed in the output
+- The tests of the check scripts live in `tests/upstream/`, run offline without Docker, and run in CI on all three platforms
+
+**Why**: The maintainer's standard is that the upstream authors themselves, running the scripts,
+would agree that the problem is there. Entries 4 to 6 had been reached by reading code only, and
+the comparison scripts behind entries 1 to 3 were in an untracked directory that no one else could
+run. A conclusion from reading code had already been wrong once: "the paper's pseudocode on p. 10
+does not reach the published results" was a misreading, corrected on 2026-09-27. Redone under
+these rules, entries 1 to 6 all ran on upstream's artefacts; one sentence about the effect in
+entry 5 was corrected as a result, and a new problem turned up (the sign of the effort in
+`solution-8`/`solution-10`, see [research/upstream-code-issues.md](../research/upstream-code-issues.md),
+"Checks that run").
+
+**Alternatives rejected**:
+- Give only line numbers and commits and let readers read the code — the library has itself been wrong from reading code, and line numbers do not show what happens at run time
+- Show upstream's problems by reproducing them in demplan — the authors could fairly answer that demplan differs; demplan serves only as corroboration
+- Commit the rule changes as unified-diff patches — the context and removed lines of a diff are upstream code verbatim, against [license.md](license.md) 2026-09-05 "for reading only, never for copying"; `pequod-cljs` has no licence and `pequod-plus` is GPL-3.0
+- Run `pequod-cljs` to convergence in Docker — about 20 minutes or more per experiment; showing that the program runs this rule needs only the first rounds byte for byte, plus the steps recomputed from the committed output
+
+**How to apply**: To add an entry to that page, write the check first, run it, then write the
+entry, pasting its numbers from the script's output. When upstream gains new commits, rerun
+`docker/pequod-plus/run_all.py` to see whether the problems are still there.
+
+**Human in the loop**:
+- Decided by: enshulv (the standard, and running their programs in Docker as an order-of-magnitude probe)
+- AI assistance: Claude Code wrote the scripts, ran the checks and wrote the documents
+- Verified by me: not checked item by item (the maintainer was away; an independent review without context attacked it instead, see the progress record)
+- Not verified: the per-round time of `pequod-plus` on full-size data; year two of `pequod-cljs`
+
 ## 2026-09-26
 
 ### Publish the quality assurance practices, and commit to formal proof where it is needed

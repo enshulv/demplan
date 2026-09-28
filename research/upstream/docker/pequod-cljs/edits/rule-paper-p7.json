@@ -1,0 +1,18 @@
+{
+  "description": "Replaces the program's price step with the rule printed in Szczepanczyk (2023), p. 7, read literally (\"except when v > 0.25 then v = 0.25\", so the cap applies to both occurrences): w = min(v, 0.25) * (1.05 - 0.5^min(v, 0.25)), with v this round's relative imbalance of the commodity, |2 * surplus| / (supply + demand). No lag and no floor. Line 718 binds price-delta-to-use and line 719 binds delta, the step; the new text computes both from this round's surplus, supply and demand. Every other line runs as committed. The formula is step_paper in research/upstream/_price_rules.py.",
+  "repository": "msszczep/pequod-cljs",
+  "commit": "71e44d39a36a22b1acf9355baa7e96c20ad18273",
+  "file": "src/clj/pequod_cljs/csvgen.clj",
+  "edits": [
+    {
+      "line": 718,
+      "line_sha256": "6253d4e4440fb08f19f250d970d9703968dc9b557fe5836f4c05e69abeed113d",
+      "replace_line": "price-delta-to-use (- 1.05 (Math/pow 0.5 (min (/ (Math/abs (* 2 surplus)) (+ supply demand)) 0.25)))"
+    },
+    {
+      "line": 719,
+      "line_sha256": "fa888fef72fba9eef8ce382b68cd858e09cd469a7056869c7ff1946567873e7b",
+      "replace_line": "delta (* (min (/ (Math/abs (* 2 surplus)) (+ supply demand)) 0.25) price-delta-to-use)"
+    }
+  ]
+}

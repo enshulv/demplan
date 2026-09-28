@@ -9,7 +9,7 @@ research/bench/rows.txt
 research/data/
 
 # Upstream repositories carry their own .git and are not tracked here
-upstream/
+/upstream/
 
 # Build output of maturin develop
 python/demplan/*.pyd

@@ -1,0 +1,13 @@
+{
+  "description": "Replaces the program's price step with the rule printed in Hahnel (2021), p. 181: w = min(v, 0.25) * (1.05 - 0.5^v), with v this round's relative imbalance of the commodity, |2 * surplus| / (supply + demand). No lag and no floor. Line 719 binds delta, the step; the new text computes it from this round's surplus, supply and demand and from price-delta-to-use, which line 718 computes as 1.05 - 0.5^v. Every other line runs as committed. The formula is step_book in research/upstream/_price_rules.py.",
+  "repository": "msszczep/pequod-cljs",
+  "commit": "71e44d39a36a22b1acf9355baa7e96c20ad18273",
+  "file": "src/clj/pequod_cljs/csvgen.clj",
+  "edits": [
+    {
+      "line": 719,
+      "line_sha256": "fa888fef72fba9eef8ce382b68cd858e09cd469a7056869c7ff1946567873e7b",
+      "replace_line": "delta (* (min (/ (Math/abs (* 2 surplus)) (+ supply demand)) 0.25) price-delta-to-use)"
+    }
+  ]
+}

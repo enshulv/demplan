@@ -2,7 +2,7 @@
 
 ## 2026-08-28
 
-### Install the JVM and Leiningen to run upstream's original code for cross-validation (⚠️ Partially revived, see research-scope.md 2026-09-26)
+### Install the JVM and Leiningen to run upstream's original code for cross-validation (⚠️ Partially revived, see research-scope.md 2026-09-26; run in Docker, see quality-assurance.md 2026-09-29)
 
 **Rejected.**
 

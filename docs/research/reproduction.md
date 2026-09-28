@@ -488,3 +488,41 @@ output experiment by experiment, with no difference in the first rounds below 10
 demplan's 3% mean of 19.200 in the third addendum is the book's text's 19.2; the book's 19.225 and
 6.525 are means of the misprinted tables, and its text's 19.2 and 6.575 agree with the original's
 output.
+
+## Addendum, 2026-09-29: `pequod-cljs` run in Docker, and checks that run
+
+`research/upstream/docker/pequod-cljs/run.py` builds `pequod-cljs@71e44d3` in Docker (OpenJDK
+11.0.16, Leiningen 2.9.8, base image pinned by digest), puts in szcz `dep1ex01` renamed to
+`dep1ex61` (after renaming it has the sha256 of the repository's LFS pointer), and runs
+`lein run -m pequod-cljs.csvgen ex61` as committed. `csvgen.clj` is not changed by a single byte:
+the other 100 data namespaces it requires are not in the tree at `71e44d3`, and are filled with
+stub files that define `ccs` and `wcs` as nil.
+
+- **Fidelity**: the first 12 rounds of output are byte for byte the `dep1ex61.csv` the author
+  committed (`df6dc57`), including the output and effort of every worker council. Round 12 is the
+  first `:green` row, the 12 of Table 9.1, experiment 1.
+- **Other rules**: with only the one or two lines of the price step replaced by the rule as
+  printed on p. 181 of the book or p. 7 of the paper, the steps differ from round 1, and the worst
+  imbalance in round 2 is 48.515010% (program), 48.058812% (book), 75.419980% (paper); demplan
+  with the same rules gives 48.5150104126645, 48.0588119919955 and 75.4199795205281.
+- **Timing** (a Docker VM with 12 CPUs and 8 GB on a Windows laptop, Leiningen's default JVM
+  options, three runs of `run.py` under different background load): loading the 160 MB input and
+  round 1 take 81–119 s, each later round 54–97 s, with a peak container memory of 2.0–4.5 GiB.
+  Year one, 19 rounds, extrapolates to about 18–23 minutes.
+  demplan's `HahnelBook2021` takes about 0.06 s per round on the same dep1ex01.
+- Year two was not run: `augment-exponents` (lines 174–183) uses an unseeded `rand-nth`, so it
+  cannot be matched value for value.
+- The program as committed at `71e44d3` does not load (the required `dep1ex51` to `100` and
+  `ex081` are not in the tree), and the input's LFS pointer (`ab9a608`, 06-24) is later than the
+  output (06-23): the author's working directory held uncommitted files when it ran.
+
+The results of the other checks (`check_outputs.py`, `check_inputs.py`, `check_rules.py`,
+`check_effort.py`, `check_history.py`, `docker/pequod-plus/run_all.py`) are summarised in
+[upstream-code-issues.md](upstream-code-issues.md), "Checks that run". Where they meet the earlier
+addenda they agree: the program's rule against its own output, largest difference 1.902e-12 over
+40 experiments; the book as printed 11, 11, 10, 11, 11, the paper as printed 14, 13, 13, 14, 13
+(experiments 1–5); adding the 0.001 floor to either printed rule changes the round count of none of
+the 40 experiments, so the lag is what decides the count.
+
+The 300 to 3000 councils of the Caveats mean 300 to 3000 worker councils and as many consumer
+councils (the `#WCs` and `#CCs` columns of the log's tables), 600 to 6000 in all.

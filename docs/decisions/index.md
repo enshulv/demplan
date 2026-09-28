@@ -174,3 +174,4 @@
 | 2026-09-28 | Publication | `release.yml` can also publish when run by hand, only on a `v*` tag and only when ticked (partially supersedes the 2026-09-26 publishing entry) | [publication.md](publication.md) |
 | 2026-09-28 | Publication | The wiki gains a Mechanisms section: one rigorous statement per mechanism, stating and not discussing | [publication.md](publication.md) |
 | 2026-09-28 | Publication | The README opens with entry points: a table by kind of reader and the wiki's contents (partially supersedes 2026-09-26 "The README opens with the purpose") | [publication.md](publication.md) |
+| 2026-09-29 | Quality assurance | A claim about a problem in an existing implementation comes with a check that runs, with the evidence taken first from that implementation's own artefacts | [quality-assurance.md](quality-assurance.md) |

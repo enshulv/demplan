@@ -181,7 +181,11 @@ uncapped. The published texts state this rule only in part:
 | The program [14] | the rule above | **12, 12, 12, 12, 12** (Table 9.1: 12, 12, 12, 12, 12) |
 
 With the program's rule, demplan's worst imbalance in every round of all 40 experiments matches
-the program's output files to within 1.9e-12 percentage points.
+the program's output files to within 1.9e-12 percentage points. The output files record the rule
+themselves: recomputed from the supply and demand in each of their rows, the recorded steps follow
+it to within 2.2e-15 relative error, against relative errors of up to 77 and 51 under the book's
+and the paper's printed rules. `csvgen.clj` at `71e44d3`, run unchanged in Docker, prints the first 12 rounds of
+`dep1ex61.csv` byte for byte.
 
 Two findings about the published model itself:
 
@@ -192,8 +196,8 @@ Two findings about the published model itself:
   stays within 6e-14 relative of the run that applies it. The round counts above therefore do
   not test that rule.
 - None of the runs in the run log of the upstream `pequod-plus` [6] uses the published `dep1ex`
-  data: the round counts come from `ppex` experiments with 300 to 3000 councils, and the timed
-  runs are `ppex` experiments.
+  data: the round counts come from `ppex` experiments with 300 to 3000 worker councils and as
+  many consumer councils, and the timed runs are `ppex` experiments.
 
 What is not reproduced: the book's year-two round counts experiment by experiment, because its
 random draws are not recoverable, and Table 9.6 experiment by experiment, because its output
@@ -202,15 +206,19 @@ files are not in the program's repository. Details, scripts and every intermedia
 [docs/research/upstream-code-issues.md](docs/research/upstream-code-issues.md). Where the
 published texts, tables and implementations disagree is listed with sources on the wiki page
 [Limitations of Existing Implementations](https://github.com/enshulv/demplan/wiki/Limitations-of-Existing-Implementations).
+Every statement in this section about the book, the program's output and the upstream programs
+can be rerun with the scripts in [research/upstream/](research/upstream/README.md), which work on
+the upstream files and programs themselves.
 
-**Speed.** The upstream author's log for `pequod-plus` [6], on the code before its SQLite-based
-version, reads: "An iteration with 60,000 councils now takes about two minutes, which would mean
-a completion time from start to finish of around two hours, as opposed to something like 12
-hours" (`docs/notes.txt`, line 74, 2026-01-21). demplan's `HahnelBook2021` on dep1ex01 (30,000
-worker councils, 30,000 consumer councils, 500 commodities) takes about 0.06 s per round: 12
-rounds to the 5% threshold in 0.76 s, the median of three runs on one machine that was running
-other work at the time. The data and the machines differ, so the comparison shows an order of
-magnitude, not a ratio.
+**Speed.** On dep1ex01 (30,000 worker councils, 30,000 consumer councils, 500 commodities),
+`pequod-cljs` at `71e44d3`, the program behind the book's tables, takes 81 to 119 s to load the
+input and compute round 1 and then 54 to 97 s per round, with a peak memory of 2.0 to 4.5 GiB
+(OpenJDK 11.0.16 and Leiningen 2.9.8 in a Docker VM with 12 CPUs and 8 GB, on a Windows laptop).
+demplan's `HahnelBook2021` on the same data takes about 0.06 s per round: 12 rounds to the 5%
+threshold in 0.76 s, the median of three runs on the same laptop, natively, while it was running
+other work. The two ran in different environments, so the figures give an order of magnitude,
+not a ratio. The upstream author's log for `pequod-plus` [6] reads: "An iteration with 60,000
+councils now takes about two minutes" (`docs/notes.txt`, line 74, 2026-01-21).
 
 ## A first comparison between two mechanisms, and why it is not citable yet
 

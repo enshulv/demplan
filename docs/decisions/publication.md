@@ -31,6 +31,33 @@ This entry supersedes 2026-09-26 "The README opens with the purpose, and shows t
 - Verified by me: the maintainer looked at the rendered README and limitations page in a browser
 - Not verified: the other wiki pages are spot-checked by the maintainer, not reviewed page by page
 
+### Wiki tutorials are written as a textbook: a reader who starts from nothing, line-by-line explanation, and goals, key points and exercises on every page
+
+**Decision**:
+
+- A tutorial assumes the reader knows nothing. Before each script it says what the script is for; after it, it reads the output line by line and explains the code line by line, with a table of "the line / its value / what happened". Every value in those tables comes from a run
+- Working memory: whatever a page uses from earlier is restated on the spot and linked; each section introduces one new idea; a small example (two or three units, small enough to work by hand) comes before dep1ex or WIOD; arrays and the state of a loop are drawn
+- Each topic is explained in full once, where it first appears, and later pages link back; explanations get shorter as the tutorial goes on
+- Every page opens with what the reader will learn and ends with key points and exercises; the answers are collapsed and were run
+- One page, one topic; a page over about 600 lines is split. The 11 tutorial pages became 31, and the sidebar lists 12 chapters with their parts; the flat arrays and their offsets have a chapter of their own, "How an economy is stored"
+- Published scripts and outputs are unchanged; after the split, the pages were merged and compared with the previous version, with no number, hash, heading or code block missing
+
+**Why**: Reading "Building your own economy", the maintainer took a long time to understand the flat arrays behind `input_offsets`, and `check_economy.py` appeared without any explanation. The tutorials are read by social scientists who have not written Python and follow them line by line; a missing step of explanation is where they stop. The textbook form (purpose, code, output, line-by-line explanation, summary, exercises) is the form of reading they know.
+
+**Alternatives rejected**:
+- Keeping the previous, shorter layered style — the maintainer still got stuck following it; putting the conclusion first suits a reference page, not a page that teaches a task
+- Letting every page stand on its own without removing repetition — the same `for` loop explained five times, and a thousand lines per page
+- Moving the line-by-line explanation into separate explanation pages — the reader would jump between two pages, the load on working memory this is meant to avoid
+- Not splitting pages — 1,000 to 2,000 lines on one page, more than a reader gets through at once
+
+**How to apply**: Write new or changed tutorial pages this way; run a new script first, then take the values for its tables from a script that prints them. When splitting a page or renaming a heading, update the contents in the sidebar, the home page and For Researchers, and every link to it.
+
+**Human in the loop**:
+- Decided by: enshulv (a reader who starts from nothing, line-by-line explanation, the textbook form, and the four rules on repetition, tapering, goals and exercises, and page length)
+- AI assistance: Claude Code rewrote the sample page and wrote the specification; subagents rewrote one page each, and two further agents removed repetition, split pages and added exercises
+- Verified by me: the maintainer looked at the sample page and three rendered pages in a browser
+- Not verified: the 31 pages were not read one by one; the exercise answers were run by the agents and not checked question by question
+
 ## 2026-09-28
 
 ### The README opens with entry points: a table by kind of reader and the wiki's contents

@@ -97,7 +97,7 @@ pip install demplan
 ```
 
 Python 3.10 or newer. Prebuilt packages cover Windows, macOS and Linux; the wiki's
-[Installing](https://github.com/enshulv/demplan/wiki/Tutorial-Installing) page covers other
+[Updating and troubleshooting](https://github.com/enshulv/demplan/wiki/Tutorial-Updating-And-Troubleshooting) page covers other
 systems and building from source.
 
 The example below reads one of the published economies (56 MB):

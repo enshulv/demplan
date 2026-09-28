@@ -177,3 +177,4 @@
 | 2026-09-29 | Quality assurance | A claim about a problem in an existing implementation comes with a check that runs, with the evidence taken first from that implementation's own artefacts | [quality-assurance.md](quality-assurance.md) |
 | 2026-09-29 | Quality assurance | Every upstream check has a step-by-step wiki guide, indexed at the top of the limitations page | [quality-assurance.md](quality-assurance.md) |
 | 2026-09-29 | Publication | The README keeps what the library is, its findings and the entry points; details move to the wiki, and wiki pages put conclusions before evidence (supersedes 2026-09-26 "The README opens with the purpose") | [publication.md](publication.md) |
+| 2026-09-29 | Publication | Wiki tutorials are written as a textbook: a reader who starts from nothing, line-by-line explanation, and goals, key points and exercises on every page; 11 pages became 31 | [publication.md](publication.md) |

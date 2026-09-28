@@ -2,6 +2,32 @@
 
 ## 2026-09-28
 
+### `release.yml` can also publish when run by hand, only on a `v*` tag and only when ticked
+
+**Decision**: The `workflow_dispatch` trigger of `release.yml` gains a boolean input `publish`
+(off by default). The upload step runs in two cases: a GitHub release is published; or the
+workflow is run by hand with `publish` ticked on a `v*` tag. Any other run, including a manual
+run with `publish` ticked on a branch, builds without uploading.
+
+**Why**: Since September 2026, pushes to this repository have not started CI runs (GitHub receives
+the event and the workflow is active, but no run is created; the cause is not known), and the two
+pushes after the repository became public on 2026-09-28 behaved the same. If a published release
+also failed to start the workflow, the release would be up and PyPI would stay empty. The trusted
+publisher is bound to the workflow file and the environment, not to the event, so a manual run can
+upload as well. Limiting it to tags means every uploaded package corresponds to a fixed, versioned
+commit.
+
+**Alternatives rejected**:
+- Find out why events do not start runs before releasing — the investigation so far found
+  nothing, and the release does not need to wait for it
+- Let every manual run upload — one mistaken run on a branch would use up a version number, and
+  PyPI never lets a version number be reused, even after deletion
+
+**How to apply**: To release, publish a GitHub release first; if no run triggered by the `release`
+event appears under Actions within a minute, run the workflow by hand on that tag with `publish`
+ticked. Partially supersedes the sentence "`workflow_dispatch` does not upload" in the 2026-09-26
+entry on publishing through GitHub Actions.
+
 ### Go public after opening the kinds, Stage 2 and the WIOD loader
 
 **Decision**: The repository becomes public once three pieces of work are merged and the full test suite and CI pass: opening up the commodity and technology kinds, Stage 2 (residual and indicator tools), and the WIOD loader.
@@ -166,4 +192,5 @@ to find libpython's symbols when linking on Linux and macOS.
 
 **How to apply**: Neither workflow has run yet, because the repository did not exist when they
 were written; check the logs of the first runs. Before releasing `v0.1.0`, trigger `release.yml`
-by hand once (`workflow_dispatch` does not upload) and confirm that all five wheels build.
+by hand once (`workflow_dispatch` does not upload) and confirm that all five wheels build. (Since 2026-09-28 a manual run uploads when `publish` is ticked and it runs on a
+`v*` tag; see 2026-09-28.)

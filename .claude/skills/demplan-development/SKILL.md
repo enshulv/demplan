@@ -237,7 +237,7 @@ step before the upload is there to catch a problem while it is still free to fix
    that release and cannot be changed afterwards.
 2. **Bump the version** in `pyproject.toml`, `Cargo.toml` (then `cargo metadata` to update
    `Cargo.lock`) and `CITATION.cff` (`version`, `date-released`).
-3. **Dry run.** Run `release.yml` by hand on the branch (`gh workflow run release.yml --ref v1`). It
+3. **Dry run.** Run `release.yml` by hand on the branch (`gh workflow run release.yml --ref master`). It
    builds the five wheels and the sdist, checks that the sdist contains every licence file it
    declares (`tools/check_sdist.py`) and builds and imports the library from the sdist, without
    uploading. All jobs must pass.

@@ -22,8 +22,7 @@ README explains why the library exists and what reproducing the published experi
 | Asking how far to trust the results | [Quality Assurance](https://github.com/enshulv/demplan/wiki/Quality-Assurance) |
 | A developer who wants to contribute code, data loaders or documentation | [For Contributors](https://github.com/enshulv/demplan/wiki/For-Contributors) and [CONTRIBUTING.md](CONTRIBUTING.md) |
 
-<details>
-<summary><b>Wiki contents</b></summary>
+**Wiki contents**
 
 - **Tutorial:**
   1 [Before you start](https://github.com/enshulv/demplan/wiki/Tutorial-Before-You-Start) ·
@@ -58,8 +57,6 @@ README explains why the library exists and what reproducing the published experi
   [Limitations of Existing Implementations](https://github.com/enshulv/demplan/wiki/Limitations-of-Existing-Implementations) ·
   [AI Development Guide](https://github.com/enshulv/demplan/wiki/AI-Development-Guide) ·
   [Glossary](https://github.com/enshulv/demplan/wiki/Glossary)
-
-</details>
 
 ## Purpose
 

@@ -32,7 +32,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 
-from _source_edits import line_sha256
+from _source_edits import line_sha256, require_keys, require_text
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _COMMIT = re.compile(r"[0-9a-f]{40}")
@@ -86,10 +86,10 @@ def load(path: Path) -> Listing:
 
 def parse(document: Any) -> Listing:
     """Validate a decoded listing and return it; raise :class:`SourceLineError` naming the first fault."""
-    _require_keys(document, _TOP_KEYS, _TOP_KEYS, "listing")
+    require_keys(document, _TOP_KEYS, _TOP_KEYS, "listing", SourceLineError)
     for key in ("description", "repository"):
-        _require_text(document[key], key)
-    if not _COMMIT.fullmatch(_require_text(document["commit"], "commit")):
+        require_text(document[key], key, SourceLineError)
+    if not _COMMIT.fullmatch(require_text(document["commit"], "commit", SourceLineError)):
         raise SourceLineError(f"commit must be 40 lower-case hex digits, got {document['commit']!r}")
     files = document["files"]
     if not isinstance(files, dict) or not files:
@@ -111,7 +111,7 @@ def _parse_file(path: str, entries: Any) -> ListedFile:
 
 def _parse_line(entry: Any, where: str) -> ListedLine:
     """One entry of a file's list: a line number, the line's hash and optionally a column range."""
-    _require_keys(entry, {"line", "line_sha256"}, _LINE_KEYS, where)
+    require_keys(entry, {"line", "line_sha256"}, _LINE_KEYS, where, SourceLineError)
     line = entry["line"]
     if not _is_count(line):
         raise SourceLineError(f"{where}.line must be an integer of at least 1, got {line!r}")
@@ -131,23 +131,6 @@ def _is_count(value: Any) -> bool:
     """Whether ``value`` is an integer of at least 1; ``True`` and ``False`` are not."""
     # bool is a subclass of int; true would otherwise read as 1
     return type(value) is int and value >= 1
-
-
-def _require_keys(value: Any, required: set[str], allowed: set[str], where: str) -> None:
-    """Raise unless ``value`` is an object holding every key of ``required`` and no key outside ``allowed``."""
-    if not isinstance(value, dict):
-        raise SourceLineError(f"{where} must be a JSON object")
-    missing = required - value.keys()
-    unknown = value.keys() - allowed
-    if missing or unknown:
-        raise SourceLineError(f"{where}: missing keys {sorted(missing)}, unknown keys {sorted(unknown)}")
-
-
-def _require_text(value: Any, where: str) -> str:
-    """``value`` when it is a non-empty string; raise otherwise."""
-    if not isinstance(value, str) or not value:
-        raise SourceLineError(f"{where} must be a non-empty string")
-    return value
 
 
 def render(listing: Listing, committed: Mapping[str, bytes], shown: Mapping[str, bytes] | None = None,

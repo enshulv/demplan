@@ -56,6 +56,9 @@ from demplan.prefabs.hahnel import (
 )
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "upstream"))
+from _book import load_tables  # noqa: E402  (needs the sys.path entry above)
+
 DATA = Path(os.environ.get("DEMPLAN_DATA_DIR", HERE.parent / "data"))
 
 ENDOWMENT = 1000.0
@@ -72,40 +75,30 @@ never hands out, and split_seed is a prefix chain, so the unit choice draws from
 own.
 """
 
-# Hahnel (2021), Democratic Economic Planning, Routledge, Tables 9.1, 9.2, 9.4, 9.5, 9.6,
-# pp. 178-185; one entry per experiment, experiment 1 first.
-TABLE_9_1_5PCT = [12, 12, 12, 12, 12, 12, 12, 11, 11, 13, 12, 11, 12, 12, 12, 12, 12, 12, 12, 12,
-                  12, 12, 12, 12, 12, 12, 12, 12, 11, 11, 11, 11, 12, 12, 12, 11, 13, 12, 12, 12]
-TABLE_9_2_3PCT = [19, 19, 20, 19, 19, 19, 20, 19, 19, 20, 20, 19, 19, 18, 19, 19, 19, 19, 19, 22,
-                  19, 20, 19, 20, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 20, 19, 19, 19]
-TABLE_9_4_ROUNDS = [6, 7, 7, 7, 7, 6, 7, 7, 7, 7, 7, 5, 7, 7, 5, 5, 7, 7, 7, 7,
-                    5, 5, 6, 8, 7, 5, 7, 7, 7, 7, 7, 7, 7, 6, 8, 7, 5, 6, 5, 7]
-TABLE_9_4_GDP = [2.6, 2.549, 2.528, 2.271, 2.32, 2.534, 2.628, 2.571, 2.282, 2.603,
-                 2.577, 2.554, 2.609, 2.609, 2.218, 2.567, 2.551, 2.227, 2.282, 2.649,
-                 2.326, 2.263, 2.275, 2.6, 2.236, 2.62, 2.201, 2.597, 2.58, 2.178,
-                 2.211, 2.534, 2.373, 2.21, 2.264, 2.558, 2.659, 2.239, 2.603, 2.587]
-TABLE_9_5_ROUNDS = [4, 4, 4, 4, 4, 4, 3, 3, 3, 5, 4, 3, 4, 4, 4, 3, 4, 4, 4, 4,
-                    4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 4, 4, 4, 3, 5, 3, 4, 4]
-TABLE_9_6_ROUNDS = [6, 7, 7, 5, 7, 7, 7, 7, 5, 7, 5, 7, 8, 7, 5, 6, 7, 7, 5, 7,
-                    5, 5, 7, 7, 7, 5, 7, 7, 7, 5, 7, 7, 5, 5, 5, 7, 7, 7, 5, 5]
-TABLE_9_6_GDP = [1.712, 1.825, 1.819, 1.805, 1.833, 1.804, 1.973, 2.082, 1.966, 2.016,
-                 1.905, 1.739, 1.882, 1.749, 1.866, 2.101, 1.771, 1.905, 1.835, 1.971,
-                 1.818, 1.916, 1.882, 1.883, 1.715, 1.98, 1.898, 1.803, 2.02, 1.724,
-                 1.779, 1.659, 1.901, 1.801, 1.83, 1.761, 2.062, 1.819, 1.834, 1.747]
+BOOK_TABLES = load_tables()
+"""Hahnel (2021), Democratic Economic Planning, Routledge, Tables 9.1, 9.2, 9.4, 9.5, 9.6,
+pp. 178-185, as printed, from research/upstream/book_tables.csv."""
+
+BOOK_COLUMNS = {
+    "table_9_1_first_below_5": ("9.1", "#I"),
+    "table_9_2_first_below_3": ("9.2", "#I"),
+    "table_9_4_rounds": ("9.4", "#I"),
+    "table_9_4_gdp": ("9.4", "GDP"),
+    "table_9_5_rounds": ("9.5", "#I"),
+    "table_9_6_rounds": ("9.6", "#I"),
+    "table_9_6_gdp": ("9.6", "GDP"),
+}
+"""book_row key: (table, column) of book_tables.csv. Round counts are ints, GDP growth in %
+is a float."""
 
 
 def book_row(n: int) -> dict:
     """The book's numbers for experiment ``n``."""
-    at = n - 1
-    return {
-        "table_9_1_first_below_5": TABLE_9_1_5PCT[at],
-        "table_9_2_first_below_3": TABLE_9_2_3PCT[at],
-        "table_9_4_rounds": TABLE_9_4_ROUNDS[at],
-        "table_9_4_gdp": TABLE_9_4_GDP[at],
-        "table_9_5_rounds": TABLE_9_5_ROUNDS[at],
-        "table_9_6_rounds": TABLE_9_6_ROUNDS[at],
-        "table_9_6_gdp": TABLE_9_6_GDP[at],
-    }
+    row = {}
+    for key, (table, column) in BOOK_COLUMNS.items():
+        value = BOOK_TABLES[table, column][n].value
+        row[key] = float(value) if column == "GDP" else int(value)
+    return row
 
 
 def worst_imbalance_pct(economy, trajectory) -> list[float]:
@@ -364,9 +357,10 @@ def experiment_range(text: str) -> list[int]:
             numbers.update(range(int(low), int(high) + 1))
         else:
             numbers.add(int(part))
-    wrong = [n for n in numbers if not 1 <= n <= len(TABLE_9_1_5PCT)]
+    last = len(BOOK_TABLES["9.1", "#I"])
+    wrong = [n for n in numbers if not 1 <= n <= last]
     if wrong:
-        raise SystemExit(f"experiments must be between 1 and {len(TABLE_9_1_5PCT)}, got {wrong}")
+        raise SystemExit(f"experiments must be between 1 and {last}, got {wrong}")
     return sorted(numbers)
 
 

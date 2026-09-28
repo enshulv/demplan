@@ -93,10 +93,10 @@ def load(path: Path) -> EditSet:
 
 def parse(document: Any) -> EditSet:
     """Validate a decoded edit set and return it; raise `SourceEditError` naming the first fault."""
-    _require_keys(document, _TOP_KEYS, _TOP_KEYS, "edit set")
+    require_keys(document, _TOP_KEYS, _TOP_KEYS, "edit set")
     for key in ("description", "repository", "file"):
-        _require_text(document[key], key)
-    if not _COMMIT.fullmatch(_require_text(document["commit"], "commit")):
+        require_text(document[key], key)
+    if not _COMMIT.fullmatch(require_text(document["commit"], "commit")):
         raise SourceEditError(f"commit must be 40 lower-case hex digits, got {document['commit']!r}")
     raw_edits = document["edits"]
     if not isinstance(raw_edits, list) or not raw_edits:
@@ -111,7 +111,7 @@ def parse(document: Any) -> EditSet:
 def _parse_edit(raw: Any, index: int) -> LineEdit:
     """One entry of ``edits``: a line number, the line's hash and exactly one kind of edit."""
     where = f"edits[{index}]"
-    _require_keys(raw, {"line", "line_sha256"}, {"line", "line_sha256", *_EDIT_KINDS}, where)
+    require_keys(raw, {"line", "line_sha256"}, {"line", "line_sha256", *_EDIT_KINDS}, where)
     line = raw["line"]
     # bool is a subclass of int; true would otherwise read as line 1
     if type(line) is not int or line < 1:
@@ -128,7 +128,7 @@ def _parse_edit(raw: Any, index: int) -> LineEdit:
             raise SourceEditError(f"{where}.replace_line starts with indentation; the original line's is kept")
         return ReplaceLine(line, line_sha256, text)
     pair = raw["replace_once"]
-    _require_keys(pair, {"old", "new"}, {"old", "new"}, f"{where}.replace_once")
+    require_keys(pair, {"old", "new"}, {"old", "new"}, f"{where}.replace_once")
     old = _require_single_line(pair["old"], f"{where}.replace_once.old")
     new = _require_single_line(pair["new"], f"{where}.replace_once.new", allow_empty=True)
     if old == new:
@@ -136,20 +136,22 @@ def _parse_edit(raw: Any, index: int) -> LineEdit:
     return ReplaceOnce(line, line_sha256, old, new)
 
 
-def _require_keys(value: Any, required: set[str], allowed: set[str], where: str) -> None:
-    """Raise unless ``value`` is an object holding every key of ``required`` and no key outside ``allowed``."""
+def require_keys(value: Any, required: set[str], allowed: set[str], where: str,
+                 error: type[Exception] = SourceEditError) -> None:
+    """Raise ``error`` unless ``value`` is an object holding every key of ``required`` and no key
+    outside ``allowed``."""
     if not isinstance(value, dict):
-        raise SourceEditError(f"{where} must be a JSON object")
+        raise error(f"{where} must be a JSON object")
     missing = required - value.keys()
     unknown = value.keys() - allowed
     if missing or unknown:
-        raise SourceEditError(f"{where}: missing keys {sorted(missing)}, unknown keys {sorted(unknown)}")
+        raise error(f"{where}: missing keys {sorted(missing)}, unknown keys {sorted(unknown)}")
 
 
-def _require_text(value: Any, where: str) -> str:
-    """``value`` when it is a non-empty string; raise otherwise."""
+def require_text(value: Any, where: str, error: type[Exception] = SourceEditError) -> str:
+    """``value`` when it is a non-empty string; raise ``error`` otherwise."""
     if not isinstance(value, str) or not value:
-        raise SourceEditError(f"{where} must be a non-empty string")
+        raise error(f"{where} must be a non-empty string")
     return value
 
 

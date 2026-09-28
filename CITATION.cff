@@ -11,6 +11,14 @@ repository-code: "https://github.com/enshulv/demplan"
 license: MIT
 version: 0.1.1
 date-released: 2026-09-28
+doi: 10.5281/zenodo.23010110
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23010110
+    description: All versions (Zenodo concept DOI); resolves to the latest version
+  - type: doi
+    value: 10.5281/zenodo.23010111
+    description: Version 0.1.1
 keywords:
   - democratic economic planning
   - participatory planning

@@ -1,5 +1,8 @@
 # demplan
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23010110.svg)](https://doi.org/10.5281/zenodo.23010110)
+[![PyPI](https://img.shields.io/pypi/v/demplan)](https://pypi.org/project/demplan/)
+
 Shared research infrastructure for democratic economic planning.
 
 ## Purpose
@@ -723,9 +726,14 @@ setup.
 
 ## How to cite
 
-Releases are being archived on Zenodo, which will give the project a DOI; until one is listed
-here, cite the repository with the version you used. Metadata is in [CITATION.cff](CITATION.cff);
-GitHub shows a "Cite this repository" button for it.
+Every release is archived on Zenodo. Cite the version you used:
+
+> Mark, E. (2026). *demplan: shared research infrastructure for democratic economic planning*
+> (Version 0.1.1) [Computer software]. Zenodo. <https://doi.org/10.5281/zenodo.23010111>
+
+The DOI [10.5281/zenodo.23010110](https://doi.org/10.5281/zenodo.23010110) stands for all versions and always resolves to
+the latest; the Zenodo page lists the DOI of each version. Metadata is in
+[CITATION.cff](CITATION.cff); GitHub shows a "Cite this repository" button for it.
 Citations and mentions help other researchers in the field find the library.
 
 If your work depends on the reproduction results above, please also cite the original

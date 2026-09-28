@@ -16,13 +16,16 @@ pp. 178-185. Per experiment:
   increasing returns  (Table 9.6) the same two-year run on an economy where a fifth of the
                       producing units get 0.1 added to every input exponent.
 
-Experiment n is taken to be dep1ex{n:02d}. That is verified byte for byte for n = 1..5
-against the program's repository, where the same economies are dep1ex61..65 under another
-namespace line; for the other 35 it is assumed. The program behind the book's tables
-(msszczep/pequod-cljs, csvgen.clj at 71e44d3) reached 3% on experiments 1-5 after 19, 20,
-19, 19 and 19 rounds; Table 9.2 prints 19, 19, 20, 19, 19, experiments 2 and 3 transposed in
-print. The random draws behind the book's warm-start and Table 9.6 runs are not recoverable,
-so those two are compared as distributions over seeds, not experiment by experiment.
+Experiment n is taken to be dep1ex{n:02d}, the economy the program's repository calls
+dep1ex(60+n). For n = 1..18 that is verified byte for byte against the repository's LFS
+pointers (research/upstream/check_inputs.py); for n = 19..40, which have no pointers, demplan's
+worst imbalance matches every round of dep1ex(60+n).csv to within 1.9e-12 percentage points
+(research/upstream/check_rules.py), which is read as the same economy. The program behind
+the book's tables (msszczep/pequod-cljs, csvgen.clj at 71e44d3) reached 3% on experiments 1-5
+after 19, 20, 19, 19 and 19 rounds; Table 9.2 prints 19, 19, 20, 19, 19, experiments 2 and 3
+transposed in print. The random draws behind the book's warm-start and Table 9.6 runs are not
+recoverable, so those two are compared as distributions over seeds, not experiment by
+experiment.
 
 Usage:
   python research/bench/hahnel_book.py [--experiments 1-40] [--seeds 10] [--jobs 1]
